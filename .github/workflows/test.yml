@@ -40,3 +40,6 @@ jobs:
 
       - name: Test Python wrapper
         run: PYTHONPATH=interfaces/python pytest interfaces/python/tests -q
+
+      - name: Parity smoke (Rust ↔ Python; non-failing)
+        run: PYTHONPATH=interfaces/python python scripts/parity.py --no-fail
