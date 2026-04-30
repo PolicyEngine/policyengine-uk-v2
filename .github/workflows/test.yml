@@ -36,7 +36,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install Python wrapper test dependencies
-        run: pip install pandas pydantic pytest
+        run: pip install pandas pydantic pytest pyyaml
 
       - name: Test Python wrapper
         run: PYTHONPATH=interfaces/python pytest interfaces/python/tests -q
