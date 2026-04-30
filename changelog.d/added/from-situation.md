@@ -1,0 +1,1 @@
+Add `Simulation.from_situation(situation, year)` to the Python wrapper, accepting the PolicyEngine web-app situation-JSON format (people / benunits / households with `members` lists and period-keyed values) and converting it into the input DataFrames the Rust engine expects.
