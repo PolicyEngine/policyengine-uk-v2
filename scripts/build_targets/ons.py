@@ -1,11 +1,13 @@
 """ONS demographic calibration targets.
 
-Population by age group, total households, and regional distribution.
-These are from ONS mid-year population estimates and household projections.
+Population by age group, total households, tenure distribution, and regional
+population. From ONS mid-year population estimates, household projections,
+and English Housing Survey / census tenure breakdowns.
 
 Sources:
 - ONS mid-year population estimates 2023
 - ONS household projections
+- English Housing Survey / Census 2021 tenure distribution (UK-adjusted)
 """
 
 from __future__ import annotations
@@ -40,6 +42,34 @@ _REGIONAL_POPULATION = {
     "northern_ireland": 1_900_000,
 }
 
+# Household tenure distribution (UK, ~2023).
+# Source: EHS 2022-23 headline report + census 2021 proportions for DA adjustment.
+# tenure_type RF codes: 0=OwnedOutright, 1=OwnedWithMortgage, 2=RentFromCouncil,
+# 3=RentFromHA, 4=RentPrivately, 5=Other.
+# We combine social rent (council + HA) and use 3 broad categories.
+_TENURE_HOUSEHOLDS = {
+    "owned_outright": (0, 0, 8_800_000),       # ~31%
+    "owned_mortgage": (1, 1, 6_600_000),        # ~23%
+    "social_rent": (2, 3, 4_700_000),           # ~17% (council + HA)
+    "private_rent": (4, 4, 4_900_000),          # ~17%
+}
+
+# Region RF codes matching the Rust enum.
+_REGION_RF_CODE = {
+    "north_east": 0,
+    "north_west": 1,
+    "yorkshire": 2,
+    "east_midlands": 3,
+    "west_midlands": 4,
+    "east_of_england": 5,
+    "london": 6,
+    "south_east": 7,
+    "south_west": 8,
+    "wales": 9,
+    "scotland": 10,
+    "northern_ireland": 11,
+}
+
 
 def get_targets() -> list[dict]:
     """Generate ONS demographic targets for all calibration years.
@@ -51,7 +81,7 @@ def get_targets() -> list[dict]:
     targets = []
 
     # Emit for all plausible calibration years
-    for year in range(2024, 2031):
+    for year in range(2023, 2031):
         # Age group population counts
         for group, count in _POPULATION.items():
             if group == "total":
@@ -106,5 +136,50 @@ def get_targets() -> list[dict]:
                 "holdout": False,
             }
         )
+
+        # Households by tenure
+        for tenure_name, (code_lo, code_hi, count) in _TENURE_HOUSEHOLDS.items():
+            targets.append(
+                {
+                    "name": f"ons/tenure_{tenure_name}/{year}",
+                    "variable": "household_id",
+                    "entity": "household",
+                    "aggregation": "count",
+                    "filter": {
+                        "variable": "tenure_type",
+                        "min": float(code_lo),
+                        "max": float(code_hi) + 1.0,  # exclusive upper bound
+                    },
+                    "value": float(count),
+                    "source": "ons",
+                    "year": year,
+                    "holdout": False,
+                }
+            )
+
+        # Households by region
+        for region_name, code in _REGION_RF_CODE.items():
+            pop = _REGIONAL_POPULATION.get(region_name, 0)
+            if pop == 0:
+                continue
+            # Approximate households from population using national ratio
+            hh_count = pop * _TOTAL_HOUSEHOLDS / _POPULATION["total"]
+            targets.append(
+                {
+                    "name": f"ons/region_{region_name}/{year}",
+                    "variable": "household_id",
+                    "entity": "household",
+                    "aggregation": "count",
+                    "filter": {
+                        "variable": "region",
+                        "min": float(code),
+                        "max": float(code) + 1.0,
+                    },
+                    "value": round(hh_count),
+                    "source": "ons",
+                    "year": year,
+                    "holdout": True,  # holdout — approximate conversion
+                }
+            )
 
     return targets

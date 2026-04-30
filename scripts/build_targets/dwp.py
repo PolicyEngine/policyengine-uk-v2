@@ -375,6 +375,81 @@ def _fetch_uc_breakdowns() -> list[dict]:
     except Exception as e:
         logger.warning("Failed to fetch UC housing breakdown: %s", e)
 
+    # UC households by monthly payment band — constrains the UC amount distribution
+    try:
+        result = _query_table(
+            _UC_HH_DB,
+            [_UC_HH_COUNT],
+            [[f"{_UC_HH_FIELD}:hnpayment_band"]],
+        )
+        year = _extract_year(result)
+        pairs = _extract_breakdown(result)
+
+        # Consolidate into wider bands (monthly £ → annual £ for filter ranges).
+        # Stat-xplore bands are £100-wide from £0 to £2500+. We group into ~£300-400
+        # bands to keep the target count reasonable while constraining the distribution.
+        _BAND_GROUPS = [
+            ("0_to_300", 0, 300),
+            ("300_to_600", 300, 600),
+            ("600_to_900", 600, 900),
+            ("900_to_1200", 900, 1200),
+            ("1200_to_1500", 1200, 1500),
+            ("1500_to_2000", 1500, 2000),
+            ("2000_plus", 2000, 999999),
+        ]
+
+        # Parse stat-xplore band labels into (lower_monthly, upper_monthly, count)
+        parsed_bands = []
+        for label, count in pairs:
+            low_label = label.lower().strip()
+            if "no payment" in low_label:
+                parsed_bands.append((0, 0, count))
+            elif "or over" in low_label:
+                # e.g. "£2500.01 or over"
+                val = float(low_label.split("£")[1].split(" ")[0])
+                parsed_bands.append((val, 999999, count))
+            elif " to " in low_label:
+                parts = low_label.replace("£", "").replace(",", "").split(" to ")
+                lo = float(parts[0])
+                hi = float(parts[1])
+                parsed_bands.append((lo, hi, count))
+
+        # Aggregate into grouped bands
+        for group_name, group_lo, group_hi in _BAND_GROUPS:
+            group_count = 0.0
+            for lo, hi, count in parsed_bands:
+                if lo == 0 and hi == 0:
+                    continue  # skip "no payment"
+                band_mid = (lo + min(hi, 5000)) / 2.0
+                if group_lo <= band_mid < group_hi:
+                    group_count += count
+
+            if group_count > 0:
+                # Filter range: convert monthly band to annual
+                annual_lo = group_lo * 12.0
+                annual_hi = group_hi * 12.0
+
+                targets.append(
+                    {
+                        "name": f"dwp/uc_payment_band_{group_name}",
+                        "variable": "universal_credit",
+                        "entity": "benunit",
+                        "aggregation": "count_nonzero",
+                        "filter": {
+                            "variable": "universal_credit",
+                            "min": annual_lo,
+                            "max": annual_hi,
+                        },
+                        "value": group_count,
+                        "source": "dwp",
+                        "year": year,
+                        "holdout": False,
+                    }
+                )
+
+    except Exception as e:
+        logger.warning("Failed to fetch UC payment band breakdown: %s", e)
+
     return targets
 
 
@@ -384,10 +459,10 @@ DWP_FORECAST_URL = (
 )
 DWP_FORECAST_FILE = CACHE_DIR / "dwp_spring_statement_2025.xlsx"
 
-CALIBRATION_YEARS = range(2024, 2030)  # 2024/25 through 2029/30
+CALIBRATION_YEARS = range(2023, 2030)  # 2023/24 through 2029/30
 
 # Column 80 = 2024/25, ..., 85 = 2029/30 in the DWP forecast xlsx
-_FORECAST_COL_TO_YEAR = {80: 2024, 81: 2025, 82: 2026, 83: 2027, 84: 2028, 85: 2029}
+_FORECAST_COL_TO_YEAR = {79: 2023, 80: 2024, 81: 2025, 82: 2026, 83: 2027, 84: 2028, 85: 2029}
 
 
 def _download_forecast() -> Path:
@@ -530,6 +605,20 @@ def _scale_targets_to_years(
         "dwp/uc_households_single_with_children": "universal_credit",
         "dwp/uc_households_couple_no_children": "universal_credit",
         "dwp/uc_households_couple_with_children": "universal_credit",
+        # Payment band breakdowns scale with total UC
+        "dwp/uc_payment_band_0_to_300": "universal_credit",
+        "dwp/uc_payment_band_300_to_600": "universal_credit",
+        "dwp/uc_payment_band_600_to_900": "universal_credit",
+        "dwp/uc_payment_band_900_to_1200": "universal_credit",
+        "dwp/uc_payment_band_1200_to_1500": "universal_credit",
+        "dwp/uc_payment_band_1500_to_2000": "universal_credit",
+        "dwp/uc_payment_band_2000_plus": "universal_credit",
+        # Age band breakdowns scale with total UC
+        "dwp/uc_age_16_24": "universal_credit",
+        "dwp/uc_age_25_34": "universal_credit",
+        "dwp/uc_age_35_49": "universal_credit",
+        "dwp/uc_age_50_64": "universal_credit",
+        "dwp/uc_age_65_plus": "universal_credit",
     }
 
     scaled: list[dict] = []

@@ -319,29 +319,30 @@ def _parse_welfare() -> list[dict]:
         ("State pension", "obr/state_pension", "state_pension", "benunit"),
     ]
 
-    # UC appears twice in 4.9 — inside and outside the welfare cap. We want both.
-    uc_rows_found = 0
+    # UC appears twice in 4.9 — inside and outside the welfare cap. Sum them
+    # into a single total UC spend target since our simulation doesn't
+    # distinguish the two components.
+    uc_by_year: dict[int, float] = {}
     for row_num in range(6, 50):
         val = ws[f"B{row_num}"].value
         if val and str(val).strip().startswith("Universal credit"):
-            uc_rows_found += 1
-            suffix = "in_cap" if uc_rows_found == 1 else "outside_cap"
             values = _read_row(ws, row_num, _WELFARE_COL_TO_YEAR)
             for year, value in values.items():
-                targets.append(
-                    {
-                        "name": f"obr/universal_credit_{suffix}/{year}",
-                        "variable": "universal_credit",
-                        "entity": "benunit",
-                        "aggregation": "sum",
-                        "filter": None,
-                        "value": value,
-                        "source": "obr",
-                        "year": year,
-                        "holdout": suffix
-                        == "outside_cap",  # Only use one UC total for training
-                    }
-                )
+                uc_by_year[year] = uc_by_year.get(year, 0.0) + value
+    for year, value in uc_by_year.items():
+        targets.append(
+            {
+                "name": f"obr/universal_credit_total/{year}",
+                "variable": "universal_credit",
+                "entity": "benunit",
+                "aggregation": "sum",
+                "filter": None,
+                "value": value,
+                "source": "obr",
+                "year": year,
+                "holdout": False,
+            }
+        )
 
     for label, name, variable, entity in benefit_rows:
         row = _find_row(ws, label)
@@ -534,6 +535,61 @@ def _parse_economy() -> list[dict]:
     return targets
 
 
+def _backfill_2023(targets: list[dict]) -> list[dict]:
+    """Back-extrapolate 2023 targets from 2024 outturn.
+
+    The March 2026 EFO's earliest column is 2024/25 outturn. For 2023/24 we
+    scale backwards using OBR growth rates: earnings growth for tax receipts,
+    CPI for benefit spending, council tax growth for council tax.
+    """
+    # OBR growth rates for the 2023→2024 transition (from economy tables)
+    EARNINGS_GROWTH_2024 = 0.0493
+    CPI_GROWTH_2024 = 0.0253
+    CT_GROWTH_2024 = 0.051
+
+    # Which growth factor to use for each target prefix
+    _DEFLATOR = {
+        "obr/income_tax": EARNINGS_GROWTH_2024,
+        "obr/ni_": EARNINGS_GROWTH_2024,
+        "obr/vat_": EARNINGS_GROWTH_2024,
+        "obr/fuel_duty": EARNINGS_GROWTH_2024,
+        "obr/cgt_": EARNINGS_GROWTH_2024,
+        "obr/sdlt_": EARNINGS_GROWTH_2024,
+        "obr/council_tax": CT_GROWTH_2024,
+        "obr/housing_benefit": CPI_GROWTH_2024,
+        "obr/pip_dla": CPI_GROWTH_2024,
+        "obr/attendance_allowance": CPI_GROWTH_2024,
+        "obr/pension_credit": CPI_GROWTH_2024,
+        "obr/carers_allowance": CPI_GROWTH_2024,
+        "obr/child_benefit": CPI_GROWTH_2024,
+        "obr/state_pension": CPI_GROWTH_2024,
+        "obr/universal_credit": CPI_GROWTH_2024,
+    }
+
+    existing_2023 = {t["name"] for t in targets if t["year"] == 2023}
+    extra = []
+    for t in targets:
+        if t["year"] != 2024 or t["source"] != "obr":
+            continue
+        name_2023 = t["name"].replace("/2024", "/2023")
+        if name_2023 in existing_2023:
+            continue
+        # Find the right deflator
+        growth = None
+        for prefix, rate in _DEFLATOR.items():
+            if t["name"].startswith(prefix):
+                growth = rate
+                break
+        if growth is None:
+            continue
+        t2 = dict(t)
+        t2["name"] = name_2023
+        t2["year"] = 2023
+        t2["value"] = t["value"] / (1 + growth)
+        extra.append(t2)
+    return targets + extra
+
+
 def get_targets() -> list[dict]:
     targets = []
     if RECEIPTS_FILE.exists():
@@ -544,4 +600,5 @@ def get_targets() -> list[dict]:
         targets.extend(_parse_council_tax())
     if ECONOMY_FILE.exists():
         targets.extend(_parse_economy())
+    targets = _backfill_2023(targets)
     return targets

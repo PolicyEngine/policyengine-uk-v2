@@ -28,7 +28,7 @@ CACHE_DIR = REPO_ROOT / "data" / "cache"
 # HMRC SPI 2022-23 collated tables (ODS)
 SPI_URL = "https://assets.publishing.service.gov.uk/media/67cabb37ade26736dbf9ffe5/Collated_Tables_3_1_to_3_17_2223.ods"
 SPI_YEAR = 2022  # FY 2022-23 → base year for growth indexing
-CALIBRATION_YEARS = range(2024, 2031)
+CALIBRATION_YEARS = range(2023, 2031)
 
 INCOME_BANDS_LOWER = [
     12_570,
