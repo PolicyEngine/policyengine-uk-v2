@@ -47,16 +47,22 @@ class Variable:
     rust_column: str         # column in that table
 
 
+# Compare against `hbai_household_net_income` rather than the broader
+# `household_net_income`: Rust's `baseline_net_income` is the HBAI definition
+# (gross minus direct taxes plus benefits, excluding council tax / TV licence /
+# transaction taxes), so comparing against the broad Python net-income variable
+# would surface a spurious ~£159 diff on every scenario for the TV licence
+# alone.
 VARIABLES: list[Variable] = [
-    Variable("income_tax",            "persons",    "baseline_income_tax"),
-    Variable("ni_employee",           "persons",    "baseline_employee_ni"),
-    Variable("ni_employer",           "persons",    "baseline_employer_ni"),
-    Variable("universal_credit",      "benunits",   "baseline_universal_credit"),
-    Variable("child_benefit",         "benunits",   "baseline_child_benefit"),
-    Variable("state_pension",         "benunits",   "baseline_state_pension"),
-    Variable("pension_credit",        "benunits",   "baseline_pension_credit"),
-    Variable("housing_benefit",       "benunits",   "baseline_housing_benefit"),
-    Variable("household_net_income",  "households", "baseline_net_income"),
+    Variable("income_tax",                "persons",    "baseline_income_tax"),
+    Variable("ni_employee",               "persons",    "baseline_employee_ni"),
+    Variable("ni_employer",               "persons",    "baseline_employer_ni"),
+    Variable("universal_credit",          "benunits",   "baseline_universal_credit"),
+    Variable("child_benefit",             "benunits",   "baseline_child_benefit"),
+    Variable("state_pension",             "benunits",   "baseline_state_pension"),
+    Variable("pension_credit",            "benunits",   "baseline_pension_credit"),
+    Variable("housing_benefit",           "benunits",   "baseline_housing_benefit"),
+    Variable("hbai_household_net_income", "households", "baseline_net_income"),
 ]
 
 

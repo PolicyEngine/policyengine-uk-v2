@@ -142,7 +142,7 @@ class TestEndToEnd:
         }
         out = parity.run_rust(situation, year=2025)
         assert "income_tax" in out
-        assert "household_net_income" in out
+        assert "hbai_household_net_income" in out
         # £50k single in 2025: income tax should land in the £7k–8k range.
         assert 7_000 < out["income_tax"] < 8_000
 
