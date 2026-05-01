@@ -169,6 +169,20 @@ class WealthTaxParams(BaseModel):
     rate: Optional[float] = None
 
 
+class PipParams(BaseModel):
+    """Personal Independence Payment weekly rates.
+
+    Welfare Reform Act 2012 s.79; SI 2013/377. Set any of the four weekly
+    rates to model PIP-rate reforms; recipients are identified by the
+    `pip_dl_std` / `pip_dl_enh` / `pip_mob_std` / `pip_mob_enh` flags on
+    each Person.
+    """
+    daily_living_standard_weekly: Optional[float] = None
+    daily_living_enhanced_weekly: Optional[float] = None
+    mobility_standard_weekly:     Optional[float] = None
+    mobility_enhanced_weekly:     Optional[float] = None
+
+
 class LabourSupplyParams(BaseModel):
     """OBR labour supply elasticities (Slutsky decomposition).
 
@@ -224,6 +238,7 @@ class Parameters(BaseModel):
     income_related_benefits: Optional[IncomeRelatedBenefitParams] = None
     capital_gains_tax: Optional[CapitalGainsTaxParams] = None
     stamp_duty: Optional[StampDutyParams] = None
+    pip:  Optional["PipParams"] = None
     wealth_tax: Optional[WealthTaxParams] = None
     labour_supply: Optional[LabourSupplyParams] = None
 

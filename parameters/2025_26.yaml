@@ -263,6 +263,14 @@ wealth_tax:
   threshold: 10000000.0
   rate: 0.01
 
+pip:
+  # Personal Independence Payment weekly rates from 7 April 2025.
+  # Welfare Reform Act 2012 s.79 / SI 2013/377. Source: gov.uk/pip/what-youll-get.
+  daily_living_standard_weekly: 73.90
+  daily_living_enhanced_weekly: 110.40
+  mobility_standard_weekly:     29.20
+  mobility_enhanced_weekly:     77.05
+
 lha:
   # Local Housing Allowance rates for 2025/26.
   # LHA was re-frozen in April 2025 at the 2024/25 reset rates.
