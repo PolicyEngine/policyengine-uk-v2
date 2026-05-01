@@ -561,13 +561,14 @@ fn main() -> anyhow::Result<()> {
         dataset.people.clone()
     };
 
-    // Run policy simulation (pass baseline old SP rate so reported amounts scale correctly)
+    // Run policy simulation (pass baseline old + new SP rates so reported amounts scale correctly)
     let policy_sim = Simulation::new_with_baseline_sp(
         policy_people,
         dataset.benunits.clone(),
         dataset.households.clone(),
         policy_params.clone(),
         baseline_params.state_pension.old_basic_pension_weekly,
+        baseline_params.state_pension.new_state_pension_weekly,
         cli.year,
     );
     let reformed = policy_sim.run();
