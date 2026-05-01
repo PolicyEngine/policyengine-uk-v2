@@ -59,6 +59,8 @@ from policyengine_uk_compiled.models import (
     CapitalGainsTaxParams,
     WealthTaxParams,
     PipParams,
+    DlaParams,
+    AaParams,
     LabourSupplyParams,
     Parameters,
 )
@@ -109,6 +111,8 @@ __all__ = [
     "CapitalGainsTaxParams",
     "WealthTaxParams",
     "PipParams",
+    "DlaParams",
+    "AaParams",
     "LabourSupplyParams",
     "Parameters",
 ]

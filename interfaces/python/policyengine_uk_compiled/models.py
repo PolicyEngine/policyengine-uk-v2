@@ -183,6 +183,30 @@ class PipParams(BaseModel):
     mobility_enhanced_weekly:     Optional[float] = None
 
 
+class DlaParams(BaseModel):
+    """Disability Living Allowance weekly rates.
+
+    SSCBA 1992 Sch.2 paras 2–3. Recipients are identified by the
+    `dla_care_low` / `dla_care_mid` / `dla_care_high` and
+    `dla_mob_low` / `dla_mob_high` flags on each Person.
+    """
+    care_low_weekly:     Optional[float] = None
+    care_mid_weekly:     Optional[float] = None
+    care_high_weekly:    Optional[float] = None
+    mobility_low_weekly: Optional[float] = None
+    mobility_high_weekly: Optional[float] = None
+
+
+class AaParams(BaseModel):
+    """Attendance Allowance weekly rates.
+
+    SSCBA 1992 s.64. Recipients are identified by the `aa_low` / `aa_high`
+    flags on each Person.
+    """
+    low_weekly:  Optional[float] = None
+    high_weekly: Optional[float] = None
+
+
 class LabourSupplyParams(BaseModel):
     """OBR labour supply elasticities (Slutsky decomposition).
 
@@ -241,6 +265,8 @@ class Parameters(BaseModel):
     lbtt: Optional[StampDutyParams] = None
     ltt:  Optional[StampDutyParams] = None
     pip:  Optional["PipParams"] = None
+    dla:  Optional["DlaParams"] = None
+    aa:   Optional["AaParams"] = None
     wealth_tax: Optional[WealthTaxParams] = None
     labour_supply: Optional[LabourSupplyParams] = None
 

@@ -296,6 +296,21 @@ pip:
   mobility_standard_weekly:     29.20
   mobility_enhanced_weekly:     77.05
 
+dla:
+  # Disability Living Allowance weekly rates from 7 April 2025.
+  # SSCBA 1992 Sch.2 paras 2–3. Source: gov.uk/dla-rates.
+  care_low_weekly:     29.20
+  care_mid_weekly:     73.90
+  care_high_weekly:   110.40
+  mobility_low_weekly: 29.20
+  mobility_high_weekly: 77.05
+
+aa:
+  # Attendance Allowance weekly rates from 7 April 2025.
+  # SSCBA 1992 s.64. Source: gov.uk/attendance-allowance/what-youll-get.
+  low_weekly:   73.90
+  high_weekly: 110.40
+
 lha:
   # Local Housing Allowance rates for 2025/26.
   # LHA was re-frozen in April 2025 at the 2024/25 reset rates.
