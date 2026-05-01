@@ -52,9 +52,17 @@ pub struct Parameters {
     /// Capital gains tax. TCGA 1992; 18%/24% from October 2024 Budget.
     #[serde(default)]
     pub capital_gains_tax: Option<CapitalGainsTaxParams>,
-    /// Stamp duty land tax on residential property. FA 2003 s.55.
+    /// Stamp duty land tax on residential property (England + NI). FA 2003 s.55.
     #[serde(default)]
     pub stamp_duty: Option<StampDutyParams>,
+    /// Land and Buildings Transaction Tax — Scotland's devolved replacement for
+    /// SDLT. Land and Buildings Transaction Tax (Scotland) Act 2013, s.24.
+    #[serde(default)]
+    pub lbtt: Option<StampDutyParams>,
+    /// Land Transaction Tax — Wales's devolved replacement for SDLT.
+    /// Land Transaction Tax and Anti-avoidance of Devolved Taxes (Wales) Act 2017.
+    #[serde(default)]
+    pub ltt: Option<StampDutyParams>,
     /// Annual wealth tax (hypothetical — disabled by default).
     #[serde(default)]
     pub wealth_tax: Option<WealthTaxParams>,
