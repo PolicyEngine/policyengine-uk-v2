@@ -61,6 +61,7 @@ from policyengine_uk_compiled.models import (
     PipParams,
     DlaParams,
     AaParams,
+    CouncilTaxParams,
     LabourSupplyParams,
     Parameters,
 )
@@ -113,6 +114,7 @@ __all__ = [
     "PipParams",
     "DlaParams",
     "AaParams",
+    "CouncilTaxParams",
     "LabourSupplyParams",
     "Parameters",
 ]
