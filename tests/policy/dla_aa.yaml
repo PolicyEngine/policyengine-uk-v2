@@ -1,0 +1,108 @@
+# Disability Living Allowance and Attendance Allowance from eligibility flags.
+#
+# 2025/26 weekly rates (gov.uk):
+#   DLA care:     low £29.20  / mid £73.90 / high £110.40
+#   DLA mobility: low £29.20  / high £77.05
+#   Attendance Allowance: low £73.90 / high £110.40
+#
+# `would_claim_*: false` on the benunit suppresses modelled means-tested
+# benefits so `baseline_total_benefits` isolates DLA/AA passthrough.
+
+- name: DLA care high + mobility high (child)
+  period: 2025
+  absolute_error_margin: 1
+  input:
+    people:
+      c: { age: 10, dla_care_high: true, dla_mob_high: true }
+    benunits:
+      b:
+        members: [c]
+        would_claim_uc: false
+        would_claim_cb: false
+        would_claim_hb: false
+        would_claim_pc: false
+        would_claim_is: false
+        would_claim_ctc: false
+        would_claim_wtc: false
+        would_claim_esa: false
+        would_claim_jsa: false
+    households:
+      h: { members: [c], region: London }
+  output:
+    # £5,740.80 + £4,006.60 = £9,747.40
+    baseline_total_benefits: 9747
+
+- name: DLA care low alone
+  period: 2025
+  absolute_error_margin: 1
+  input:
+    people:
+      c: { age: 8, dla_care_low: true }
+    benunits:
+      b:
+        members: [c]
+        would_claim_uc: false
+        would_claim_cb: false
+        would_claim_hb: false
+        would_claim_pc: false
+        would_claim_is: false
+        would_claim_ctc: false
+        would_claim_wtc: false
+        would_claim_esa: false
+        would_claim_jsa: false
+    households:
+      h: { members: [c], region: London }
+  output:
+    # £29.20 × 52 = £1,518.40
+    baseline_total_benefits: 1518
+
+- name: Attendance Allowance high (post-SP-age, new SP cohort)
+  period: 2025
+  absolute_error_margin: 1
+  input:
+    people:
+      # Age 70 < basic_sp_min_age (75 in 2025/26) → new-SP path; full £11,973/yr
+      p: { age: 70, employment_income: 0, aa_high: true }
+    benunits:
+      b:
+        members: [p]
+        would_claim_uc: false
+        would_claim_cb: false
+        would_claim_hb: false
+        would_claim_pc: false
+        would_claim_is: false
+        would_claim_ctc: false
+        would_claim_wtc: false
+        would_claim_esa: false
+        would_claim_jsa: false
+    households:
+      h: { members: [p], region: London }
+  output:
+    # £110.40 × 52 = £5,740.80; SP also kicks in for age ≥ SP age
+    # The SP component reduces what we can isolate, so check just the AA delta
+    # by using a non-SP-age person with the AA flag in a separate test:
+    baseline_total_benefits: 17714  # = AA £5740.80 + new SP £11,973 (param)
+
+- name: AA low alone (pre-SP age)
+  period: 2025
+  absolute_error_margin: 1
+  input:
+    people:
+      p: { age: 60, employment_income: 0, aa_low: true }
+    benunits:
+      b:
+        members: [p]
+        would_claim_uc: false
+        would_claim_cb: false
+        would_claim_hb: false
+        would_claim_pc: false
+        would_claim_is: false
+        would_claim_ctc: false
+        would_claim_wtc: false
+        would_claim_esa: false
+        would_claim_jsa: false
+    households:
+      h: { members: [p], region: London }
+  output:
+    # £73.90 × 52 = £3,842.80, no SP (under SP age)
+    baseline_total_benefits: 3843

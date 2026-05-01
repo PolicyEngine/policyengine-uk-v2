@@ -63,6 +63,14 @@ pub struct Parameters {
     /// for their bedroom entitlement category. Authority: HB Regs 2006 reg.13D.
     #[serde(default)]
     pub lha: Option<LhaParams>,
+    /// Disability Living Allowance weekly rates (under-16 successor: now PIP/ADP).
+    /// SSCBA 1992 Sch.2 paras 2–3.
+    #[serde(default)]
+    pub dla: Option<DlaParams>,
+    /// Attendance Allowance weekly rates (over-SP-age disability benefit).
+    /// SSCBA 1992 s.64.
+    #[serde(default)]
+    pub aa: Option<AaParams>,
     /// OBR labour supply response elasticities.
     /// When enabled, the Slutsky-decomposition elasticities from OBR (2023) are applied
     /// to estimate intensive-margin labour supply responses to tax-benefit reforms.
@@ -445,6 +453,32 @@ pub struct StampDutyParams {
 }
 
 fn default_purchase_probability() -> f64 { 0.043 }
+
+/// Disability Living Allowance weekly component rates.
+///
+/// DLA has a care component (lowest, middle, highest) and a mobility component
+/// (lower, higher). Working-age claimants migrated to PIP from 2013; remaining
+/// DLA caseload is mostly children and pre-PIP-migration adults.
+/// SSCBA 1992 Sch.2 para.2 (care) and para.3 (mobility).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DlaParams {
+    pub care_low_weekly: f64,
+    pub care_mid_weekly: f64,
+    pub care_high_weekly: f64,
+    pub mobility_low_weekly: f64,
+    pub mobility_high_weekly: f64,
+}
+
+/// Attendance Allowance weekly rates.
+///
+/// Non-means-tested benefit for people over State Pension age who need help
+/// with personal care. SSCBA 1992 s.64. Two rates: lower (day-only or night-only
+/// care needed) and higher (both).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AaParams {
+    pub low_weekly: f64,
+    pub high_weekly: f64,
+}
 
 /// OBR labour supply response elasticities (Slutsky decomposition).
 ///
