@@ -20,10 +20,22 @@ pub fn council_tax_band(property_value: f64, thresholds: &[f64]) -> usize {
 /// Returns the Band D rate multiplied by the band multiplier for this household's
 /// property value. For baseline runs, the simulation uses the reported `hh.council_tax`
 /// instead.
-pub fn calculate_council_tax(hh: &Household, params: &CouncilTaxParams) -> f64 {
+///
+/// Applies the single-person discount when `is_single_adult` is true (only one
+/// adult aged 18+ is resident). Local Government Finance Act 1992 s.11(1)(a).
+pub fn calculate_council_tax(
+    hh: &Household,
+    params: &CouncilTaxParams,
+    is_single_adult: bool,
+) -> f64 {
     let band = council_tax_band(hh.main_residence_value, &params.band_thresholds);
     let multiplier = params.band_multipliers.get(band).copied().unwrap_or(1.0);
-    params.average_band_d * multiplier
+    let gross = params.average_band_d * multiplier;
+    if is_single_adult {
+        gross * (1.0 - params.single_person_discount_rate)
+    } else {
+        gross
+    }
 }
 
 /// Calculate capital gains tax for a person.
@@ -112,17 +124,57 @@ mod tests {
         assert_eq!(council_tax_band(500000.0, &thresholds), 7); // Band H
     }
 
-    #[test]
-    fn council_tax_calculation() {
-        let params = CouncilTaxParams {
+    fn make_council_tax_params() -> CouncilTaxParams {
+        CouncilTaxParams {
             average_band_d: 2280.0,
             band_multipliers: vec![6.0/9.0, 7.0/9.0, 8.0/9.0, 1.0, 11.0/9.0, 13.0/9.0, 15.0/9.0, 18.0/9.0],
             band_thresholds: vec![0.0, 40001.0, 52001.0, 68001.0, 88001.0, 120001.0, 160001.0, 320001.0],
-        };
+            single_person_discount_rate: 0.25,
+        }
+    }
+
+    #[test]
+    fn council_tax_calculation() {
+        let params = make_council_tax_params();
         let mut hh = Household::default();
         hh.main_residence_value = 80000.0; // Band D
-        let ct = calculate_council_tax(&hh, &params);
+        let ct = calculate_council_tax(&hh, &params, false);
         assert!((ct - 2280.0).abs() < 1.0); // Band D = 1.0 * band_d
+    }
+
+    #[test]
+    fn council_tax_single_person_discount() {
+        let params = make_council_tax_params();
+        let mut hh = Household::default();
+        hh.main_residence_value = 80000.0; // Band D
+        let ct_full   = calculate_council_tax(&hh, &params, false);
+        let ct_single = calculate_council_tax(&hh, &params, true);
+        assert!((ct_full - 2280.0).abs() < 1.0);
+        // 25% discount: £2,280 × 0.75 = £1,710
+        assert!((ct_single - 1710.0).abs() < 1.0, "got {}", ct_single);
+    }
+
+    #[test]
+    fn council_tax_single_person_discount_band_a() {
+        let params = make_council_tax_params();
+        let mut hh = Household::default();
+        hh.main_residence_value = 30000.0; // Band A
+        let band_a_full = 2280.0 * 6.0 / 9.0; // = £1,520
+        let ct_full   = calculate_council_tax(&hh, &params, false);
+        let ct_single = calculate_council_tax(&hh, &params, true);
+        assert!((ct_full - band_a_full).abs() < 1.0);
+        assert!((ct_single - band_a_full * 0.75).abs() < 1.0);
+    }
+
+    #[test]
+    fn council_tax_zero_discount_rate_no_discount() {
+        let mut params = make_council_tax_params();
+        params.single_person_discount_rate = 0.0;
+        let mut hh = Household::default();
+        hh.main_residence_value = 80000.0;
+        let ct_full   = calculate_council_tax(&hh, &params, false);
+        let ct_single = calculate_council_tax(&hh, &params, true);
+        assert_eq!(ct_full, ct_single);
     }
 
     #[test]

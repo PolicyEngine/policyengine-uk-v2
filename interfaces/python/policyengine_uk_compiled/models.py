@@ -147,6 +147,19 @@ class UcMigrationRates(BaseModel):
     income_support: Optional[float] = None
 
 
+class CouncilTaxParams(BaseModel):
+    """Council tax parameters.
+
+    Local Government Finance Act 1992. Used for reform modelling — baseline
+    runs use the FRS-recorded `council_tax` amount per household. Set
+    `single_person_discount_rate` to model reforms to the s.11(1)(a) discount.
+    """
+    average_band_d: Optional[float] = None
+    band_multipliers: Optional[list[float]] = None
+    band_thresholds: Optional[list[float]] = None
+    single_person_discount_rate: Optional[float] = None
+
+
 class StampDutyBand(BaseModel):
     rate: float
     threshold: float
@@ -222,6 +235,7 @@ class Parameters(BaseModel):
     uc_migration: Optional[UcMigrationRates] = None
     disability_premiums: Optional[DisabilityPremiumParams] = None
     income_related_benefits: Optional[IncomeRelatedBenefitParams] = None
+    council_tax: Optional[CouncilTaxParams] = None
     capital_gains_tax: Optional[CapitalGainsTaxParams] = None
     stamp_duty: Optional[StampDutyParams] = None
     wealth_tax: Optional[WealthTaxParams] = None

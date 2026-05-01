@@ -399,7 +399,14 @@ pub struct CouncilTaxParams {
     /// Property value thresholds for bands A–H (1991 values, England).
     #[serde(default = "default_band_thresholds")]
     pub band_thresholds: Vec<f64>,
+    /// Single-person discount: fraction subtracted from council tax when only
+    /// one adult (18+) is resident. 25% in England/Wales/Scotland — Local
+    /// Government Finance Act 1992 s.11(1)(a).
+    #[serde(default = "default_single_person_discount")]
+    pub single_person_discount_rate: f64,
 }
+
+fn default_single_person_discount() -> f64 { 0.25 }
 
 fn default_band_multipliers() -> Vec<f64> {
     vec![6.0/9.0, 7.0/9.0, 8.0/9.0, 1.0, 11.0/9.0, 13.0/9.0, 15.0/9.0, 18.0/9.0]
