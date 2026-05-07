@@ -28,6 +28,12 @@ pub struct Person {
     pub savings_interest_income: f64,
     pub dividend_income: f64,
     pub capital_gains: f64,
+    /// Fraction of `capital_gains` that came from residential property disposals
+    /// (TCGA 1992 s.4 — residential property gains). Multiplied with the residential
+    /// surcharge in `CapitalGainsTaxParams` to apply the higher residential rate to
+    /// the relevant slice of taxable gains. Default 0.0 — entire gain treated as
+    /// non-residential (which from April 2025 is the same rate, since rates unified).
+    pub capital_gains_residential_share: f64,
     pub property_income: f64,
     pub maintenance_income: f64,
     pub miscellaneous_income: f64,
@@ -119,6 +125,7 @@ impl Default for Person {
             savings_interest_income: 0.0,
             dividend_income: 0.0,
             capital_gains: 0.0,
+            capital_gains_residential_share: 0.0,
             property_income: 0.0,
             maintenance_income: 0.0,
             miscellaneous_income: 0.0,
