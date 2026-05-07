@@ -74,6 +74,9 @@ pub fn calculate(person: &Person, params: &Parameters, state_pension: f64) -> Pe
     PersonResult {
         income_tax,
         national_insurance,
+        ni_class1_employee: ni_class1,
+        ni_class2,
+        ni_class4,
         employer_ni: ni_employer,
         total_income,
         taxable_income,
@@ -435,6 +438,32 @@ mod tests {
     fn test_employer_ni() {
         let params = Parameters::for_year(2025).unwrap();
         let result = calculate(&test_person(50000.0), &params, 0.0);
+        assert!(result.employer_ni > 0.0);
+    }
+
+    #[test]
+    fn test_ni_class_breakdown_sums_to_total() {
+        // A person with both employment and self-employment should have
+        // non-zero contributions in Class 1, Class 2 and Class 4, and the
+        // three should sum to `national_insurance`.
+        let params = Parameters::for_year(2025).unwrap();
+        let mut p = Person::default();
+        p.age = 35.0;
+        p.employment_income = 30_000.0;
+        p.self_employment_income = 20_000.0;
+        p.hours_worked = 37.5 * 52.0;
+
+        let result = calculate(&p, &params, 0.0);
+
+        assert!(result.ni_class1_employee > 0.0, "Class 1 employee should be > 0");
+        assert!(result.ni_class4 > 0.0, "Class 4 should be > 0");
+        let sum = result.ni_class1_employee + result.ni_class2 + result.ni_class4;
+        assert!(
+            (sum - result.national_insurance).abs() < 0.01,
+            "Class breakdown {sum:.2} should equal national_insurance {:.2}",
+            result.national_insurance,
+        );
+        // Employer NI is reported separately from the employee total.
         assert!(result.employer_ni > 0.0);
     }
 
