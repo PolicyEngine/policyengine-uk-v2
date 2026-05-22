@@ -353,10 +353,13 @@ fn write_microdata_csv_persons<W: std::io::Write>(
         "universal_credit",
         // ── Baseline outputs ──
         "baseline_income_tax", "baseline_employee_ni", "baseline_employer_ni",
+        // Per-class NI breakdown (sum of class1_employee + class2 + class4 == employee_ni)
+        "baseline_ni_class1_employee", "baseline_ni_class2", "baseline_ni_class4",
         "baseline_total_income", "baseline_taxable_income",
         "baseline_personal_allowance",
         // ── Reform outputs ──
         "reform_income_tax", "reform_employee_ni", "reform_employer_ni",
+        "reform_ni_class1_employee", "reform_ni_class2", "reform_ni_class4",
         "reform_total_income", "reform_taxable_income",
         "reform_personal_allowance",
     ])?;
@@ -401,6 +404,9 @@ fn write_microdata_csv_persons<W: std::io::Write>(
             format!("{:.2}", bl.income_tax),
             format!("{:.2}", bl.national_insurance),
             format!("{:.2}", bl.employer_ni),
+            format!("{:.2}", bl.ni_class1_employee),
+            format!("{:.2}", bl.ni_class2),
+            format!("{:.2}", bl.ni_class4),
             format!("{:.2}", bl.total_income),
             format!("{:.2}", bl.taxable_income),
             format!("{:.2}", bl.personal_allowance),
@@ -408,6 +414,9 @@ fn write_microdata_csv_persons<W: std::io::Write>(
             format!("{:.2}", rf.income_tax),
             format!("{:.2}", rf.national_insurance),
             format!("{:.2}", rf.employer_ni),
+            format!("{:.2}", rf.ni_class1_employee),
+            format!("{:.2}", rf.ni_class2),
+            format!("{:.2}", rf.ni_class4),
             format!("{:.2}", rf.total_income),
             format!("{:.2}", rf.taxable_income),
             format!("{:.2}", rf.personal_allowance),
