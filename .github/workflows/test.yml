@@ -29,3 +29,17 @@ jobs:
 
       - name: Test
         run: cargo test
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install Python wrapper test dependencies
+        run: pip install pandas pydantic pytest pyyaml
+
+      - name: Test Python wrapper
+        run: PYTHONPATH=interfaces/python pytest interfaces/python/tests -q
+
+      - name: Parity smoke (Rust ↔ Python; non-failing)
+        run: PYTHONPATH=interfaces/python python scripts/parity.py --no-fail

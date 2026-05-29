@@ -52,9 +52,17 @@ pub struct Parameters {
     /// Capital gains tax. TCGA 1992; 18%/24% from October 2024 Budget.
     #[serde(default)]
     pub capital_gains_tax: Option<CapitalGainsTaxParams>,
-    /// Stamp duty land tax on residential property. FA 2003 s.55.
+    /// Stamp duty land tax on residential property (England + NI). FA 2003 s.55.
     #[serde(default)]
     pub stamp_duty: Option<StampDutyParams>,
+    /// Land and Buildings Transaction Tax — Scotland's devolved replacement for
+    /// SDLT. Land and Buildings Transaction Tax (Scotland) Act 2013, s.24.
+    #[serde(default)]
+    pub lbtt: Option<StampDutyParams>,
+    /// Land Transaction Tax — Wales's devolved replacement for SDLT.
+    /// Land Transaction Tax and Anti-avoidance of Devolved Taxes (Wales) Act 2017.
+    #[serde(default)]
+    pub ltt: Option<StampDutyParams>,
     /// Annual wealth tax (hypothetical — disabled by default).
     #[serde(default)]
     pub wealth_tax: Option<WealthTaxParams>,
@@ -63,6 +71,17 @@ pub struct Parameters {
     /// for their bedroom entitlement category. Authority: HB Regs 2006 reg.13D.
     #[serde(default)]
     pub lha: Option<LhaParams>,
+    /// Personal Independence Payment weekly rates. Welfare Reform Act 2012 s.79.
+    #[serde(default)]
+    pub pip: Option<PipParams>,
+    /// Disability Living Allowance weekly rates (under-16 successor: now PIP/ADP).
+    /// SSCBA 1992 Sch.2 paras 2–3.
+    #[serde(default)]
+    pub dla: Option<DlaParams>,
+    /// Attendance Allowance weekly rates (over-SP-age disability benefit).
+    /// SSCBA 1992 s.64.
+    #[serde(default)]
+    pub aa: Option<AaParams>,
     /// OBR labour supply response elasticities.
     /// When enabled, the Slutsky-decomposition elasticities from OBR (2023) are applied
     /// to estimate intensive-margin labour supply responses to tax-benefit reforms.
@@ -399,7 +418,14 @@ pub struct CouncilTaxParams {
     /// Property value thresholds for bands A–H (1991 values, England).
     #[serde(default = "default_band_thresholds")]
     pub band_thresholds: Vec<f64>,
+    /// Single-person discount: fraction subtracted from council tax when only
+    /// one adult (18+) is resident. 25% in England/Wales/Scotland — Local
+    /// Government Finance Act 1992 s.11(1)(a).
+    #[serde(default = "default_single_person_discount")]
+    pub single_person_discount_rate: f64,
 }
+
+fn default_single_person_discount() -> f64 { 0.25 }
 
 fn default_band_multipliers() -> Vec<f64> {
     vec![6.0/9.0, 7.0/9.0, 8.0/9.0, 1.0, 11.0/9.0, 13.0/9.0, 15.0/9.0, 18.0/9.0]
@@ -445,6 +471,45 @@ pub struct StampDutyParams {
 }
 
 fn default_purchase_probability() -> f64 { 0.043 }
+
+/// Personal Independence Payment weekly component rates.
+///
+/// PIP has two components — daily living and mobility — each at a standard or
+/// enhanced rate. Welfare Reform Act 2012 s.79 / Social Security (Personal
+/// Independence Payment) Regulations 2013 (SI 2013/377). Rates uprated annually.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipParams {
+    pub daily_living_standard_weekly: f64,
+    pub daily_living_enhanced_weekly: f64,
+    pub mobility_standard_weekly: f64,
+    pub mobility_enhanced_weekly: f64,
+}
+
+/// Disability Living Allowance weekly component rates.
+///
+/// DLA has a care component (lowest, middle, highest) and a mobility component
+/// (lower, higher). Working-age claimants migrated to PIP from 2013; remaining
+/// DLA caseload is mostly children and pre-PIP-migration adults.
+/// SSCBA 1992 Sch.2 para.2 (care) and para.3 (mobility).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DlaParams {
+    pub care_low_weekly: f64,
+    pub care_mid_weekly: f64,
+    pub care_high_weekly: f64,
+    pub mobility_low_weekly: f64,
+    pub mobility_high_weekly: f64,
+}
+
+/// Attendance Allowance weekly rates.
+///
+/// Non-means-tested benefit for people over State Pension age who need help
+/// with personal care. SSCBA 1992 s.64. Two rates: lower (day-only or night-only
+/// care needed) and higher (both).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AaParams {
+    pub low_weekly: f64,
+    pub high_weekly: f64,
+}
 
 /// OBR labour supply response elasticities (Slutsky decomposition).
 ///
