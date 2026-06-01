@@ -172,39 +172,90 @@ fn calculate_universal_credit(
     params: &Parameters,
 ) -> (f64, f64, f64) {
     // Basic eligibility: at least one working-age adult (not SP age)
-    let any_working_age = bu.person_ids.iter()
-        .filter(|&&pid| people[pid].is_adult())
-        .any(|&pid| !people[pid].is_sp_age());
-    if !any_working_age {
+    if !uc_has_working_age_adult(bu, people) {
         return (0.0, 0.0, 0.0);
     }
 
+    // Maximum amount = sum of all elements at the per-month rate.
+    let standard_allowance = uc_standard_allowance_monthly(bu, people, params);
+    let child_element = uc_child_element_monthly(bu, people, params);
+    let disabled_child_element = uc_disabled_child_element_monthly(bu, people, params);
+    let has_lcwra = uc_has_lcwra(bu, people);
+    let lcwra_element = uc_lcwra_element_monthly(has_lcwra, params);
+    let carer_element = uc_carer_element_monthly(bu, people, params);
+    let housing_element = uc_housing_element_monthly(bu, people, household, params);
+
+    let max_amount_monthly = standard_allowance
+        + child_element
+        + disabled_child_element
+        + lcwra_element
+        + carer_element
+        + housing_element;
+    let max_amount_annual = max_amount_monthly * 12.0;
+
+    // Reductions: earned income via taper after a work allowance, unearned income £-for-£.
+    let work_allowance_annual = uc_work_allowance_annual(bu, people, has_lcwra, params);
+    let earned_after_allowance = (uc_net_earned_income(bu, people, person_results)
+        - work_allowance_annual)
+        .max(0.0);
+    let earned_income_reduction = earned_after_allowance * params.universal_credit.taper_rate;
+    let unearned_income = uc_unearned_income(bu, people);
+
+    let total_reduction = (earned_income_reduction + unearned_income).min(max_amount_annual);
+    let uc_amount = (max_amount_annual - total_reduction).max(0.0);
+
+    (uc_amount, max_amount_annual, total_reduction)
+}
+
+/// True when the benunit has at least one working-age adult — UC is closed to
+/// pensioner-only benunits (those instead claim Pension Credit). UC Regs 2013 reg.3.
+pub(crate) fn uc_has_working_age_adult(bu: &BenUnit, people: &[Person]) -> bool {
+    bu.person_ids.iter()
+        .filter(|&&pid| people[pid].is_adult())
+        .any(|&pid| !people[pid].is_sp_age())
+}
+
+/// UC standard allowance (monthly) — UC Regs 2013 reg.36 / Sch.4 para.1.
+/// Four bands by couple status × eldest-adult ≥ 25.
+pub(crate) fn uc_standard_allowance_monthly(
+    bu: &BenUnit, people: &[Person], params: &Parameters,
+) -> f64 {
     let uc = &params.universal_credit;
     let is_couple = bu.is_couple(people);
     let eldest_age = bu.eldest_adult_age(people);
-    let num_children = bu.num_children(people);
-    let has_housing_costs = bu.rent_monthly > 0.0;
-
-    // Standard allowance (monthly → annual)
-    let standard_allowance_monthly = if is_couple {
+    if is_couple {
         if eldest_age >= 25.0 { uc.standard_allowance_couple_over25 }
         else { uc.standard_allowance_couple_under25 }
     } else if eldest_age >= 25.0 {
         uc.standard_allowance_single_over25
     } else {
         uc.standard_allowance_single_under25
-    };
+    }
+}
 
-    // Child element (subject to 2-child limit)
-    let capped_children = num_children.min(uc.child_limit);
-    let child_element_monthly = if capped_children == 0 {
-        0.0
-    } else {
-        uc.child_element_first + uc.child_element_subsequent * (capped_children as f64 - 1.0).max(0.0)
-    };
+/// UC child element (monthly) — UC Regs 2013 reg.24 / Sch.4 para.4.
+/// Two-child limit (`uc.child_limit`, normally 2) caps the number of qualifying children;
+/// the first counts at the higher `child_element_first` rate and the rest at
+/// `child_element_subsequent`.
+pub(crate) fn uc_child_element_monthly(
+    bu: &BenUnit, people: &[Person], params: &Parameters,
+) -> f64 {
+    let uc = &params.universal_credit;
+    let capped_children = bu.num_children(people).min(uc.child_limit);
+    if capped_children == 0 {
+        return 0.0;
+    }
+    uc.child_element_first
+        + uc.child_element_subsequent * (capped_children as f64 - 1.0).max(0.0)
+}
 
-    // Disabled child element
-    let disabled_child_monthly: f64 = bu.person_ids.iter()
+/// UC disabled child element (monthly) — UC Regs 2013 Sch.4 para.5.
+/// Higher rate for the severely / enhanced-disabled, lower for any other PIP/DLA/AA receipt.
+pub(crate) fn uc_disabled_child_element_monthly(
+    bu: &BenUnit, people: &[Person], params: &Parameters,
+) -> f64 {
+    let uc = &params.universal_credit;
+    bu.person_ids.iter()
         .filter(|&&pid| people[pid].is_child())
         .map(|&pid| {
             let p = &people[pid];
@@ -216,77 +267,97 @@ fn calculate_universal_credit(
                 0.0
             }
         })
-        .sum();
+        .sum()
+}
 
-    // LCWRA element: UC Regs 2013 reg.27 — limited capability for work-related activity.
-    // In FRS, best proxy: PIP daily living (standard or enhanced), DLA care middle/highest,
-    // or ESA support group. LIMITILL is too broad; we use the DLA/PIP flags as the gate.
-    let has_lcwra = bu.person_ids.iter()
+/// True when any adult in the benunit qualifies for the LCWRA element.
+///
+/// UC Regs 2013 reg.27 — limited capability for work-related activity. FRS doesn't carry
+/// the WCA outcome directly, so we use PIP daily living (any rate), DLA care mid/high,
+/// or ESA support group as the proxy (LIMITILL is too broad).
+pub(crate) fn uc_has_lcwra(bu: &BenUnit, people: &[Person]) -> bool {
+    bu.person_ids.iter()
         .filter(|&&pid| people[pid].is_adult())
         .any(|&pid| {
             let p = &people[pid];
             p.pip_dl_std || p.pip_dl_enh || p.dla_care_mid || p.dla_care_high || p.esa_group == 1
-        });
-    let lcwra_monthly = if has_lcwra { uc.lcwra_element } else { 0.0 };
+        })
+}
 
-    // Carer element
+/// UC LCWRA element (monthly) — UC Regs 2013 Sch.4 para.7. Awarded once per benunit.
+pub(crate) fn uc_lcwra_element_monthly(has_lcwra: bool, params: &Parameters) -> f64 {
+    if has_lcwra { params.universal_credit.lcwra_element } else { 0.0 }
+}
+
+/// UC carer element (monthly) — UC Regs 2013 Sch.4 para.8.
+/// Awarded when any adult in the benunit is a CA recipient (`is_carer` flag).
+pub(crate) fn uc_carer_element_monthly(
+    bu: &BenUnit, people: &[Person], params: &Parameters,
+) -> f64 {
     let has_carer = bu.person_ids.iter()
         .filter(|&&pid| people[pid].is_adult())
         .any(|&pid| people[pid].is_carer);
-    let carer_monthly = if has_carer { uc.carer_element } else { 0.0 };
+    if has_carer { params.universal_credit.carer_element } else { 0.0 }
+}
 
-    // Housing element — UC Regs 2013 reg.25/Sch.4.
-    // For private renters, capped at the LHA rate for the household's region and bedroom
-    // entitlement (30th percentile of local rents; SI 2010/2591 / HB Regs 2006 reg.13D).
-    // Social renters are not subject to LHA — the bedroom tax (reg.B13) applies separately
-    // but is not modelled here.
-    let housing_element_monthly = if let Some(cap) = lha_monthly_cap(bu, people, household, params) {
+/// UC housing element (monthly) — UC Regs 2013 reg.25 / Sch.4.
+///
+/// For private renters, capped at the LHA rate for the household's region + bedroom
+/// entitlement (30th-percentile rents; SI 2010/2591 / HB Regs 2006 reg.13D). Social
+/// renters are not subject to LHA — the bedroom tax (reg.B13) applies separately and is
+/// not modelled here.
+pub(crate) fn uc_housing_element_monthly(
+    bu: &BenUnit, people: &[Person], household: &Household, params: &Parameters,
+) -> f64 {
+    if let Some(cap) = lha_monthly_cap(bu, people, household, params) {
         bu.rent_monthly.min(cap)
     } else {
         bu.rent_monthly
-    };
+    }
+}
 
-    let max_amount_monthly = standard_allowance_monthly
-        + child_element_monthly
-        + disabled_child_monthly
-        + lcwra_monthly
-        + carer_monthly
-        + housing_element_monthly;
-    let max_amount_annual = max_amount_monthly * 12.0;
-
-    // Work allowance
-    // UC Regs 2013 reg.22(1)(b)(ii): work allowance only available if claimant has
-    // responsibility for a child/qualifying young person or limited capability for work.
-    // Having housing costs does NOT confer entitlement — it only determines which rate applies.
-    let has_work_allowance = num_children > 0 || has_lcwra;
-    let work_allowance_annual = if has_work_allowance {
-        if has_housing_costs {
-            uc.work_allowance_lower * 12.0
-        } else {
-            uc.work_allowance_higher * 12.0
-        }
+/// UC work allowance (annual) — UC Regs 2013 reg.22.
+///
+/// Available only to claimants with responsibility for a child / qualifying young
+/// person, or with limited capability for work. The lower rate applies when the
+/// benunit has housing costs; the higher rate otherwise. Having housing costs does
+/// **not** confer entitlement to the allowance — it only determines which rate applies.
+pub(crate) fn uc_work_allowance_annual(
+    bu: &BenUnit, people: &[Person], has_lcwra: bool, params: &Parameters,
+) -> f64 {
+    let uc = &params.universal_credit;
+    let has_work_allowance = bu.num_children(people) > 0 || has_lcwra;
+    if !has_work_allowance {
+        return 0.0;
+    }
+    let has_housing_costs = bu.rent_monthly > 0.0;
+    if has_housing_costs {
+        uc.work_allowance_lower * 12.0
     } else {
-        0.0
-    };
+        uc.work_allowance_higher * 12.0
+    }
+}
 
-    // Earned income
+/// Earned income net of income tax, NI, and pension contributions — the figure that
+/// flows into the UC taper after the work allowance. UC Regs 2013 reg.55.
+pub(crate) fn uc_net_earned_income(
+    bu: &BenUnit, people: &[Person], person_results: &[PersonResult],
+) -> f64 {
     let gross_earned: f64 = bu.person_ids.iter()
         .map(|&pid| people[pid].employment_income + people[pid].self_employment_income)
         .sum();
-
     let tax_and_ni: f64 = bu.person_ids.iter()
         .map(|&pid| person_results[pid].income_tax + person_results[pid].national_insurance)
         .sum();
     let pension_contribs: f64 = bu.person_ids.iter()
         .map(|&pid| people[pid].employee_pension_contributions + people[pid].personal_pension_contributions)
         .sum();
+    (gross_earned - tax_and_ni - pension_contribs).max(0.0)
+}
 
-    let net_earned = (gross_earned - tax_and_ni - pension_contribs).max(0.0);
-    let earned_after_allowance = (net_earned - work_allowance_annual).max(0.0);
-    let earned_income_reduction = earned_after_allowance * uc.taper_rate;
-
-    // Unearned income (reduces UC pound-for-pound)
-    let unearned_income: f64 = bu.person_ids.iter()
+/// Unearned income — UC Regs 2013 reg.66. Reduces the UC entitlement pound-for-pound.
+pub(crate) fn uc_unearned_income(bu: &BenUnit, people: &[Person]) -> f64 {
+    bu.person_ids.iter()
         .map(|&pid| {
             let p = &people[pid];
             p.savings_interest_income
@@ -295,12 +366,7 @@ fn calculate_universal_credit(
                 + p.property_income
                 + p.other_income
         })
-        .sum();
-
-    let total_reduction = (earned_income_reduction + unearned_income).min(max_amount_annual);
-    let uc_amount = (max_amount_annual - total_reduction).max(0.0);
-
-    (uc_amount, max_amount_annual, total_reduction)
+        .sum()
 }
 
 /// State Pension calculation following policyengine-uk logic.
@@ -1363,6 +1429,69 @@ mod tests {
         }
     }
 
+    // ── UC element-level tests ────────────────────────────────────────────
+    //
+    // These exercise the extracted `uc_*` functions in isolation so each
+    // element is covered by a focused, fast test that doesn't touch the rest
+    // of the benunit pipeline. Aggregate behaviour is still covered by the
+    // `test_uc_*` tests above.
+
+    #[test]
+    fn uc_standard_allowance_picks_couple_band() {
+        // A 30+30 couple should receive the couple_over25 rate.
+        let params = Parameters::for_year(2025).unwrap();
+        let p1 = { let mut p = Person::default(); p.id = 0; p.age = 30.0; p };
+        let p2 = { let mut p = Person::default(); p.id = 1; p.age = 30.0; p };
+        let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1], ..BenUnit::default() };
+        let amount = uc_standard_allowance_monthly(&bu, &[p1, p2], &params);
+        assert!((amount - params.universal_credit.standard_allowance_couple_over25).abs() < 1e-6);
+    }
+
+    #[test]
+    fn uc_standard_allowance_under_25_single() {
+        let params = Parameters::for_year(2025).unwrap();
+        let mut p = Person::default(); p.age = 22.0;
+        let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0], ..BenUnit::default() };
+        let amount = uc_standard_allowance_monthly(&bu, &[p], &params);
+        assert!((amount - params.universal_credit.standard_allowance_single_under25).abs() < 1e-6);
+    }
+
+    #[test]
+    fn uc_child_element_respects_two_child_limit() {
+        let params = Parameters::for_year(2025).unwrap();
+        let (people3, bu3, _) = make_single_bu(0.0, 3); // 3 children
+        let (people2, bu2, _) = make_single_bu(0.0, 2); // 2 children
+        // Three-child benunit gets the same child element as two-child (limit binds).
+        let amount3 = uc_child_element_monthly(&bu3, &people3, &params);
+        let amount2 = uc_child_element_monthly(&bu2, &people2, &params);
+        assert!((amount3 - amount2).abs() < 1e-6,
+            "Three-child element {amount3} should equal two-child element {amount2} (cap)");
+    }
+
+    #[test]
+    fn uc_child_element_zero_when_no_children() {
+        let params = Parameters::for_year(2025).unwrap();
+        let (people, bu, _) = make_single_bu(0.0, 0);
+        assert_eq!(uc_child_element_monthly(&bu, &people, &params), 0.0);
+    }
+
+    #[test]
+    fn uc_work_allowance_gated_on_children_or_lcwra() {
+        let params = Parameters::for_year(2025).unwrap();
+        let (no_kids_people, no_kids_bu, _) = make_single_bu(0.0, 0);
+        // Childless, no LCWRA → no work allowance regardless of housing costs.
+        assert_eq!(uc_work_allowance_annual(&no_kids_bu, &no_kids_people, false, &params), 0.0);
+
+        // With a child → entitled. With housing costs → lower rate (lower < higher).
+        let (kids_people, kids_bu, _) = make_single_bu(0.0, 1);
+        let with_housing = uc_work_allowance_annual(&kids_bu, &kids_people, false, &params);
+        let mut no_housing_bu = kids_bu.clone();
+        no_housing_bu.rent_monthly = 0.0;
+        let without_housing = uc_work_allowance_annual(&no_housing_bu, &kids_people, false, &params);
+        assert!(with_housing > 0.0);
+        assert!(without_housing > with_housing,
+            "no-housing rate {without_housing} should exceed has-housing rate {with_housing}");
+    }
 }
 
 /// Tests asserting that every parameter has a measurable impact on simulation output.

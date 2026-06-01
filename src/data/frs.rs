@@ -989,6 +989,7 @@ fn assemble_dataset(
                     savings_interest_income: pr.savings_interest_weekly * WEEKS_IN_YEAR,
                     dividend_income: pr.dividend_income_weekly * WEEKS_IN_YEAR,
                     capital_gains: 0.0,
+                    capital_gains_residential_share: 0.0,
                     property_income: pr.property_income_weekly * WEEKS_IN_YEAR,
                     maintenance_income: pr.maintenance_income_weekly * WEEKS_IN_YEAR,
                     miscellaneous_income: pr.miscellaneous_income_weekly * WEEKS_IN_YEAR,
