@@ -519,12 +519,17 @@ fn main() -> anyhow::Result<()> {
             To create clean data from raw surveys, use --extract with --frs, --spi, --lcfs, or --was.")
     };
 
-    // Load policy (if none specified, policy = baseline)
+    // Load policy (if none specified, policy = baseline). Reforms loaded from a
+    // YAML file may also declare a `neutralise:` list, applied to the reform
+    // results below; JSON overlays don't carry one (parameter-only by design).
+    let mut reform: Option<Reform> = None;
     let policy_params = if let Some(json_str) = &cli.policy_json {
         baseline_params.apply_json_overlay(json_str)?
     } else if let Some(path) = &cli.policy {
         let r = Reform::from_file(path, &baseline_params)?;
-        r.parameters
+        let params = r.parameters.clone();
+        reform = Some(r);
+        params
     } else if json_mode {
         baseline_params.clone()
     } else {
@@ -570,7 +575,12 @@ fn main() -> anyhow::Result<()> {
         baseline_params.state_pension.old_basic_pension_weekly,
         cli.year,
     );
-    let reformed = policy_sim.run();
+    let mut reformed = policy_sim.run();
+    // Neutralisation runs after the reform simulation completes, so baseline
+    // results are unaffected. No-op when the reform has an empty `neutralise`.
+    if let Some(r) = reform.as_ref() {
+        r.apply_to_results(&mut reformed, &dataset.benunits, &dataset.households);
+    }
 
     // Persons-only output: per-person tax results, no household/benefit analysis
     if cli.persons_only {

@@ -174,6 +174,10 @@ class CapitalGainsTaxParams(BaseModel):
     annual_exempt_amount: Optional[float] = None
     basic_rate: Optional[float] = None
     higher_rate: Optional[float] = None
+    # Additional rate (in points) on the residential-property slice of taxable
+    # gains; 0.0 from April 2025 onwards. Reforms can set non-zero to model a
+    # re-introduced residential surcharge.
+    residential_surcharge: Optional[float] = None
 
 
 class WealthTaxParams(BaseModel):

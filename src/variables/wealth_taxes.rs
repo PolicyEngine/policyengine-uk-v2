@@ -44,6 +44,12 @@ pub fn calculate_council_tax(
 /// gains data is available (FRS, WAS, SPI do not record realised gains).
 /// The `is_higher_rate` flag should be true if the person's taxable income exceeds
 /// the basic rate limit (i.e. they pay income tax at the higher/additional rate).
+///
+/// Residential property gains receive the configured `residential_surcharge`
+/// on top of the basic / higher rate. The fraction of `capital_gains` that
+/// counts as residential is taken from `Person.capital_gains_residential_share`
+/// (default 0.0). The AEA is allocated pro-rata across the two slices, mirroring
+/// the simplest case where the taxpayer cannot pick which gains the AEA covers.
 pub fn calculate_capital_gains_tax(
     person: &Person,
     params: &CapitalGainsTaxParams,
@@ -56,7 +62,12 @@ pub fn calculate_capital_gains_tax(
     }
 
     let rate = if is_higher_rate { params.higher_rate } else { params.basic_rate };
-    taxable_gains * rate
+    let residential_share = person.capital_gains_residential_share.clamp(0.0, 1.0);
+    let residential_taxable = taxable_gains * residential_share;
+    let non_residential_taxable = taxable_gains - residential_taxable;
+
+    non_residential_taxable * rate
+        + residential_taxable * (rate + params.residential_surcharge)
 }
 
 /// Calculate stamp duty land tax on a property value using marginal bands.
@@ -183,6 +194,7 @@ mod tests {
             annual_exempt_amount: 3000.0,
             basic_rate: 0.18,
             higher_rate: 0.24,
+            residential_surcharge: 0.0,
         };
         let mut p = Person::default();
         p.capital_gains = 8000.0;
@@ -197,6 +209,7 @@ mod tests {
             annual_exempt_amount: 3000.0,
             basic_rate: 0.18,
             higher_rate: 0.24,
+            residential_surcharge: 0.0,
         };
         let mut p = Person::default();
         p.capital_gains = 8000.0;
@@ -211,6 +224,7 @@ mod tests {
             annual_exempt_amount: 3000.0,
             basic_rate: 0.18,
             higher_rate: 0.24,
+            residential_surcharge: 0.0,
         };
         let mut p = Person::default();
         p.capital_gains = 1000.0; // below AEA
@@ -223,10 +237,62 @@ mod tests {
             annual_exempt_amount: 3000.0,
             basic_rate: 0.18,
             higher_rate: 0.24,
+            residential_surcharge: 0.0,
         };
         // No capital_gains set — should produce zero (FRS/WAS default behaviour)
         let p = Person::default();
         assert_eq!(calculate_capital_gains_tax(&p, &params, false), 0.0);
+    }
+
+    #[test]
+    fn cgt_residential_surcharge_full_residential() {
+        // 2023/24-style residential surcharge: higher rate 20%, surcharge 8 pp -> 28% on residential.
+        let params = CapitalGainsTaxParams {
+            annual_exempt_amount: 3000.0,
+            basic_rate: 0.10,
+            higher_rate: 0.20,
+            residential_surcharge: 0.08,
+        };
+        let mut p = Person::default();
+        p.capital_gains = 8000.0;
+        p.capital_gains_residential_share = 1.0;
+        // taxable = 5000; rate = 20% + 8% = 28%; cgt = 1400
+        let cgt = calculate_capital_gains_tax(&p, &params, true);
+        assert!((cgt - 1400.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn cgt_residential_surcharge_mixed() {
+        let params = CapitalGainsTaxParams {
+            annual_exempt_amount: 3000.0,
+            basic_rate: 0.10,
+            higher_rate: 0.20,
+            residential_surcharge: 0.08,
+        };
+        let mut p = Person::default();
+        p.capital_gains = 8000.0;
+        p.capital_gains_residential_share = 0.4; // 40% residential
+        // taxable = 5000; residential portion = 2000 at 28% = 560;
+        // non-residential portion = 3000 at 20% = 600; total = 1160.
+        let cgt = calculate_capital_gains_tax(&p, &params, true);
+        assert!((cgt - 1160.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn cgt_residential_share_clamped() {
+        // Out-of-range shares are clamped to [0, 1].
+        let params = CapitalGainsTaxParams {
+            annual_exempt_amount: 3000.0,
+            basic_rate: 0.10,
+            higher_rate: 0.20,
+            residential_surcharge: 0.08,
+        };
+        let mut p = Person::default();
+        p.capital_gains = 8000.0;
+        p.capital_gains_residential_share = 5.0; // nonsense, clamps to 1.0
+        let cgt = calculate_capital_gains_tax(&p, &params, true);
+        // taxable = 5000; full residential at 28% = 1400
+        assert!((cgt - 1400.0).abs() < 0.01);
     }
 
     #[test]
