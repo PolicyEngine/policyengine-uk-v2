@@ -228,6 +228,8 @@ class Parameters(BaseModel):
     income_related_benefits: Optional[IncomeRelatedBenefitParams] = None
     capital_gains_tax: Optional[CapitalGainsTaxParams] = None
     stamp_duty: Optional[StampDutyParams] = None
+    lbtt: Optional[StampDutyParams] = None
+    ltt:  Optional[StampDutyParams] = None
     wealth_tax: Optional[WealthTaxParams] = None
     labour_supply: Optional[LabourSupplyParams] = None
 

@@ -310,10 +310,15 @@ impl Simulation {
                 .map(|&pid| person_results[pid].capital_gains_tax)
                 .sum();
 
-            // Stamp duty (annualised)
-            let stamp_duty = self.parameters.stamp_duty.as_ref()
-                .map(|p| variables::wealth_taxes::calculate_stamp_duty(hh, p))
-                .unwrap_or(0.0);
+            // Property transaction tax (annualised): SDLT in England/NI, LBTT in
+            // Scotland, LTT in Wales. Stored on the household result as
+            // `stamp_duty` for backwards compatibility.
+            let stamp_duty = variables::wealth_taxes::calculate_property_transaction_tax(
+                hh,
+                self.parameters.stamp_duty.as_ref(),
+                self.parameters.lbtt.as_ref(),
+                self.parameters.ltt.as_ref(),
+            );
 
             // Wealth tax
             let wealth_tax = self.parameters.wealth_tax.as_ref()
