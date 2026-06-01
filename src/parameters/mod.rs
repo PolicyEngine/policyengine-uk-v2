@@ -75,6 +75,9 @@ pub struct Parameters {
     /// for their bedroom entitlement category. Authority: HB Regs 2006 reg.13D.
     #[serde(default)]
     pub lha: Option<LhaParams>,
+    /// Personal Independence Payment weekly rates. Welfare Reform Act 2012 s.79.
+    #[serde(default)]
+    pub pip: Option<PipParams>,
     /// OBR labour supply response elasticities.
     /// When enabled, the Slutsky-decomposition elasticities from OBR (2023) are applied
     /// to estimate intensive-margin labour supply responses to tax-benefit reforms.
@@ -469,6 +472,19 @@ pub struct StampDutyParams {
 }
 
 fn default_purchase_probability() -> f64 { 0.043 }
+
+/// Personal Independence Payment weekly component rates.
+///
+/// PIP has two components — daily living and mobility — each at a standard or
+/// enhanced rate. Welfare Reform Act 2012 s.79 / Social Security (Personal
+/// Independence Payment) Regulations 2013 (SI 2013/377). Rates uprated annually.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipParams {
+    pub daily_living_standard_weekly: f64,
+    pub daily_living_enhanced_weekly: f64,
+    pub mobility_standard_weekly: f64,
+    pub mobility_enhanced_weekly: f64,
+}
 
 /// OBR labour supply response elasticities (Slutsky decomposition).
 ///
