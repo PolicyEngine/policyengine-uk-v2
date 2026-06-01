@@ -40,3 +40,10 @@ jobs:
 
       - name: Test Python wrapper
         run: PYTHONPATH=interfaces/python pytest interfaces/python/tests -q
+
+      - name: Parity (Rust ↔ Python FRS microdata; fails on divergence)
+        # Real divergence beyond tolerance fails CI (exit 1). If the FRS data is
+        # absent (as it is on CI runners), the harness prints a loud
+        # "FRS data unavailable — SKIPPING" message and exits 0 — a skip, NOT a
+        # pass. There is no --no-fail flag.
+        run: PYTHONPATH=interfaces/python python scripts/parity.py
