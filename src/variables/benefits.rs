@@ -102,8 +102,8 @@ pub fn calculate_benunit(
     let passthrough_benefits: f64 = bu.person_ids.iter().map(|&pid| {
         let p = &people[pid];
         pip_daily_living_amount(p, params) + pip_mobility_amount(p, params)
-            + p.dla_care + p.dla_mobility
-            + p.attendance_allowance
+            + dla_care_amount(p, params) + dla_mobility_amount(p, params)
+            + attendance_allowance_amount(p, params)
             + p.esa_contributory
             + p.jsa_contributory
             + p.other_benefits
@@ -378,6 +378,30 @@ pub(crate) fn uc_unearned_income(bu: &BenUnit, people: &[Person]) -> f64 {
 /// New SP started April 2016. SP age is 66. So in fiscal year Y, the cutoff
 /// is: anyone aged > 66 + (Y - 2016) was already SP-age when new SP began,
 /// and is therefore on basic SP. Everyone else on SP is on new SP.
+/// DLA care component amount (annual).
+///
+/// If the person has a recorded amount (`p.dla_care > 0`), returns that amount
+/// unchanged — preserves FRS-recorded values which may reflect partial-year
+/// claims or amounts predating a reform. If the recorded amount is 0 but a rate
+/// flag is set, returns the computed weekly rate × 52 from `params.dla`. Returns
+/// 0 when neither holds or when no DLA parameters are loaded.
+/// SSCBA 1992 Sch.2 para.2.
+pub fn dla_care_amount(p: &Person, params: &Parameters) -> f64 {
+    if p.dla_care > 0.0 {
+        return p.dla_care;
+    }
+    let dla = match &params.dla { Some(p) => p, None => return 0.0 };
+    if p.dla_care_high {
+        dla.care_high_weekly * 52.0
+    } else if p.dla_care_mid {
+        dla.care_mid_weekly * 52.0
+    } else if p.dla_care_low {
+        dla.care_low_weekly * 52.0
+    } else {
+        0.0
+    }
+}
+
 /// PIP daily-living component amount (annual).
 ///
 /// If the person has a recorded amount (`p.pip_daily_living > 0`), returns that
@@ -395,6 +419,36 @@ pub fn pip_daily_living_amount(p: &Person, params: &Parameters) -> f64 {
         pip.daily_living_enhanced_weekly * 52.0
     } else if p.pip_dl_std {
         pip.daily_living_standard_weekly * 52.0
+    } else {
+        0.0
+    }
+}
+
+/// DLA mobility component amount (annual). SSCBA 1992 Sch.2 para.3.
+pub fn dla_mobility_amount(p: &Person, params: &Parameters) -> f64 {
+    if p.dla_mobility > 0.0 {
+        return p.dla_mobility;
+    }
+    let dla = match &params.dla { Some(p) => p, None => return 0.0 };
+    if p.dla_mob_high {
+        dla.mobility_high_weekly * 52.0
+    } else if p.dla_mob_low {
+        dla.mobility_low_weekly * 52.0
+    } else {
+        0.0
+    }
+}
+
+/// Attendance Allowance amount (annual). SSCBA 1992 s.64.
+pub fn attendance_allowance_amount(p: &Person, params: &Parameters) -> f64 {
+    if p.attendance_allowance > 0.0 {
+        return p.attendance_allowance;
+    }
+    let aa = match &params.aa { Some(p) => p, None => return 0.0 };
+    if p.aa_high {
+        aa.high_weekly * 52.0
+    } else if p.aa_low {
+        aa.low_weekly * 52.0
     } else {
         0.0
     }
@@ -2295,6 +2349,122 @@ mod parameter_impact_tests {
         assert!(hb_social > hb_private, "Social renter (no cap) should get more HB than private renter above cap");
         // HB for private renter at £2500/month rent in London should be capped at 1-bed LHA £1200.81/month
         assert!(hb_private <= 1200.81 * 12.0 + 1.0, "HB should not exceed LHA cap for private renter");
+    }
+
+    // ── DLA amount-from-flags ─────────────────────────────────────────────────
+
+    #[test]
+    fn dla_care_high_from_flag() {
+        let params = Parameters::for_year(2025).unwrap();
+        let mut p = Person::default();
+        p.age = 12.0;
+        p.dla_care_high = true;
+        // £110.40 × 52 = £5,740.80
+        assert!((dla_care_amount(&p, &params) - 5_740.80).abs() < 0.01);
+    }
+
+    #[test]
+    fn dla_care_mid_from_flag() {
+        let params = Parameters::for_year(2025).unwrap();
+        let mut p = Person::default();
+        p.age = 12.0;
+        p.dla_care_mid = true;
+        assert!((dla_care_amount(&p, &params) - 3_842.80).abs() < 0.01);
+    }
+
+    #[test]
+    fn dla_mobility_high_from_flag() {
+        let params = Parameters::for_year(2025).unwrap();
+        let mut p = Person::default();
+        p.age = 12.0;
+        p.dla_mob_high = true;
+        // £77.05 × 52 = £4,006.60
+        assert!((dla_mobility_amount(&p, &params) - 4_006.60).abs() < 0.01);
+    }
+
+    #[test]
+    fn dla_recorded_amount_overrides_flag() {
+        let params = Parameters::for_year(2025).unwrap();
+        let mut p = Person::default();
+        p.dla_care_high = true;
+        p.dla_care = 4_000.0;
+        assert_eq!(dla_care_amount(&p, &params), 4_000.0);
+    }
+
+    #[test]
+    fn dla_returns_zero_when_no_flag() {
+        let params = Parameters::for_year(2025).unwrap();
+        let p = Person::default();
+        assert_eq!(dla_care_amount(&p, &params), 0.0);
+        assert_eq!(dla_mobility_amount(&p, &params), 0.0);
+    }
+
+    // ── AA amount-from-flags ──────────────────────────────────────────────────
+
+    #[test]
+    fn aa_high_from_flag() {
+        let params = Parameters::for_year(2025).unwrap();
+        let mut p = Person::default();
+        p.age = 70.0;
+        p.aa_high = true;
+        assert!((attendance_allowance_amount(&p, &params) - 5_740.80).abs() < 0.01);
+    }
+
+    #[test]
+    fn aa_low_from_flag() {
+        let params = Parameters::for_year(2025).unwrap();
+        let mut p = Person::default();
+        p.age = 70.0;
+        p.aa_low = true;
+        assert!((attendance_allowance_amount(&p, &params) - 3_842.80).abs() < 0.01);
+    }
+
+    #[test]
+    fn aa_recorded_amount_overrides_flag() {
+        let params = Parameters::for_year(2025).unwrap();
+        let mut p = Person::default();
+        p.aa_high = true;
+        p.attendance_allowance = 3_000.0;
+        assert_eq!(attendance_allowance_amount(&p, &params), 3_000.0);
+    }
+
+    #[test]
+    fn aa_returns_zero_when_no_flag() {
+        let params = Parameters::for_year(2025).unwrap();
+        let p = Person::default();
+        assert_eq!(attendance_allowance_amount(&p, &params), 0.0);
+    }
+
+    #[test]
+    fn dla_aa_flow_into_passthrough_benefits() {
+        // A child on DLA care high + mobility high should see both flow into
+        // total_benefits, in parallel to the PIP test.
+        let (params, mut p, bu, hh) = base_person_uc();
+        p.age = 10.0;
+        p.dla_care_high = true;
+        p.dla_mob_high = true;
+        let result = calc(&params, &[p], &bu, &hh);
+        // £5,740.80 + £4,006.60 = £9,747.40
+        assert!(result.passthrough_benefits >= 9_747.40 - 0.01,
+                "passthrough_benefits = {}, expected at least 9747.40",
+                result.passthrough_benefits);
+    }
+
+    #[test]
+    fn dla_param_change_flows_through() {
+        // Reform: doubling the DLA care high rate should double the synthetic
+        // household's DLA care amount.
+        let (mut params, mut p, bu, hh) = base_person_uc();
+        p.age = 10.0;
+        p.dla_care_high = true;
+        let baseline = calc(&params, &[p.clone()], &bu, &hh).passthrough_benefits;
+        if let Some(dla) = params.dla.as_mut() {
+            dla.care_high_weekly *= 2.0;
+        }
+        let reformed = calc(&params, &[p], &bu, &hh).passthrough_benefits;
+        // Reform should add another £5,740.80 of DLA care high.
+        assert!((reformed - baseline - 5_740.80).abs() < 0.01,
+                "baseline={}, reformed={}, delta={}", baseline, reformed, reformed - baseline);
     }
 
     // ── PIP amount-from-flags ─────────────────────────────────────────────────
