@@ -125,6 +125,7 @@ fn run_net_incomes(
     params: &Parameters,
     fiscal_year: u32,
     baseline_old_sp: f64,
+    baseline_new_sp: f64,
 ) -> Vec<f64> {
     let sim = Simulation::new_with_baseline_sp(
         people.to_vec(),
@@ -132,6 +133,7 @@ fn run_net_incomes(
         households.to_vec(),
         params.clone(),
         baseline_old_sp,
+        baseline_new_sp,
         fiscal_year,
     );
     sim.run().household_results.iter().map(|hr| hr.net_income).collect()
@@ -170,6 +172,7 @@ fn batch_marginal_retention(
     params: &Parameters,
     fiscal_year: u32,
     baseline_old_sp: f64,
+    baseline_new_sp: f64,
     unperturbed_net: &[f64],
     slots: &[Option<usize>],
     max_slot: usize,
@@ -188,7 +191,7 @@ fn batch_marginal_retention(
 
         let perturbed_net = run_net_incomes(
             &perturbed, benunits, households,
-            params, fiscal_year, baseline_old_sp,
+            params, fiscal_year, baseline_old_sp, baseline_new_sp,
         );
 
         // Each perturbed household has exactly one bumped worker — attribute the
@@ -225,6 +228,7 @@ pub fn apply_labour_supply_responses(
     }
 
     let baseline_old_sp = baseline_params.state_pension.old_basic_pension_weekly;
+    let baseline_new_sp = baseline_params.state_pension.new_state_pension_weekly;
 
     // Assign adult slots (O(n), no simulations)
     let slots = assign_adult_slots(people, households);
@@ -237,18 +241,18 @@ pub fn apply_labour_supply_responses(
     // Unperturbed policy net incomes (the income-effect denominator)
     let unperturbed_policy_net = run_net_incomes(
         people, benunits, households,
-        policy_params, fiscal_year, baseline_old_sp,
+        policy_params, fiscal_year, baseline_old_sp, baseline_new_sp,
     );
 
     // Batched marginal retention: 1 sim per slot per scenario
     let baseline_retention = batch_marginal_retention(
         people, benunits, households,
-        baseline_params, fiscal_year, baseline_old_sp,
+        baseline_params, fiscal_year, baseline_old_sp, baseline_new_sp,
         baseline_net, &slots, max_slot,
     );
     let policy_retention = batch_marginal_retention(
         people, benunits, households,
-        policy_params, fiscal_year, baseline_old_sp,
+        policy_params, fiscal_year, baseline_old_sp, baseline_new_sp,
         &unperturbed_policy_net, &slots, max_slot,
     );
 
