@@ -13,12 +13,12 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            wheel_platform: manylinux_2_17_x86_64.manylinux2014_x86_64
+            wheel_platform: manylinux2014_x86_64.manylinux_2_17_x86_64
             container: quay.io/pypa/manylinux_2_28_x86_64
             macos_deployment_target: ""
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
-            wheel_platform: manylinux_2_17_aarch64.manylinux2014_aarch64
+            wheel_platform: manylinux2014_aarch64.manylinux_2_17_aarch64
             container: quay.io/pypa/manylinux_2_28_aarch64
             macos_deployment_target: ""
           - os: macos-15-intel
