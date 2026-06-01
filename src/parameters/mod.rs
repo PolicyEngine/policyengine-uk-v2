@@ -417,6 +417,12 @@ fn default_band_thresholds() -> Vec<f64> {
 ///
 /// Taxation of Chargeable Gains Act 1992. Rates raised to 18%/24% from October 2024.
 /// AEA reduced to £3,000 from April 2024.
+///
+/// `residential_surcharge` is the additional rate (in points) applied to the
+/// residential-property slice of taxable gains, on top of the basic/higher rate.
+/// Pre-April-2024 the surcharge was 8 pp (yielding 28 % residential vs 20 %
+/// non-residential at higher rate); from April 2025 rates unified so the surcharge
+/// is zero. Reforms can set it to model a re-introduced residential surcharge.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CapitalGainsTaxParams {
     /// Annual exempt amount (£3,000 for 2025/26).
@@ -425,7 +431,13 @@ pub struct CapitalGainsTaxParams {
     pub basic_rate: f64,
     /// CGT rate for higher/additional-rate taxpayers (24% from 2025/26).
     pub higher_rate: f64,
+    /// Additional rate applied to residential-property gains (default 0.0 from
+    /// April 2025; historically up to 0.08 — the 28 % rate in 2023/24).
+    #[serde(default = "default_cgt_residential_surcharge")]
+    pub residential_surcharge: f64,
 }
+
+fn default_cgt_residential_surcharge() -> f64 { 0.0 }
 
 /// Stamp duty land tax bands.
 #[derive(Debug, Clone, Serialize, Deserialize)]

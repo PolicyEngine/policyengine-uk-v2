@@ -33,6 +33,10 @@ harness = false
 name = "reform_neutralise"
 harness = false
 
+[[bench]]
+name = "cgt_surcharge"
+harness = false
+
 [profile.release]
 opt-level = 3
 lto = true
