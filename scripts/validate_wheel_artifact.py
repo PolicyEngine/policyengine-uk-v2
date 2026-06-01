@@ -16,9 +16,42 @@ EXPECTED_BINARY_ARCH = {
     "aarch64-unknown-linux-gnu": ("aarch64", "arm aarch64"),
 }
 
+EXPECTED_PYTHON_TAG = "py3"
+EXPECTED_ABI_TAG = "none"
+
 
 def _wheel_files(dist_dir: Path) -> list[Path]:
     return sorted(dist_dir.glob("*.whl"))
+
+
+def _split_platform_tags(platform_tag: str) -> set[str]:
+    return set(platform_tag.split("."))
+
+
+def _parse_wheel_tag(tag: str) -> set[str]:
+    parts = tag.split("-", 2)
+    if len(parts) != 3:
+        raise ValueError(f"Invalid wheel tag: {tag}")
+
+    python_tag, abi_tag, platform_tag = parts
+    if python_tag != EXPECTED_PYTHON_TAG or abi_tag != EXPECTED_ABI_TAG:
+        raise ValueError(
+            f"Expected wheel tag prefix {EXPECTED_PYTHON_TAG}-{EXPECTED_ABI_TAG}, "
+            f"got {python_tag}-{abi_tag}"
+        )
+    return _split_platform_tags(platform_tag)
+
+
+def _filename_platform_tags(wheel_path: Path) -> set[str]:
+    if wheel_path.suffix != ".whl":
+        raise ValueError(f"Expected a .whl file, got {wheel_path.name}")
+
+    parts = wheel_path.name[:-4].rsplit("-", 3)
+    if len(parts) != 4:
+        raise ValueError(f"Invalid wheel filename: {wheel_path.name}")
+
+    _, python_tag, abi_tag, platform_tag = parts
+    return _parse_wheel_tag(f"{python_tag}-{abi_tag}-{platform_tag}")
 
 
 def _wheel_tags(wheel_path: Path) -> list[str]:
@@ -39,6 +72,17 @@ def _wheel_tags(wheel_path: Path) -> list[str]:
         for line in metadata.splitlines()
         if line.startswith("Tag:")
     ]
+
+
+def _metadata_platform_tags(wheel_path: Path) -> set[str]:
+    platform_tags: set[str] = set()
+    tags = _wheel_tags(wheel_path)
+    if not tags:
+        raise ValueError(f"{wheel_path.name} metadata has no Tag entries")
+
+    for tag in tags:
+        platform_tags.update(_parse_wheel_tag(tag))
+    return platform_tags
 
 
 def _binary_description(binary_path: Path) -> str:
@@ -63,13 +107,20 @@ def validate_wheel_artifact(
         raise ValueError(f"Expected exactly one wheel in {dist_dir}, found {len(wheels)}")
 
     wheel = wheels[0]
-    expected_tag = f"py3-none-{wheel_platform}"
-    if expected_tag not in wheel.name:
-        raise ValueError(f"{wheel.name} does not contain expected tag {expected_tag}")
+    expected_platform_tags = _split_platform_tags(wheel_platform)
+    filename_platform_tags = _filename_platform_tags(wheel)
+    if filename_platform_tags != expected_platform_tags:
+        raise ValueError(
+            f"{wheel.name} filename platform tags {sorted(filename_platform_tags)} "
+            f"do not match expected {sorted(expected_platform_tags)}"
+        )
 
-    tags = _wheel_tags(wheel)
-    if expected_tag not in tags:
-        raise ValueError(f"{wheel.name} metadata tags {tags} do not include {expected_tag}")
+    metadata_platform_tags = _metadata_platform_tags(wheel)
+    if metadata_platform_tags != expected_platform_tags:
+        raise ValueError(
+            f"{wheel.name} metadata platform tags {sorted(metadata_platform_tags)} "
+            f"do not match expected {sorted(expected_platform_tags)}"
+        )
 
     binary_path = package_dir / "bin" / "policyengine-uk-rust"
     if not binary_path.is_file():
