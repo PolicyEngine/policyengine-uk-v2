@@ -557,10 +557,12 @@ fn write_microdata_csv_households<W: std::io::Write>(
         // ── Baseline outputs ──
         "baseline_net_income", "baseline_gross_income",
         "baseline_total_tax", "baseline_total_benefits",
+        "baseline_property_transaction_tax",
         "baseline_equivalisation_factor", "baseline_equivalised_net_income",
         // ── Reform outputs ──
         "reform_net_income", "reform_gross_income",
         "reform_total_tax", "reform_total_benefits",
+        "reform_property_transaction_tax",
         "reform_equivalisation_factor", "reform_equivalised_net_income",
     ])?;
 
@@ -580,6 +582,7 @@ fn write_microdata_csv_households<W: std::io::Write>(
             format!("{:.2}", bl.gross_income),
             format!("{:.2}", bl.total_tax),
             format!("{:.2}", bl.total_benefits),
+            format!("{:.2}", bl.stamp_duty),
             format!("{:.4}", bl.equivalisation_factor),
             format!("{:.2}", bl.equivalised_net_income),
             // Reform
@@ -587,6 +590,7 @@ fn write_microdata_csv_households<W: std::io::Write>(
             format!("{:.2}", rf.gross_income),
             format!("{:.2}", rf.total_tax),
             format!("{:.2}", rf.total_benefits),
+            format!("{:.2}", rf.stamp_duty),
             format!("{:.4}", rf.equivalisation_factor),
             format!("{:.2}", rf.equivalised_net_income),
         ])?;

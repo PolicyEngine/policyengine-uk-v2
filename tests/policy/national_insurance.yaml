@@ -1,0 +1,33 @@
+# Employee NI baseline cases.
+
+- name: Below primary threshold — no employee NI
+  period: 2025
+  absolute_error_margin: 0
+  input:
+    employment_income: 12_000
+  output:
+    baseline_employee_ni: 0
+
+- name: Inside main band
+  period: 2025
+  absolute_error_margin: 1
+  input:
+    employment_income: 25_000
+  output:
+    baseline_employee_ni: 994
+
+- name: Above UEL — partial higher-band tier
+  period: 2025
+  absolute_error_margin: 1
+  input:
+    employment_income: 50_000
+  output:
+    baseline_employee_ni: 2994
+
+- name: Well above UEL
+  period: 2025
+  absolute_error_margin: 1
+  input:
+    employment_income: 80_000
+  output:
+    baseline_employee_ni: 3611

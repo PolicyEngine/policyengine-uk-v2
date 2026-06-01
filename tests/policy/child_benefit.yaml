@@ -1,0 +1,31 @@
+# Child Benefit baseline cases (full-situation form).
+
+- name: Two children, modest income — full Child Benefit
+  period: 2025
+  absolute_error_margin: 1
+  input:
+    people:
+      p1: { age: 38, employment_income: 30_000 }
+      p2: { age: 36, employment_income: 15_000 }
+      c1: { age: 8 }
+      c2: { age: 4 }
+    benunits:
+      b: { members: [p1, p2, c1, c2] }
+    households:
+      h: { members: [p1, p2, c1, c2], region: London }
+  output:
+    baseline_child_benefit: 2252
+
+- name: No children — no Child Benefit
+  period: 2025
+  absolute_error_margin: 0
+  input:
+    people:
+      p1: { age: 35, employment_income: 30_000 }
+      p2: { age: 33, employment_income: 15_000 }
+    benunits:
+      b: { members: [p1, p2] }
+    households:
+      h: { members: [p1, p2], region: London }
+  output:
+    baseline_child_benefit: 0

@@ -56,9 +56,17 @@ pub struct Parameters {
     /// Capital gains tax. TCGA 1992; 18%/24% from October 2024 Budget.
     #[serde(default)]
     pub capital_gains_tax: Option<CapitalGainsTaxParams>,
-    /// Stamp duty land tax on residential property. FA 2003 s.55.
+    /// Stamp duty land tax on residential property (England + NI). FA 2003 s.55.
     #[serde(default)]
     pub stamp_duty: Option<StampDutyParams>,
+    /// Land and Buildings Transaction Tax — Scotland's devolved replacement for
+    /// SDLT. Land and Buildings Transaction Tax (Scotland) Act 2013, s.24.
+    #[serde(default)]
+    pub lbtt: Option<StampDutyParams>,
+    /// Land Transaction Tax — Wales's devolved replacement for SDLT.
+    /// Land Transaction Tax and Anti-avoidance of Devolved Taxes (Wales) Act 2017.
+    #[serde(default)]
+    pub ltt: Option<StampDutyParams>,
     /// Annual wealth tax (hypothetical — disabled by default).
     #[serde(default)]
     pub wealth_tax: Option<WealthTaxParams>,
@@ -75,6 +83,9 @@ pub struct Parameters {
     /// SSCBA 1992 s.64.
     #[serde(default)]
     pub aa: Option<AaParams>,
+    /// Personal Independence Payment weekly rates. Welfare Reform Act 2012 s.79.
+    #[serde(default)]
+    pub pip: Option<PipParams>,
     /// OBR labour supply response elasticities.
     /// When enabled, the Slutsky-decomposition elasticities from OBR (2023) are applied
     /// to estimate intensive-margin labour supply responses to tax-benefit reforms.
@@ -494,6 +505,19 @@ pub struct DlaParams {
 pub struct AaParams {
     pub low_weekly: f64,
     pub high_weekly: f64,
+}
+
+/// Personal Independence Payment weekly component rates.
+///
+/// PIP has two components — daily living and mobility — each at a standard or
+/// enhanced rate. Welfare Reform Act 2012 s.79 / Social Security (Personal
+/// Independence Payment) Regulations 2013 (SI 2013/377). Rates uprated annually.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipParams {
+    pub daily_living_standard_weekly: f64,
+    pub daily_living_enhanced_weekly: f64,
+    pub mobility_standard_weekly: f64,
+    pub mobility_enhanced_weekly: f64,
 }
 
 /// OBR labour supply response elasticities (Slutsky decomposition).
