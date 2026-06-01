@@ -1,0 +1,25 @@
+# Example reform: switch off the means-tested benefit suite.
+#
+# `neutralise:` is a top-level key on the reform YAML — the listed variables
+# are zeroed in the *reform* simulation results after the engine has finished
+# computing them, mirroring policyengine_uk's `disable_simulated_benefits`
+# reform. Aggregate fields (total_benefits, net_income, equivalised_*) are
+# delta-adjusted to stay consistent.
+#
+# Supported names today: universal_credit, child_benefit, pension_credit,
+# housing_benefit, child_tax_credit, working_tax_credit, income_support,
+# esa_income_related, jsa_income_based, carers_allowance,
+# scottish_child_payment, passthrough_benefits.
+#
+# `neutralise:` composes with parameter overrides — list both in the same
+# file as needed.
+
+neutralise:
+  - universal_credit
+  - housing_benefit
+  - pension_credit
+  - child_tax_credit
+  - working_tax_credit
+  - income_support
+  - esa_income_related
+  - jsa_income_based
