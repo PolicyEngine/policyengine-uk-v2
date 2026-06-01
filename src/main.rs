@@ -519,12 +519,17 @@ fn main() -> anyhow::Result<()> {
             To create clean data from raw surveys, use --extract with --frs, --spi, --lcfs, or --was.")
     };
 
-    // Load policy (if none specified, policy = baseline)
+    // Load policy (if none specified, policy = baseline). Reforms loaded from a
+    // YAML file may also declare a `neutralise:` list, applied to the reform
+    // results below; JSON overlays don't carry one (parameter-only by design).
+    let mut reform: Option<Reform> = None;
     let policy_params = if let Some(json_str) = &cli.policy_json {
         baseline_params.apply_json_overlay(json_str)?
     } else if let Some(path) = &cli.policy {
         let r = Reform::from_file(path, &baseline_params)?;
-        r.parameters
+        let params = r.parameters.clone();
+        reform = Some(r);
+        params
     } else if json_mode {
         baseline_params.clone()
     } else {
@@ -570,7 +575,12 @@ fn main() -> anyhow::Result<()> {
         baseline_params.state_pension.old_basic_pension_weekly,
         cli.year,
     );
-    let reformed = policy_sim.run();
+    let mut reformed = policy_sim.run();
+    // Neutralisation runs after the reform simulation completes, so baseline
+    // results are unaffected. No-op when the reform has an empty `neutralise`.
+    if let Some(r) = reform.as_ref() {
+        r.apply_to_results(&mut reformed, &dataset.benunits, &dataset.households);
+    }
 
     // Persons-only output: per-person tax results, no household/benefit analysis
     if cli.persons_only {
@@ -587,9 +597,15 @@ fn main() -> anyhow::Result<()> {
                 baseline_income_tax: f64,
                 baseline_employee_ni: f64,
                 baseline_employer_ni: f64,
+                baseline_ni_class1_employee: f64,
+                baseline_ni_class2: f64,
+                baseline_ni_class4: f64,
                 reform_income_tax: f64,
                 reform_employee_ni: f64,
                 reform_employer_ni: f64,
+                reform_ni_class1_employee: f64,
+                reform_ni_class2: f64,
+                reform_ni_class4: f64,
             }
             let mut records: Vec<PersonRecord> = Vec::new();
             for hh in &dataset.households {
@@ -608,9 +624,15 @@ fn main() -> anyhow::Result<()> {
                         baseline_income_tax: bp.income_tax,
                         baseline_employee_ni: bp.national_insurance,
                         baseline_employer_ni: bp.employer_ni,
+                        baseline_ni_class1_employee: bp.ni_class1_employee,
+                        baseline_ni_class2: bp.ni_class2,
+                        baseline_ni_class4: bp.ni_class4,
                         reform_income_tax: rp.income_tax,
                         reform_employee_ni: rp.national_insurance,
                         reform_employer_ni: rp.employer_ni,
+                        reform_ni_class1_employee: rp.ni_class1_employee,
+                        reform_ni_class2: rp.ni_class2,
+                        reform_ni_class4: rp.ni_class4,
                     });
                 }
             }

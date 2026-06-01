@@ -18,6 +18,21 @@ anyhow = "1"
 smartcore = "0.4"
 rand = "0.8"
 
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "branch"
+harness = false
+
+[[bench]]
+name = "parameter_tree"
+harness = false
+
+[[bench]]
+name = "reform_neutralise"
+harness = false
+
 [profile.release]
 opt-level = 3
 lto = true
