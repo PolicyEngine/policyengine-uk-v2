@@ -8,7 +8,18 @@ use crate::variables;
 #[derive(Debug, Clone, Default)]
 pub struct PersonResult {
     pub income_tax: f64,
+    /// Sum of `ni_class1_employee + ni_class2 + ni_class4`. Kept for back-compat
+    /// with consumers that don't care about the per-class split.
     pub national_insurance: f64,
+    /// Class 1 primary (employee) — SSCBA 1992 s.6, on employment_income between
+    /// the primary threshold and UEL at the main rate, above UEL at the additional rate.
+    pub ni_class1_employee: f64,
+    /// Class 2 — SSCBA 1992 s.11, flat-weekly self-employed contribution above the
+    /// small-profits threshold. Abolished from 2024/25 (rate defaults to zero).
+    pub ni_class2: f64,
+    /// Class 4 — SSCBA 1992 s.15, profit-based self-employed contribution.
+    pub ni_class4: f64,
+    /// Class 1 secondary (employer).
     pub employer_ni: f64,
     pub total_income: f64,
     pub taxable_income: f64,

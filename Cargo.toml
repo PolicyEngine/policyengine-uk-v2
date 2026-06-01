@@ -22,6 +22,10 @@ rand = "0.8"
 criterion = "0.5"
 
 [[bench]]
+name = "branch"
+harness = false
+
+[[bench]]
 name = "parameter_tree"
 harness = false
 
