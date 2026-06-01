@@ -310,19 +310,29 @@ impl Simulation {
                 .map(|&pid| person_results[pid].capital_gains_tax)
                 .sum();
 
-            // Stamp duty (annualised)
-            let stamp_duty = self.parameters.stamp_duty.as_ref()
-                .map(|p| variables::wealth_taxes::calculate_stamp_duty(hh, p))
-                .unwrap_or(0.0);
+            // Property transaction tax (annualised): SDLT in England/NI, LBTT in
+            // Scotland, LTT in Wales. Stored on the household result as
+            // `stamp_duty` for backwards compatibility.
+            let stamp_duty = variables::wealth_taxes::calculate_property_transaction_tax(
+                hh,
+                self.parameters.stamp_duty.as_ref(),
+                self.parameters.lbtt.as_ref(),
+                self.parameters.ltt.as_ref(),
+            );
 
             // Wealth tax
             let wealth_tax = self.parameters.wealth_tax.as_ref()
                 .map(|p| variables::wealth_taxes::calculate_wealth_tax(hh, p))
                 .unwrap_or(0.0);
 
-            // Council tax (calculated from parameters for reform modelling)
+            // Council tax (calculated from parameters for reform modelling).
+            // Applies the single-person discount when the household has exactly
+            // one adult (18+) — Local Government Finance Act 1992 s.11(1)(a).
+            let adult_count = hh.person_ids.iter()
+                .filter(|&&pid| self.people[pid].is_adult())
+                .count();
             let council_tax_calculated = self.parameters.council_tax.as_ref()
-                .map(|p| variables::wealth_taxes::calculate_council_tax(hh, p))
+                .map(|p| variables::wealth_taxes::calculate_council_tax(hh, p, adult_count == 1))
                 .unwrap_or(hh.council_tax);
 
             let total_tax = direct_tax + vat + fuel_duty + alcohol_duty + tobacco_duty

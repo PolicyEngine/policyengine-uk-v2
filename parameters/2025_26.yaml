@@ -247,7 +247,7 @@ capital_gains_tax:
   realisation_rate: 0.50
 
 stamp_duty:
-  # Finance Act 2003 s.55, as amended; bands from 1 April 2025
+  # SDLT — England + NI. Finance Act 2003 s.55, as amended; bands from 1 April 2025
   bands:
     - { rate: 0.0, threshold: 0 }
     - { rate: 0.02, threshold: 125001 }
@@ -256,12 +256,59 @@ stamp_duty:
     - { rate: 0.12, threshold: 1500001 }
   annual_purchase_probability: 0.043  # ~1/23 year average holding period
 
+lbtt:
+  # LBTT — Scotland's devolved replacement for SDLT. Land and Buildings Transaction
+  # Tax (Tax Rates and Tax Bands) (Scotland) Order 2015 (SSI 2015/126), Schedule.
+  # Residential primary-residence bands.
+  bands:
+    - { rate: 0.0,  threshold: 0 }
+    - { rate: 0.02, threshold: 145001 }
+    - { rate: 0.05, threshold: 250001 }
+    - { rate: 0.10, threshold: 325001 }
+    - { rate: 0.12, threshold: 750001 }
+  annual_purchase_probability: 0.043
+
+ltt:
+  # LTT — Wales's devolved replacement for SDLT. Land Transaction Tax (Tax Bands
+  # and Tax Rates) (Wales) Regulations 2018 (WSI 2018/128), Schedule.
+  # Residential primary-residence bands.
+  bands:
+    - { rate: 0.0,   threshold: 0 }
+    - { rate: 0.035, threshold: 180001 }
+    - { rate: 0.05,  threshold: 250001 }
+    - { rate: 0.075, threshold: 400001 }
+    - { rate: 0.10,  threshold: 750001 }
+    - { rate: 0.12,  threshold: 1500001 }
+  annual_purchase_probability: 0.043
+
 wealth_tax:
   # Hypothetical — no current UK legislation. Disabled by default.
   # Wealth Tax Commission (2020) proposed 1% above £10m.
   enabled: false
   threshold: 10000000.0
   rate: 0.01
+
+dla:
+  # Disability Living Allowance weekly rates from 7 April 2025.
+  # SSCBA 1992 Sch.2 paras 2–3. Source: gov.uk/dla-rates.
+  care_low_weekly:     29.20
+  care_mid_weekly:     73.90
+  care_high_weekly:   110.40
+  mobility_low_weekly: 29.20
+  mobility_high_weekly: 77.05
+
+aa:
+  # Attendance Allowance weekly rates from 7 April 2025.
+  # SSCBA 1992 s.64. Source: gov.uk/attendance-allowance/what-youll-get.
+  low_weekly:   73.90
+  high_weekly: 110.40
+pip:
+  # Personal Independence Payment weekly rates from 7 April 2025.
+  # Welfare Reform Act 2012 s.79 / SI 2013/377. Source: gov.uk/pip/what-youll-get.
+  daily_living_standard_weekly: 73.90
+  daily_living_enhanced_weekly: 110.40
+  mobility_standard_weekly:     29.20
+  mobility_enhanced_weekly:     77.05
 
 lha:
   # Local Housing Allowance rates for 2025/26.
