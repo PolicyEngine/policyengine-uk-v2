@@ -74,6 +74,9 @@ pub fn calculate(person: &Person, params: &Parameters, state_pension: f64) -> Pe
     PersonResult {
         income_tax,
         national_insurance,
+        ni_class1_employee: ni_class1,
+        ni_class2,
+        ni_class4,
         employer_ni: ni_employer,
         total_income,
         taxable_income,
@@ -436,6 +439,79 @@ mod tests {
         let params = Parameters::for_year(2025).unwrap();
         let result = calculate(&test_person(50000.0), &params, 0.0);
         assert!(result.employer_ni > 0.0);
+    }
+
+    #[test]
+    fn test_ni_class_breakdown_sums_to_total() {
+        // A person with both employment and self-employment income. Each NI
+        // class must hold the *correct* slice — pinning exact values guards
+        // against the class-1/class-4 fields being swapped or mislabelled,
+        // which a sum-only check could not catch.
+        let params = Parameters::for_year(2025).unwrap();
+        let mut p = Person::default();
+        p.age = 35.0;
+        p.employment_income = 30_000.0;
+        p.self_employment_income = 20_000.0;
+        p.hours_worked = 37.5 * 52.0;
+
+        let result = calculate(&p, &params, 0.0);
+
+        // Class 1 employee: (30,000 - 12,570) × 8% = £1,394.40
+        assert!((result.ni_class1_employee - 1_394.40).abs() < 0.01,
+            "Class 1 employee: expected 1394.40, got {:.2}", result.ni_class1_employee);
+        // Class 2: abolished from 2024/25 — flat rate is 0 in 2025/26.
+        assert!(result.ni_class2.abs() < 0.01,
+            "Class 2: expected 0.00, got {:.2}", result.ni_class2);
+        // Class 4: (20,000 - 12,570) × 6% = £445.80
+        assert!((result.ni_class4 - 445.80).abs() < 0.01,
+            "Class 4: expected 445.80, got {:.2}", result.ni_class4);
+
+        // The three classes must sum to the back-compat `national_insurance` total.
+        let sum = result.ni_class1_employee + result.ni_class2 + result.ni_class4;
+        assert!(
+            (sum - result.national_insurance).abs() < 0.01,
+            "Class breakdown {sum:.2} should equal national_insurance {:.2}",
+            result.national_insurance,
+        );
+        assert!((result.national_insurance - 1_840.20).abs() < 0.01,
+            "national_insurance: expected 1840.20, got {:.2}", result.national_insurance);
+
+        // Employer NI is reported separately from the employee total.
+        assert!(result.employer_ni > 0.0);
+    }
+
+    #[test]
+    fn test_ni_breakdown_employment_only() {
+        // A pure employee has Class 1 only; the self-employed classes stay
+        // zero and the whole NI total lands in `ni_class1_employee`.
+        let params = Parameters::for_year(2025).unwrap();
+        let result = calculate(&test_person(30_000.0), &params, 0.0);
+
+        assert!(result.ni_class1_employee > 0.0, "Class 1 employee should be > 0");
+        assert!(result.ni_class2.abs() < 0.01, "Class 2 should be 0 for an employee");
+        assert!(result.ni_class4.abs() < 0.01, "Class 4 should be 0 for an employee");
+        assert!(
+            (result.ni_class1_employee - result.national_insurance).abs() < 0.01,
+            "All NI should be Class 1 for a pure employee",
+        );
+    }
+
+    #[test]
+    fn test_ni_breakdown_self_employment_only() {
+        // A pure self-employed person has Class 2/4 only; Class 1 employee
+        // stays zero. Guards against employment NI leaking into the SE classes.
+        let params = Parameters::for_year(2025).unwrap();
+        let result = calculate(&test_person_se(40_000.0), &params, 0.0);
+
+        assert!(result.ni_class1_employee.abs() < 0.01,
+            "Class 1 employee should be 0 for a pure self-employed person");
+        // Class 4: (40,000 - 12,570) × 6% = £1,645.80
+        assert!((result.ni_class4 - 1_645.80).abs() < 0.01,
+            "Class 4: expected 1645.80, got {:.2}", result.ni_class4);
+        assert!(
+            (result.ni_class2 + result.ni_class4 - result.national_insurance).abs() < 0.01,
+            "All NI should be Class 2 + Class 4 for a pure self-employed person",
+        );
     }
 
     #[test]

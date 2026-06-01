@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+mod tree;
+#[allow(unused_imports)]
+pub use tree::ParameterTree;
+
 /// UK tax-benefit system parameters for a given fiscal year.
 ///
 /// All monetary values are annual unless noted otherwise.

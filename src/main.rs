@@ -597,9 +597,15 @@ fn main() -> anyhow::Result<()> {
                 baseline_income_tax: f64,
                 baseline_employee_ni: f64,
                 baseline_employer_ni: f64,
+                baseline_ni_class1_employee: f64,
+                baseline_ni_class2: f64,
+                baseline_ni_class4: f64,
                 reform_income_tax: f64,
                 reform_employee_ni: f64,
                 reform_employer_ni: f64,
+                reform_ni_class1_employee: f64,
+                reform_ni_class2: f64,
+                reform_ni_class4: f64,
             }
             let mut records: Vec<PersonRecord> = Vec::new();
             for hh in &dataset.households {
@@ -618,9 +624,15 @@ fn main() -> anyhow::Result<()> {
                         baseline_income_tax: bp.income_tax,
                         baseline_employee_ni: bp.national_insurance,
                         baseline_employer_ni: bp.employer_ni,
+                        baseline_ni_class1_employee: bp.ni_class1_employee,
+                        baseline_ni_class2: bp.ni_class2,
+                        baseline_ni_class4: bp.ni_class4,
                         reform_income_tax: rp.income_tax,
                         reform_employee_ni: rp.national_insurance,
                         reform_employer_ni: rp.employer_ni,
+                        reform_ni_class1_employee: rp.ni_class1_employee,
+                        reform_ni_class2: rp.ni_class2,
+                        reform_ni_class4: rp.ni_class4,
                     });
                 }
             }
