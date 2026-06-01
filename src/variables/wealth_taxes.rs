@@ -1,4 +1,4 @@
-use crate::engine::entities::{Household, Person};
+use crate::engine::entities::{Household, Person, Region};
 use crate::parameters::{CouncilTaxParams, CapitalGainsTaxParams, StampDutyParams, WealthTaxParams};
 
 /// Determine the council tax band (0=A .. 7=H) from a 1991 property value.
@@ -103,6 +103,30 @@ fn marginal_sdlt(property_value: f64, bands: &[crate::parameters::StampDutyBand]
 pub fn calculate_stamp_duty(hh: &Household, params: &StampDutyParams) -> f64 {
     let sdlt = marginal_sdlt(hh.main_residence_value, &params.bands);
     sdlt * params.annual_purchase_probability
+}
+
+/// Calculate annualised property-transaction tax for a household, dispatching
+/// to the regime that applies in the household's region.
+///
+/// - Scotland → LBTT (Land and Buildings Transaction Tax (Scotland) Act 2013)
+/// - Wales    → LTT  (Land Transaction Tax and Anti-avoidance of Devolved Taxes (Wales) Act 2017)
+/// - elsewhere (England + NI) → SDLT (Finance Act 2003 s.55)
+///
+/// Each parameter argument is optional; the function returns 0.0 when the
+/// regime that would apply is unset (e.g. no LBTT params loaded for a Scottish
+/// household), matching the existing behaviour for missing SDLT params.
+pub fn calculate_property_transaction_tax(
+    hh: &Household,
+    sdlt: Option<&StampDutyParams>,
+    lbtt: Option<&StampDutyParams>,
+    ltt:  Option<&StampDutyParams>,
+) -> f64 {
+    let params = match hh.region {
+        Region::Scotland => lbtt,
+        Region::Wales    => ltt,
+        _                => sdlt,
+    };
+    params.map(|p| calculate_stamp_duty(hh, p)).unwrap_or(0.0)
 }
 
 /// Calculate annual wealth tax for a household.
@@ -313,6 +337,126 @@ mod tests {
         // total = £15,000
         let sdlt = calculate_stamp_duty(&hh, &params);
         assert!((sdlt - 15000.0).abs() < 1.0);
+    }
+
+    fn make_sdlt() -> StampDutyParams {
+        StampDutyParams {
+            bands: vec![
+                StampDutyBand { rate: 0.0,  threshold: 0.0 },
+                StampDutyBand { rate: 0.02, threshold: 125001.0 },
+                StampDutyBand { rate: 0.05, threshold: 250001.0 },
+                StampDutyBand { rate: 0.10, threshold: 925001.0 },
+                StampDutyBand { rate: 0.12, threshold: 1500001.0 },
+            ],
+            annual_purchase_probability: 1.0,
+        }
+    }
+
+    fn make_lbtt() -> StampDutyParams {
+        // Scotland 2025/26 (residential).
+        StampDutyParams {
+            bands: vec![
+                StampDutyBand { rate: 0.0,  threshold: 0.0 },
+                StampDutyBand { rate: 0.02, threshold: 145001.0 },
+                StampDutyBand { rate: 0.05, threshold: 250001.0 },
+                StampDutyBand { rate: 0.10, threshold: 325001.0 },
+                StampDutyBand { rate: 0.12, threshold: 750001.0 },
+            ],
+            annual_purchase_probability: 1.0,
+        }
+    }
+
+    fn make_ltt() -> StampDutyParams {
+        // Wales 2025/26 (residential primary).
+        StampDutyParams {
+            bands: vec![
+                StampDutyBand { rate: 0.0,    threshold: 0.0 },
+                StampDutyBand { rate: 0.035,  threshold: 180001.0 },
+                StampDutyBand { rate: 0.05,   threshold: 250001.0 },
+                StampDutyBand { rate: 0.075,  threshold: 400001.0 },
+                StampDutyBand { rate: 0.10,   threshold: 750001.0 },
+                StampDutyBand { rate: 0.12,   threshold: 1500001.0 },
+            ],
+            annual_purchase_probability: 1.0,
+        }
+    }
+
+    #[test]
+    fn property_tax_routes_to_lbtt_in_scotland() {
+        let mut hh = Household::default();
+        hh.main_residence_value = 500_000.0;
+        hh.region = Region::Scotland;
+        // LBTT on £500k:
+        //   0% on first £145k = £0
+        //   2% on £145k-£250k (£105k) = £2,100
+        //   5% on £250k-£325k (£75k)  = £3,750
+        //  10% on £325k-£500k (£175k) = £17,500
+        //  total                      = £23,350
+        let tax = calculate_property_transaction_tax(
+            &hh, Some(&make_sdlt()), Some(&make_lbtt()), Some(&make_ltt())
+        );
+        assert!((tax - 23_350.0).abs() < 1.0, "got {}", tax);
+    }
+
+    #[test]
+    fn property_tax_routes_to_ltt_in_wales() {
+        let mut hh = Household::default();
+        hh.main_residence_value = 500_000.0;
+        hh.region = Region::Wales;
+        // LTT on £500k:
+        //   0%   on first £180k                = £0
+        //   3.5% on £180k-£250k (£70k)         = £2,450
+        //   5%   on £250k-£400k (£150k)        = £7,500
+        //   7.5% on £400k-£500k (£100k)        = £7,500
+        //   total                               = £17,450
+        let tax = calculate_property_transaction_tax(
+            &hh, Some(&make_sdlt()), Some(&make_lbtt()), Some(&make_ltt())
+        );
+        assert!((tax - 17_450.0).abs() < 1.0, "got {}", tax);
+    }
+
+    #[test]
+    fn property_tax_routes_to_sdlt_outside_scotland_and_wales() {
+        let mut hh = Household::default();
+        hh.main_residence_value = 500_000.0;
+        hh.region = Region::London;
+        // Same as the existing stamp_duty_marginal test: £15,000.
+        let tax = calculate_property_transaction_tax(
+            &hh, Some(&make_sdlt()), Some(&make_lbtt()), Some(&make_ltt())
+        );
+        assert!((tax - 15_000.0).abs() < 1.0, "got {}", tax);
+    }
+
+    #[test]
+    fn property_tax_returns_zero_when_devolved_params_missing() {
+        let mut hh = Household::default();
+        hh.main_residence_value = 500_000.0;
+        hh.region = Region::Scotland;
+        // No LBTT params loaded → tax is 0 (regime doesn't fall back to SDLT).
+        let tax = calculate_property_transaction_tax(&hh, Some(&make_sdlt()), None, None);
+        assert_eq!(tax, 0.0);
+    }
+
+    #[test]
+    fn lbtt_zero_below_nil_band() {
+        let mut hh = Household::default();
+        hh.main_residence_value = 100_000.0; // below £145k LBTT nil-band ceiling
+        hh.region = Region::Scotland;
+        let tax = calculate_property_transaction_tax(
+            &hh, Some(&make_sdlt()), Some(&make_lbtt()), Some(&make_ltt())
+        );
+        assert_eq!(tax, 0.0);
+    }
+
+    #[test]
+    fn ltt_zero_below_nil_band() {
+        let mut hh = Household::default();
+        hh.main_residence_value = 150_000.0; // below £180k LTT nil-band ceiling
+        hh.region = Region::Wales;
+        let tax = calculate_property_transaction_tax(
+            &hh, Some(&make_sdlt()), Some(&make_lbtt()), Some(&make_ltt())
+        );
+        assert_eq!(tax, 0.0);
     }
 
     #[test]

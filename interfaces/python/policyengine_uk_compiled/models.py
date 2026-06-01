@@ -186,6 +186,42 @@ class WealthTaxParams(BaseModel):
     rate: Optional[float] = None
 
 
+class DlaParams(BaseModel):
+    """Disability Living Allowance weekly rates.
+
+    SSCBA 1992 Sch.2 paras 2–3. Recipients are identified by the
+    `dla_care_low` / `dla_care_mid` / `dla_care_high` and
+    `dla_mob_low` / `dla_mob_high` flags on each Person.
+    """
+    care_low_weekly:     Optional[float] = None
+    care_mid_weekly:     Optional[float] = None
+    care_high_weekly:    Optional[float] = None
+    mobility_low_weekly: Optional[float] = None
+    mobility_high_weekly: Optional[float] = None
+
+
+class AaParams(BaseModel):
+    """Attendance Allowance weekly rates.
+
+    SSCBA 1992 s.64. Recipients are identified by the `aa_low` / `aa_high`
+    flags on each Person.
+    """
+    low_weekly:  Optional[float] = None
+    high_weekly: Optional[float] = None
+class PipParams(BaseModel):
+    """Personal Independence Payment weekly rates.
+
+    Welfare Reform Act 2012 s.79; SI 2013/377. Set any of the four weekly
+    rates to model PIP-rate reforms; recipients are identified by the
+    `pip_dl_std` / `pip_dl_enh` / `pip_mob_std` / `pip_mob_enh` flags on
+    each Person.
+    """
+    daily_living_standard_weekly: Optional[float] = None
+    daily_living_enhanced_weekly: Optional[float] = None
+    mobility_standard_weekly:     Optional[float] = None
+    mobility_enhanced_weekly:     Optional[float] = None
+
+
 class LabourSupplyParams(BaseModel):
     """OBR labour supply elasticities (Slutsky decomposition).
 
@@ -242,6 +278,11 @@ class Parameters(BaseModel):
     council_tax: Optional[CouncilTaxParams] = None
     capital_gains_tax: Optional[CapitalGainsTaxParams] = None
     stamp_duty: Optional[StampDutyParams] = None
+    dla:  Optional["DlaParams"] = None
+    aa:   Optional["AaParams"] = None
+    lbtt: Optional[StampDutyParams] = None
+    ltt:  Optional[StampDutyParams] = None
+    pip:  Optional["PipParams"] = None
     wealth_tax: Optional[WealthTaxParams] = None
     labour_supply: Optional[LabourSupplyParams] = None
 

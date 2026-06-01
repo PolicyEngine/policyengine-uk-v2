@@ -1,0 +1,99 @@
+# Personal Independence Payment from eligibility flags.
+#
+# 2025/26 weekly rates (gov.uk/pip/what-youll-get):
+#   Daily living standard: £73.90  → £3,842.80/yr
+#   Daily living enhanced: £110.40 → £5,740.80/yr
+#   Mobility standard:     £29.20  → £1,518.40/yr
+#   Mobility enhanced:     £77.05  → £4,006.60/yr
+#
+# These cases set `would_claim_*: false` on the benunit to suppress modelled
+# means-tested benefits (UC/HB/PC), isolating PIP in `baseline_total_benefits`.
+
+- name: PIP DL enhanced + mobility standard from flags
+  period: 2025
+  absolute_error_margin: 1
+  input:
+    people:
+      p: { age: 35, employment_income: 0, pip_dl_enh: true, pip_mob_std: true }
+    benunits:
+      b:
+        members: [p]
+        would_claim_uc: false
+        would_claim_hb: false
+        would_claim_pc: false
+        would_claim_is: false
+        would_claim_ctc: false
+        would_claim_wtc: false
+        would_claim_esa: false
+        would_claim_jsa: false
+    households:
+      h: { members: [p], region: London }
+  output:
+    # £5,740.80 + £1,518.40 = £7,259.20
+    baseline_total_benefits: 7259
+
+- name: PIP DL standard alone
+  period: 2025
+  absolute_error_margin: 1
+  input:
+    people:
+      p: { age: 40, employment_income: 0, pip_dl_std: true }
+    benunits:
+      b:
+        members: [p]
+        would_claim_uc: false
+        would_claim_hb: false
+        would_claim_pc: false
+        would_claim_is: false
+        would_claim_ctc: false
+        would_claim_wtc: false
+        would_claim_esa: false
+        would_claim_jsa: false
+    households:
+      h: { members: [p], region: London }
+  output:
+    baseline_total_benefits: 3843
+
+- name: PIP mobility enhanced alone
+  period: 2025
+  absolute_error_margin: 1
+  input:
+    people:
+      p: { age: 40, employment_income: 0, pip_mob_enh: true }
+    benunits:
+      b:
+        members: [p]
+        would_claim_uc: false
+        would_claim_hb: false
+        would_claim_pc: false
+        would_claim_is: false
+        would_claim_ctc: false
+        would_claim_wtc: false
+        would_claim_esa: false
+        would_claim_jsa: false
+    households:
+      h: { members: [p], region: London }
+  output:
+    baseline_total_benefits: 4007
+
+- name: No PIP flags — no benefits when claiming disabled
+  period: 2025
+  absolute_error_margin: 0
+  input:
+    people:
+      p: { age: 40, employment_income: 0 }
+    benunits:
+      b:
+        members: [p]
+        would_claim_uc: false
+        would_claim_hb: false
+        would_claim_pc: false
+        would_claim_is: false
+        would_claim_ctc: false
+        would_claim_wtc: false
+        would_claim_esa: false
+        would_claim_jsa: false
+    households:
+      h: { members: [p], region: London }
+  output:
+    baseline_total_benefits: 0
