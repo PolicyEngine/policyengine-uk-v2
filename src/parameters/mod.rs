@@ -199,6 +199,28 @@ pub struct UniversalCreditParams {
     pub work_allowance_higher: f64,
     pub work_allowance_lower: f64,
     pub child_limit: usize,
+    /// Childcare element (UC Regs 2013 reg.31–35). Fraction of eligible childcare
+    /// costs covered (0.85) and the monthly maximum reimbursement for one child / two-
+    /// or-more children. Defaults to 0 so years without these parameters load unchanged.
+    #[serde(default)]
+    pub childcare_coverage_rate: f64,
+    #[serde(default)]
+    pub childcare_max_one_child: f64,
+    #[serde(default)]
+    pub childcare_max_multiple_children: f64,
+    /// Capital rules (UC Regs 2013 reg.18, reg.51, reg.72). Capital below the lower
+    /// limit (£6,000) is disregarded; at or above the upper limit (£16,000) UC is nil;
+    /// between the two, assumed (tariff) income of `tariff_income_per_increment`
+    /// (£4.35/month) accrues per `tariff_income_increment` (£250) of capital over the
+    /// lower limit. Defaults to 0 disables the capital test for years without params.
+    #[serde(default)]
+    pub capital_lower_limit: f64,
+    #[serde(default)]
+    pub capital_upper_limit: f64,
+    #[serde(default)]
+    pub tariff_income_increment: f64,
+    #[serde(default)]
+    pub tariff_income_per_increment: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

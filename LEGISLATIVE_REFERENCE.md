@@ -249,7 +249,37 @@ Note: the full housing costs element (rent) is not currently modelled in this pa
 distinction between higher/lower work allowance (which depends on whether housing costs are in
 the UC award) is captured.
 
-### 3.6 Benefit Cap
+### 3.6 Childcare Element
+
+Source: SI 2013/376 regs.31–35 ([`uksi/2013/376/regulation/31`](https://www.legislation.gov.uk/uksi/2013/376/regulation/31))
+
+Reimburses **85%** of registered childcare costs for working claimants, capped at a monthly
+maximum (2025/26):
+
+| Children | Monthly maximum |
+|----------|----------------|
+| One child | **£1,031.88** |
+| Two or more children | **£1,768.94** |
+
+Implemented in `uc_childcare_element_monthly()`. The work condition is proxied by positive
+benunit earnings; costs are taken from `Person.childcare_expenses` (annual → monthly).
+
+### 3.7 Capital and Tariff Income
+
+Source: SI 2013/376 reg.18 (capital limit), reg.72 (assumed yield)
+([`uksi/2013/376/regulation/18`](https://www.legislation.gov.uk/uksi/2013/376/regulation/18),
+[`uksi/2013/376/regulation/72`](https://www.legislation.gov.uk/uksi/2013/376/regulation/72))
+
+- Capital below **£6,000** is disregarded.
+- Capital of **£16,000** or more extinguishes entitlement (nil award).
+- Between the two limits, **£4.35/month** of assumed (tariff) income accrues for each
+  complete **£250** (or part) of capital above £6,000; this reduces UC pound-for-pound.
+
+Implemented in `uc_tariff_income_annual()` with the cliff applied in
+`calculate_universal_credit()`. Capital is taken from the household savings stock attributed to
+the benunit (a documented simplification).
+
+### 3.8 Benefit Cap
 
 See section 11.
 

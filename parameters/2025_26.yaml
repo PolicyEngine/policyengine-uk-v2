@@ -85,6 +85,18 @@ universal_credit:
   work_allowance_higher: 684.0   # No housing costs (monthly)
   work_allowance_lower: 411.0    # With housing costs (monthly)
   child_limit: 2
+  # Childcare element: reg.31–35. 85% of registered childcare costs, capped monthly.
+  # DWP 2025/26 maxima: £1,031.88 (one child), £1,768.94 (two or more).
+  childcare_coverage_rate: 0.85
+  childcare_max_one_child: 1031.88
+  childcare_max_multiple_children: 1768.94
+  # Capital test: reg.18 (upper limit), reg.72 (tariff income).
+  # Capital < £6,000 disregarded; >= £16,000 nil entitlement; £4.35/month assumed
+  # income per £250 (or part) of capital above £6,000.
+  capital_lower_limit: 6000.0
+  capital_upper_limit: 16000.0
+  tariff_income_increment: 250.0
+  tariff_income_per_increment: 4.35
   # Housing cost contributions: Sch.4 para.14(1) — £93.02/month
 
 child_benefit:
