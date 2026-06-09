@@ -675,6 +675,61 @@ TP explicitly, which may understate UC amounts for recently migrated households.
 
 ---
 
+## 13A. Disability and Carer Benefits
+
+### Primary authority
+
+- **Welfare Reform Act 2012** (WRA 2012) s.78–79 — [`ukpga/2012/5`](https://www.legislation.gov.uk/ukpga/2012/5) — Personal Independence Payment (PIP) daily living and mobility components.
+- **Social Security (Personal Independence Payment) Regulations 2013** (SI 2013/377) — PIP component rates and rate bands.
+- **Social Security Contributions and Benefits Act 1992** (SSCBA 1992) — s.64 (Attendance Allowance), s.70 (Carer's Allowance), Sch.2 paras 2–3 (DLA care and mobility components).
+- **Social Security (Disability Living Allowance) Regulations 1991** (SI 1991/2890) — DLA rate bands.
+- **Social Security (Invalid Care Allowance) Regulations 1976 / Carer's Allowance** — administered under SS (CA) Regs 2002 (SI 2002/2690).
+- Rates uprated for 2025/26 by the **Social Security Benefits Up-rating Order 2025** (SI 2025/295). Disability and carer benefits rose ~1.7% (CPI September 2024).
+
+### 13A.1 Personal Independence Payment (PIP) — WRA 2012 s.79 / SI 2013/377
+
+PIP has two components, each payable at a standard or enhanced rate. Weekly rates from 7 April 2025:
+
+| Component | Standard | Enhanced |
+|-----------|---------:|---------:|
+| Daily living | £73.90 | £110.40 |
+| Mobility | £29.20 | £77.05 |
+
+A claimant on the enhanced rate of both components receives **(£110.40 + £77.05) × 52 = £9,747.80/year**. Component receipt is taken from FRS disability flags; where a recorded amount exists it is preserved (it may reflect a partial-year claim or transitional protection). PIP is the working-age successor to DLA (and is itself replaced by Adult Disability Payment, ADP, in Scotland).
+
+### 13A.2 Disability Living Allowance (DLA) — SSCBA 1992 Sch.2 paras 2–3
+
+DLA remains for under-16s (and a residual pre-PIP-migration adult caseload). Care component has lowest/middle/highest rates; mobility has lower/higher. Weekly rates from 7 April 2025:
+
+| Component | Lowest/Lower | Middle | Highest/Higher |
+|-----------|------:|------:|------:|
+| Care | £29.20 | £73.90 | £110.40 |
+| Mobility | £29.20 | — | £77.05 |
+
+In Scotland, Child Disability Payment (CDP) replaces DLA for children.
+
+### 13A.3 Attendance Allowance (AA) — SSCBA 1992 s.64
+
+Non-means-tested benefit for those over State Pension age who need help with personal care. Two rates, from 7 April 2025: **lower £73.90/week**, **higher £110.40/week**.
+
+### 13A.4 Carer's Allowance (CA) — SSCBA 1992 s.70 / SI 2002/2690
+
+Flat-rate, non-means-tested benefit of **£81.90/week** (2025/26) for someone aged 16+ providing ≥35 hours/week of care to a person on a qualifying disability benefit (PIP daily living, DLA middle/highest care, or AA). CA is subject to an **earnings test** (SI 2002/2690 reg.8): net earnings after deductions must not exceed **£151.00/week** — earning £1 above the disregard withdraws the whole award (a cliff-edge). The model applies the earnings test to net earnings (gross less NI and pension contributions); reported CA receipt is used as the take-up gate.
+
+### 13A.5 Passporting into means-tested benefits
+
+Disability and carer benefits passport into the means-tested system:
+
+- **UC LCWRA element** (UC Regs 2013 reg.27): proxied by PIP daily living (any rate), DLA care middle/highest, or ESA support group.
+- **UC carer element** (UC Regs 2013 Sch.4 para.8): awarded where an adult receives CA.
+- **UC disabled child element** (Sch.4 para.5): higher rate for severely/enhanced-disabled children, lower rate otherwise.
+- **Legacy disability premiums** (IS/HB/ESA/JSA applicable amounts, IS (General) Regs 1987 Sch.2): Disability Premium, Enhanced Disability Premium, Severe Disability Premium, and Carer Premium — see §10.
+- **Benefit cap exemption** (WRA 2012 s.96): receipt of PIP/DLA/AA/CA exempts the benunit from the cap.
+
+Disability benefit amounts themselves are non-means-tested and are added to net income as a passthrough income component (exempt from the benefit cap).
+
+---
+
 ## 14. Parameter Uprating
 
 All benefit rates are increased annually by statutory orders. Key uprating mechanisms:
