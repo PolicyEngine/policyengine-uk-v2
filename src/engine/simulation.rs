@@ -226,17 +226,20 @@ impl Simulation {
             }
         }
 
-        // Phase 2c: Capital gains tax (person-level, needs income tax band info)
+        // Phase 2c: Capital gains tax (person-level, needs income tax band info).
+        // Gains stack on top of adjusted net income: the slice within the
+        // remaining basic-rate band is taxed at the basic CGT rate, the rest at
+        // the higher rate (TCGA 1992; PolicyEngine-UK `capital_gains_tax`).
         if let Some(ref cgt_params) = self.parameters.capital_gains_tax {
+            let basic_rate_limit = self.parameters.income_tax.uk_brackets
+                .get(1)
+                .map(|b| b.threshold)
+                .unwrap_or(37700.0);
+            let cgt_response = self.parameters.cgt_response.as_ref();
             for person in &self.people {
-                // Higher/additional rate if taxable income exceeds basic rate limit
-                let basic_rate_limit = self.parameters.income_tax.uk_brackets
-                    .get(1)
-                    .map(|b| b.threshold)
-                    .unwrap_or(37700.0);
-                let is_higher = person_results[person.id].taxable_income > basic_rate_limit;
-                let cgt = variables::wealth_taxes::calculate_capital_gains_tax(
-                    person, cgt_params, is_higher,
+                let ani = person_results[person.id].adjusted_net_income;
+                let cgt = variables::wealth_taxes::calculate_capital_gains_tax_banded(
+                    person, cgt_params, cgt_response, ani, basic_rate_limit,
                 );
                 person_results[person.id].capital_gains_tax = cgt;
             }

@@ -1,5 +1,5 @@
 use crate::engine::entities::{Household, Person, Region};
-use crate::parameters::{CouncilTaxParams, CapitalGainsTaxParams, StampDutyParams, WealthTaxParams};
+use crate::parameters::{CouncilTaxParams, CapitalGainsTaxParams, CgtResponseParams, StampDutyParams, WealthTaxParams};
 
 /// Determine the council tax band (0=A .. 7=H) from a 1991 property value.
 ///
@@ -50,6 +50,13 @@ pub fn calculate_council_tax(
 /// counts as residential is taken from `Person.capital_gains_residential_share`
 /// (default 0.0). The AEA is allocated pro-rata across the two slices, mirroring
 /// the simplest case where the taxpayer cannot pick which gains the AEA covers.
+///
+/// This is the simple all-or-nothing-rate form. The simulation uses the
+/// band-aware [`calculate_capital_gains_tax_banded`], which stacks gains on top
+/// of income so part of a gain can fall in the basic-rate band; this form is
+/// retained for the residential-surcharge benchmark and callers that already
+/// know the marginal band.
+#[allow(dead_code)]
 pub fn calculate_capital_gains_tax(
     person: &Person,
     params: &CapitalGainsTaxParams,
@@ -68,6 +75,87 @@ pub fn calculate_capital_gains_tax(
 
     non_residential_taxable * rate
         + residential_taxable * (rate + params.residential_surcharge)
+}
+
+/// Apply the realisation behavioural response to a person's gross capital gains.
+///
+/// Mirrors PolicyEngine-UK's log-difference response: when a reform changes the
+/// marginal CGT rate from `response.baseline_rate` to the reform rate, realised
+/// gains are scaled by `(reform_rate / baseline_rate) ^ elasticity`. The
+/// elasticity is normally negative (a higher rate ⇒ fewer realisations).
+///
+/// Returns `capital_gains` unchanged (no response) when `response` is `None`,
+/// `elasticity == 0` (static run), or `baseline_rate <= 0` (no baseline to
+/// compare against). The engine has no automatic baseline-vs-reform CGT plumbing
+/// threaded through `Simulation::new` yet (cf. the `baseline_old_sp_weekly`
+/// field for state pension), so reforms activate the response by setting
+/// `cgt_response.baseline_rate` to the pre-reform marginal rate. This is the
+/// documented hook for the dynamics work; the static calc above is complete.
+pub fn apply_cgt_realisation_response(
+    capital_gains: f64,
+    reform_rate: f64,
+    response: Option<&CgtResponseParams>,
+) -> f64 {
+    let r = match response {
+        Some(r) if r.elasticity != 0.0 && r.baseline_rate > 0.0 && reform_rate > 0.0 => r,
+        _ => return capital_gains,
+    };
+    let factor = (reform_rate / r.baseline_rate).powf(r.elasticity);
+    capital_gains * factor
+}
+
+/// Calculate capital gains tax for a person, stacking gains on top of income.
+///
+/// Gains (less the annual exempt amount) are stacked on top of the person's
+/// `adjusted_net_income`: the slice falling within the remaining basic-rate band
+/// (`basic_rate_limit − adjusted_net_income`) is taxed at `basic_rate`, the rest
+/// at `higher_rate` (UK CGT has no separate additional rate — higher and
+/// additional-rate taxpayers both pay `higher_rate`). This matches
+/// PolicyEngine-UK `capital_gains_tax`.
+///
+/// Residential property gains receive the configured `residential_surcharge`
+/// on top of the applicable rate, applied pro-rata across both slices.
+///
+/// A behavioural realisation response (`response`) is applied first via
+/// [`apply_cgt_realisation_response`] using the person's marginal rate.
+pub fn calculate_capital_gains_tax_banded(
+    person: &Person,
+    params: &CapitalGainsTaxParams,
+    response: Option<&CgtResponseParams>,
+    adjusted_net_income: f64,
+    basic_rate_limit: f64,
+) -> f64 {
+    // Marginal rate for the realisation response: higher if any of the gain
+    // would fall above the remaining basic-rate band once stacked on income.
+    let remaining_basic_band = (basic_rate_limit - adjusted_net_income).max(0.0);
+    let gross_taxable = (person.capital_gains - params.annual_exempt_amount).max(0.0);
+    let marginal_rate = if gross_taxable > remaining_basic_band {
+        params.higher_rate
+    } else {
+        params.basic_rate
+    };
+
+    let capital_gains =
+        apply_cgt_realisation_response(person.capital_gains, marginal_rate, response);
+
+    let taxable_gains = (capital_gains - params.annual_exempt_amount).max(0.0);
+    if taxable_gains <= 0.0 {
+        return 0.0;
+    }
+
+    // Stack gains on top of income: basic-rate slice first, then higher.
+    let basic_slice = taxable_gains.min(remaining_basic_band);
+    let higher_slice = taxable_gains - basic_slice;
+
+    let residential_share = person.capital_gains_residential_share.clamp(0.0, 1.0);
+
+    let slice_tax = |slice: f64, rate: f64| -> f64 {
+        let residential = slice * residential_share;
+        let non_residential = slice - residential;
+        non_residential * rate + residential * (rate + params.residential_surcharge)
+    };
+
+    slice_tax(basic_slice, params.basic_rate) + slice_tax(higher_slice, params.higher_rate)
 }
 
 /// Calculate stamp duty land tax on a property value using marginal bands.
@@ -147,7 +235,8 @@ mod tests {
     use super::*;
     use crate::engine::entities::{Household, Person};
     use crate::parameters::{
-        CouncilTaxParams, CapitalGainsTaxParams, StampDutyParams, StampDutyBand, WealthTaxParams,
+        CouncilTaxParams, CapitalGainsTaxParams, CgtResponseParams, StampDutyParams, StampDutyBand,
+        WealthTaxParams,
     };
 
     #[test]
@@ -317,6 +406,107 @@ mod tests {
         let cgt = calculate_capital_gains_tax(&p, &params, true);
         // taxable = 5000; full residential at 28% = 1400
         assert!((cgt - 1400.0).abs() < 0.01);
+    }
+
+    fn cgt_params_2025() -> CapitalGainsTaxParams {
+        CapitalGainsTaxParams {
+            annual_exempt_amount: 3000.0,
+            basic_rate: 0.18,
+            higher_rate: 0.24,
+            residential_surcharge: 0.0,
+        }
+    }
+
+    #[test]
+    fn cgt_banded_all_basic() {
+        // Basic-rate taxpayer: income £20,000, basic limit £50,270, gain £10,000.
+        // Remaining basic band = 30,270, taxable gain = 10,000 - 3,000 = 7,000,
+        // all within the basic band → 7,000 × 18% = 1,260.
+        let p = { let mut p = Person::default(); p.capital_gains = 10_000.0; p };
+        let cgt = calculate_capital_gains_tax_banded(
+            &p, &cgt_params_2025(), None, 20_000.0, 50_270.0,
+        );
+        assert!((cgt - 1_260.0).abs() < 0.01, "got {}", cgt);
+    }
+
+    #[test]
+    fn cgt_banded_split_basic_and_higher() {
+        // Income £45,000, basic limit £50,270 → remaining basic band = £5,270.
+        // Gain £20,000, taxable = 17,000. First 5,270 at 18% = 948.60,
+        // remaining 11,730 at 24% = 2,815.20 → total 3,763.80.
+        let p = { let mut p = Person::default(); p.capital_gains = 20_000.0; p };
+        let cgt = calculate_capital_gains_tax_banded(
+            &p, &cgt_params_2025(), None, 45_000.0, 50_270.0,
+        );
+        assert!((cgt - 3_763.80).abs() < 0.01, "got {}", cgt);
+    }
+
+    #[test]
+    fn cgt_banded_all_higher() {
+        // Income £80,000 > basic limit → no remaining basic band.
+        // Gain £20,000, taxable = 17,000, all at 24% = 4,080.
+        let p = { let mut p = Person::default(); p.capital_gains = 20_000.0; p };
+        let cgt = calculate_capital_gains_tax_banded(
+            &p, &cgt_params_2025(), None, 80_000.0, 50_270.0,
+        );
+        assert!((cgt - 4_080.0).abs() < 0.01, "got {}", cgt);
+    }
+
+    #[test]
+    fn cgt_banded_residential_surcharge_in_higher_band() {
+        // As all_higher, but full residential with an 8pp surcharge → 32%.
+        let mut params = cgt_params_2025();
+        params.residential_surcharge = 0.08;
+        let mut p = Person::default();
+        p.capital_gains = 20_000.0;
+        p.capital_gains_residential_share = 1.0;
+        let cgt = calculate_capital_gains_tax_banded(&p, &params, None, 80_000.0, 50_270.0);
+        // taxable 17,000 × (24% + 8%) = 5,440.
+        assert!((cgt - 5_440.0).abs() < 0.01, "got {}", cgt);
+    }
+
+    #[test]
+    fn cgt_response_no_op_without_params() {
+        // No response params → gains unchanged.
+        assert_eq!(apply_cgt_realisation_response(10_000.0, 0.24, None), 10_000.0);
+    }
+
+    #[test]
+    fn cgt_response_reduces_gains_when_rate_rises() {
+        // Rate rises 24% → 30%; elasticity -0.5. factor = (0.30/0.24)^-0.5 ≈ 0.8944.
+        let resp = CgtResponseParams { elasticity: -0.5, baseline_rate: 0.24 };
+        let adjusted = apply_cgt_realisation_response(10_000.0, 0.30, Some(&resp));
+        let expected = 10_000.0 * (0.30_f64 / 0.24).powf(-0.5);
+        assert!((adjusted - expected).abs() < 0.01, "got {}", adjusted);
+        assert!(adjusted < 10_000.0, "higher rate should reduce realised gains");
+    }
+
+    #[test]
+    fn cgt_response_zero_elasticity_no_op() {
+        let resp = CgtResponseParams { elasticity: 0.0, baseline_rate: 0.24 };
+        assert_eq!(apply_cgt_realisation_response(10_000.0, 0.30, Some(&resp)), 10_000.0);
+    }
+
+    #[test]
+    fn cgt_banded_applies_response() {
+        // With a response active, banded CGT taxes the reduced gains.
+        let resp = CgtResponseParams { elasticity: -0.5, baseline_rate: 0.24 };
+        let p = { let mut p = Person::default(); p.capital_gains = 20_000.0; p };
+        let with_resp = calculate_capital_gains_tax_banded(
+            &p, &cgt_params_2025(), Some(&resp), 80_000.0, 50_270.0,
+        );
+        let without = calculate_capital_gains_tax_banded(
+            &p, &cgt_params_2025(), None, 80_000.0, 50_270.0,
+        );
+        // Higher reform rate (0.24) vs baseline (0.24) → factor 1, so equal here;
+        // the response only bites when the reform rate differs from baseline.
+        assert!((with_resp - without).abs() < 0.01);
+        // Now simulate a rate rise via baseline_rate below the marginal rate.
+        let resp_rise = CgtResponseParams { elasticity: -0.5, baseline_rate: 0.20 };
+        let with_rise = calculate_capital_gains_tax_banded(
+            &p, &cgt_params_2025(), Some(&resp_rise), 80_000.0, 50_270.0,
+        );
+        assert!(with_rise < without, "rate rise vs baseline should reduce gains and tax");
     }
 
     #[test]

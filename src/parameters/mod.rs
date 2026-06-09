@@ -56,6 +56,12 @@ pub struct Parameters {
     /// Capital gains tax. TCGA 1992; 18%/24% from October 2024 Budget.
     #[serde(default)]
     pub capital_gains_tax: Option<CapitalGainsTaxParams>,
+    /// CGT realisation behavioural response (elasticity + baseline rate).
+    #[serde(default)]
+    pub cgt_response: Option<CgtResponseParams>,
+    /// Pensions tax (relief mode, annual allowance + taper). FA 2004 Part 4.
+    #[serde(default)]
+    pub pensions: Option<PensionsParams>,
     /// Stamp duty land tax on residential property (England + NI). FA 2003 s.55.
     #[serde(default)]
     pub stamp_duty: Option<StampDutyParams>,
@@ -464,6 +470,84 @@ pub struct CapitalGainsTaxParams {
 }
 
 fn default_cgt_residential_surcharge() -> f64 { 0.0 }
+
+/// Capital gains tax realisation-response (behavioural) parameters.
+///
+/// Kept separate from `CapitalGainsTaxParams` (which holds the statutory
+/// rates/AEA) so the static rate parameters stay minimal. When a reform changes
+/// the marginal CGT rate from `baseline_rate`, realised gains are scaled before
+/// tax is applied, mirroring PolicyEngine-UK's `capital_gains_behavioural_response`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CgtResponseParams {
+    /// Semi-elasticity of realised gains with respect to the marginal CGT rate.
+    /// Realised gains are scaled by `(reform_rate / baseline_rate) ^ elasticity`,
+    /// i.e. PolicyEngine-UK's log-difference response
+    /// `exp(elasticity × (ln r_reform − ln r_baseline))`. Normally **negative**
+    /// (a higher rate ⇒ fewer realisations). Default 0.0 (static, no response).
+    #[serde(default = "default_cgt_realisation_elasticity")]
+    pub elasticity: f64,
+    /// Baseline marginal CGT rate against which the response is measured. Reforms
+    /// set the new marginal rate in `CapitalGainsTaxParams::higher_rate`/`basic_rate`
+    /// while leaving this at the pre-reform value. Default 0.0 disables the
+    /// response (no baseline to compare against).
+    #[serde(default = "default_cgt_baseline_rate")]
+    pub baseline_rate: f64,
+}
+
+fn default_cgt_realisation_elasticity() -> f64 { 0.0 }
+fn default_cgt_baseline_rate() -> f64 { 0.0 }
+
+/// Pensions tax parameters.
+///
+/// Finance Act 2004 Part 4. Two relief mechanisms for member contributions:
+///
+/// - **Net pay** (occupational schemes): the contribution is deducted from pay
+///   *before* income tax, so it directly reduces taxable income. This is how
+///   the engine already treats `employee_pension_contributions` (subtracted in
+///   `income_tax::calculate`).
+/// - **Relief at source** (personal/SIPP, GPP): the member pays out of net
+///   (post-basic-rate-tax) income and the provider reclaims basic-rate relief;
+///   higher/additional-rate taxpayers reclaim the balance by an extension of
+///   their basic-rate band. Modelled here as a basic-rate-band extension of the
+///   grossed-up contribution.
+///
+/// The **annual allowance** (FA 2004 s.228) caps the contributions receiving
+/// relief; contributions above it incur the annual-allowance charge at the
+/// member's marginal rate. The allowance is **tapered** (FA 2004 s.228ZA) for
+/// high earners: reduced by £1 for every £2 of adjusted income above the taper
+/// threshold, down to the minimum tapered allowance.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PensionsParams {
+    /// Annual allowance (£60,000 for 2025/26). FA 2004 s.228.
+    pub annual_allowance: f64,
+    /// Adjusted-income threshold above which the AA is tapered (£260,000 for
+    /// 2025/26). FA 2004 s.228ZA.
+    #[serde(default = "default_aa_taper_threshold")]
+    pub annual_allowance_taper_threshold: f64,
+    /// Rate at which the AA is reduced above the taper threshold (£1 per £2 =
+    /// 0.5). FA 2004 s.228ZA(3).
+    #[serde(default = "default_aa_taper_rate")]
+    pub annual_allowance_taper_rate: f64,
+    /// Minimum tapered annual allowance (£10,000 for 2025/26). FA 2004 s.228ZA(2).
+    #[serde(default = "default_aa_minimum")]
+    pub annual_allowance_minimum: f64,
+    /// Whether the member's contributions are given relief at source (true) or
+    /// via net pay (false). Net pay is already reflected in taxable income;
+    /// relief-at-source extends the basic-rate band by the grossed-up
+    /// contribution. Default false (net pay), matching the existing engine
+    /// treatment of `employee_pension_contributions`.
+    #[serde(default)]
+    pub relief_at_source: bool,
+    /// Basic rate of income tax used to gross up a relief-at-source contribution
+    /// (£80 net ⇒ £100 gross at a 0.20 basic rate). Default 0.20.
+    #[serde(default = "default_pension_basic_rate")]
+    pub basic_rate: f64,
+}
+
+fn default_aa_taper_threshold() -> f64 { 260_000.0 }
+fn default_aa_taper_rate() -> f64 { 0.5 }
+fn default_aa_minimum() -> f64 { 10_000.0 }
+fn default_pension_basic_rate() -> f64 { 0.20 }
 
 /// Stamp duty land tax bands.
 #[derive(Debug, Clone, Serialize, Deserialize)]

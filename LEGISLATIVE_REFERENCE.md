@@ -675,6 +675,56 @@ TP explicitly, which may understate UC amounts for recently migrated households.
 
 ---
 
+## 13A. Capital Gains Tax
+
+**Primary authorities:**
+
+- **Taxation of Chargeable Gains Act 1992** (TCGA 1992) — [`ukpga/1992/12`](https://www.legislation.gov.uk/ukpga/1992/12)
+- **Finance Act 2024** s.7 — CGT rate changes (rates raised to 18 % / 24 % from 30 October 2024)
+
+### 13A.1 Rates, bands and annual exempt amount
+
+- Annual exempt amount (AEA): **£3,000** for 2025/26 (reduced from £6,000 by Finance Act 2023 s.4).
+- Gains above the AEA stack on top of taxable income (TCGA 1992 s.4): the slice within the
+  remaining basic-rate income tax band is taxed at the **basic rate (18 %)**, the rest at the
+  **higher rate (24 %)**. There is no separate additional CGT rate.
+- Residential-property gains may carry an additional surcharge (TCGA 1992 s.4; pre-April-2024
+  the higher residential rate was 28 %). From April 2025 residential and non-residential rates
+  are unified, so the modelled `residential_surcharge` defaults to 0.
+
+### 13A.2 Realisation behavioural response
+
+A configurable realisation elasticity scales realised gains in response to a marginal-rate
+change: `gains × (reform_rate / baseline_rate) ^ elasticity` (a higher rate ⇒ fewer
+realisations; elasticity normally negative). This mirrors HMRC/HMT realisation-response modelling
+and PolicyEngine-UK's `capital_gains_behavioural_response`.
+
+## 13B. Pensions Tax
+
+**Primary authority:**
+
+- **Finance Act 2004** Part 4 — [`ukpga/2004/12/part/4`](https://www.legislation.gov.uk/ukpga/2004/12/part/4)
+
+### 13B.1 Tax relief on member contributions
+
+- **Net pay** (occupational schemes): contributions are deducted before income tax, so they
+  reduce taxable income directly (relief at the member's marginal rate).
+- **Relief at source** (personal pensions / SIPPs, FA 2004 s.192): the member pays from net
+  income, the provider reclaims basic-rate relief (£80 net ⇒ £100 gross), and higher/additional
+  rate relief is given by extending the basic-rate band by the grossed-up contribution
+  (ITA 2007 s.10(3A)).
+
+### 13B.2 Annual allowance and taper
+
+- Standard annual allowance: **£60,000** for 2025/26 (FA 2004 s.228; raised by Finance Act 2023 s.18).
+- **Tapered** for high earners (FA 2004 s.228ZA): reduced by £1 for every £2 of adjusted income
+  above **£260,000**, down to a **£10,000** minimum.
+- Contributions above the available allowance incur the **annual-allowance charge** (FA 2004 s.227)
+  at the member's marginal rate, clawing back the relief. Carry-forward of unused prior-year
+  allowance is not modelled.
+
+---
+
 ## 14. Parameter Uprating
 
 All benefit rates are increased annually by statutory orders. Key uprating mechanisms:

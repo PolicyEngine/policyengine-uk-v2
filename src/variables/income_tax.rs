@@ -1,6 +1,6 @@
 use crate::engine::entities::{Person, BenUnit};
 use crate::engine::simulation::PersonResult;
-use crate::parameters::{Parameters, TaxBracket};
+use crate::parameters::{Parameters, PensionsParams, TaxBracket};
 
 /// Calculate all person-level tax results: income tax (earned + savings + dividend) + NI.
 ///
@@ -15,18 +15,43 @@ pub fn calculate(person: &Person, params: &Parameters, state_pension: f64) -> Pe
         + person.property_income + person.maintenance_income
         + person.miscellaneous_income + person.other_income;
 
-    // Step 1: Adjusted net income (for PA taper)
-    let pension_relief = person.employee_pension_contributions + person.personal_pension_contributions;
-    let adjusted_net_income = (total_income - pension_relief).max(0.0);
+    // Step 1: Pension contributions and relief.
+    //
+    // FA 2004 Part 4. Both net-pay and relief-at-source contributions reduce
+    // adjusted net income (and so reduce the PA taper). They differ in how
+    // higher-rate relief is delivered:
+    //   - Net pay: the contribution is taken before tax, so it also reduces
+    //     taxable income directly (relief at the member's marginal rate "for
+    //     free").
+    //   - Relief at source: the member pays from net income; basic-rate relief
+    //     is added by the provider, and higher-rate relief is delivered by
+    //     extending the basic-rate band by the grossed-up contribution.
+    let total_contributions =
+        person.employee_pension_contributions + person.personal_pension_contributions;
+    let relief_at_source = params.pensions.as_ref().map_or(false, |p| p.relief_at_source);
+    let pension_basic_rate = params.pensions.as_ref().map_or(0.20, |p| p.basic_rate);
+
+    // Adjusted net income deducts the (gross) contribution for the PA taper.
+    let gross_contributions = if relief_at_source {
+        gross_up_contribution(total_contributions, pension_basic_rate)
+    } else {
+        total_contributions
+    };
+    let adjusted_net_income = (total_income - gross_contributions).max(0.0);
+
+    // Net-pay contributions also come off earned income before tax.
+    let net_pay_deduction = if relief_at_source { 0.0 } else { total_contributions };
 
     // Step 2: Personal allowance (tapered for high earners)
     let personal_allowance = calculate_personal_allowance(adjusted_net_income, params);
 
     // Step 3: Allocate PA across income types (earned first, then savings, then dividends)
-    let earned_income = person.employment_income + person.self_employment_income
+    // Net-pay contributions are deducted from earned income before tax.
+    let earned_income = (person.employment_income + person.self_employment_income
         + person.pension_income + state_pension
         + person.property_income + person.maintenance_income
-        + person.miscellaneous_income + person.other_income;
+        + person.miscellaneous_income + person.other_income
+        - net_pay_deduction).max(0.0);
 
     let pa_against_earned = personal_allowance.min(earned_income);
     let pa_remaining = personal_allowance - pa_against_earned;
@@ -44,13 +69,20 @@ pub fn calculate(person: &Person, params: &Parameters, state_pension: f64) -> Pe
     let used_pa = pa_against_earned + pa_against_savings + pa_against_dividends;
     let unused_pa = (personal_allowance - used_pa).max(0.0);
 
-    // Step 4: Earned income tax (UK or Scottish rates)
-    let brackets = if person.is_in_scotland {
+    // Step 4: Earned income tax (UK or Scottish rates).
+    // For relief-at-source contributions, extend the basic-rate band by the
+    // grossed-up contribution so higher-rate relief is delivered.
+    let base_brackets = if person.is_in_scotland {
         &params.income_tax.scottish_brackets
     } else {
         &params.income_tax.uk_brackets
     };
-    let earned_income_tax = apply_brackets(earned_taxable, brackets);
+    let brackets: Vec<TaxBracket> = if relief_at_source && gross_contributions > 0.0 {
+        extend_basic_rate_band(base_brackets, gross_contributions)
+    } else {
+        base_brackets.clone()
+    };
+    let earned_income_tax = apply_brackets(earned_taxable, &brackets);
 
     // Step 5: Savings income tax (stacked on top of earned)
     let savings_income_tax = calculate_savings_tax(earned_taxable, savings_taxable, params);
@@ -62,7 +94,31 @@ pub fn calculate(person: &Person, params: &Parameters, state_pension: f64) -> Pe
         params,
     );
 
-    let income_tax = earned_income_tax + savings_income_tax + dividend_income_tax;
+    let mut income_tax = earned_income_tax + savings_income_tax + dividend_income_tax;
+
+    // Step 6b: Pension annual-allowance charge (FA 2004 s.227). Contributions
+    // above the (tapered) annual allowance are taxed at the member's marginal
+    // rate, clawing back the relief. Carry-forward is not modelled.
+    if let Some(pensions) = params.pensions.as_ref() {
+        // Bracket layout: [basic@0, higher@1, additional@2]. Thresholds give the
+        // *top* of the basic and higher bands; rates are the band's own rate.
+        let bk = &params.income_tax.uk_brackets;
+        let basic_band_top = bk.get(1).map_or(37_700.0, |b| b.threshold);
+        let higher_band_top = bk.get(2).map_or(125_140.0, |b| b.threshold);
+        let basic_rate = bk.get(0).map_or(0.20, |b| b.rate);
+        let higher_rate = bk.get(1).map_or(0.40, |b| b.rate);
+        let additional_rate = bk.get(2).map_or(0.45, |b| b.rate);
+        let marginal_rate = if taxable_income > higher_band_top {
+            additional_rate
+        } else if taxable_income > basic_band_top {
+            higher_rate
+        } else {
+            basic_rate
+        };
+        income_tax += annual_allowance_charge(
+            total_contributions, adjusted_net_income, marginal_rate, pensions,
+        );
+    }
 
     // Step 7: National Insurance
     let ni_class1 = calculate_ni_class1(person, params);
@@ -205,6 +261,72 @@ pub fn apply_marriage_allowance(
 fn round_up(value: f64, increment: f64) -> f64 {
     if increment <= 0.0 { return value; }
     (value / increment).ceil() * increment
+}
+
+/// Gross up a relief-at-source contribution paid from net income.
+///
+/// The member pays `net` and the provider reclaims basic-rate relief, so the
+/// gross contribution into the pension is `net / (1 − basic_rate)`
+/// (e.g. £80 net ⇒ £100 gross at a 0.20 basic rate). FA 2004 s.192.
+fn gross_up_contribution(net: f64, basic_rate: f64) -> f64 {
+    if basic_rate >= 1.0 || basic_rate < 0.0 {
+        return net;
+    }
+    net / (1.0 - basic_rate)
+}
+
+/// Extend the basic-rate band by `extension`, shifting the higher (and
+/// additional) rate thresholds up by the same amount (ITA 2007 s.10(3A);
+/// FA 2004 s.192(4)).
+///
+/// In this engine bracket index 0 is the basic-rate band (it starts at £0; the
+/// personal allowance is handled separately), index 1 is the higher-rate
+/// threshold, index 2 the additional-rate threshold. To widen the basic-rate
+/// band we push every threshold *after* index 0 up by `extension`, so more
+/// income is taxed at the basic rate — delivering higher-rate relief at source.
+fn extend_basic_rate_band(brackets: &[TaxBracket], extension: f64) -> Vec<TaxBracket> {
+    brackets
+        .iter()
+        .enumerate()
+        .map(|(i, b)| {
+            let threshold = if i >= 1 { b.threshold + extension } else { b.threshold };
+            TaxBracket { rate: b.rate, threshold }
+        })
+        .collect()
+}
+
+/// Tapered annual allowance for pension contributions (FA 2004 s.228ZA).
+///
+/// The standard annual allowance is reduced by `taper_rate` (£1 per £2 = 0.5)
+/// for every £1 of adjusted income above `annual_allowance_taper_threshold`,
+/// down to `annual_allowance_minimum`. Returns the standard allowance when the
+/// taper does not apply.
+pub fn tapered_annual_allowance(adjusted_income: f64, params: &PensionsParams) -> f64 {
+    let excess = (adjusted_income - params.annual_allowance_taper_threshold).max(0.0);
+    let reduction = excess * params.annual_allowance_taper_rate;
+    (params.annual_allowance - reduction).max(params.annual_allowance_minimum)
+}
+
+/// Annual-allowance charge on contributions above the (tapered) annual allowance.
+///
+/// FA 2004 s.227. Contributions in excess of the available annual allowance are
+/// added back to taxable income and taxed at the member's marginal rate, which
+/// claws back the relief given. Carry-forward of unused allowance from the three
+/// prior years is **not** modelled (simplification — the FRS does not record
+/// historical contributions); this overstates the charge for members with unused
+/// prior-year allowance.
+///
+/// `marginal_rate` is the member's top income-tax rate (e.g. 0.40 for a
+/// higher-rate taxpayer). `adjusted_income` drives the taper.
+pub fn annual_allowance_charge(
+    total_contributions: f64,
+    adjusted_income: f64,
+    marginal_rate: f64,
+    params: &PensionsParams,
+) -> f64 {
+    let allowance = tapered_annual_allowance(adjusted_income, params);
+    let excess = (total_contributions - allowance).max(0.0);
+    excess * marginal_rate
 }
 
 /// Personal allowance with taper: reduced by £1 for every £2 above threshold
@@ -605,6 +727,104 @@ mod tests {
         // Person B is higher rate — should NOT get marriage allowance
         assert!((results[1].income_tax - tax_before_b).abs() < 0.01,
             "Higher rate taxpayer should not receive marriage allowance");
+    }
+}
+
+#[cfg(test)]
+mod pension_tests {
+    use super::*;
+    use crate::engine::entities::Person;
+    use crate::parameters::{Parameters, PensionsParams};
+
+    fn pensions_2025() -> PensionsParams {
+        PensionsParams {
+            annual_allowance: 60_000.0,
+            annual_allowance_taper_threshold: 260_000.0,
+            annual_allowance_taper_rate: 0.5,
+            annual_allowance_minimum: 10_000.0,
+            relief_at_source: false,
+            basic_rate: 0.20,
+        }
+    }
+
+    #[test]
+    fn net_pay_reduces_taxable_income() {
+        // £40,000 salary, £5,000 net-pay contribution. Taxable earned income
+        // falls to £35,000; minus PA £12,570 = £22,430 at 20% = £4,486.
+        let mut params = Parameters::for_year(2025).unwrap();
+        params.pensions = Some(pensions_2025());
+        let mut p = Person::default();
+        p.age = 35.0;
+        p.employment_income = 40_000.0;
+        p.employee_pension_contributions = 5_000.0;
+        let r = calculate(&p, &params, 0.0);
+        assert!((r.income_tax - 4_486.0).abs() < 1.0, "got {}", r.income_tax);
+    }
+
+    #[test]
+    fn relief_at_source_extends_basic_band() {
+        // Higher-rate earner £60,000, £8,000 net relief-at-source contribution.
+        // Gross-up at 20% → £10,000 extension of the basic-rate band.
+        // Taxable income stays £60,000 - £12,570 PA = £47,430. Without extension,
+        // basic band is £37,700 so £9,730 is taxed at 40%. With a £10,000
+        // extension the basic band becomes £47,700, so all £47,430 is at 20%.
+        let mut params = Parameters::for_year(2025).unwrap();
+        let mut pens = pensions_2025();
+        pens.relief_at_source = true;
+        params.pensions = Some(pens);
+        let mut p = Person::default();
+        p.age = 35.0;
+        p.employment_income = 60_000.0;
+        p.personal_pension_contributions = 8_000.0;
+        let r = calculate(&p, &params, 0.0);
+        // All £47,430 at 20% = £9,486.
+        assert!((r.income_tax - 9_486.0).abs() < 2.0, "got {}", r.income_tax);
+    }
+
+    #[test]
+    fn relief_at_source_does_not_reduce_taxable_income() {
+        // Basic-rate earner: relief-at-source contribution must NOT reduce
+        // taxable income (the relief is given inside the pension, not by a
+        // deduction). £30,000 - £12,570 = £17,430 at 20% = £3,486.
+        let mut params = Parameters::for_year(2025).unwrap();
+        let mut pens = pensions_2025();
+        pens.relief_at_source = true;
+        params.pensions = Some(pens);
+        let mut p = Person::default();
+        p.age = 35.0;
+        p.employment_income = 30_000.0;
+        p.personal_pension_contributions = 4_000.0;
+        let r = calculate(&p, &params, 0.0);
+        assert!((r.income_tax - 3_486.0).abs() < 1.0, "got {}", r.income_tax);
+    }
+
+    #[test]
+    fn tapered_annual_allowance_worked_example() {
+        let pens = pensions_2025();
+        // Adjusted income £300,000: £40,000 over threshold × 0.5 = £20,000 cut
+        // → £60,000 - £20,000 = £40,000.
+        assert!((tapered_annual_allowance(300_000.0, &pens) - 40_000.0).abs() < 0.01);
+        // Very high income floors at the £10,000 minimum.
+        assert!((tapered_annual_allowance(500_000.0, &pens) - 10_000.0).abs() < 0.01);
+        // Below threshold: full allowance.
+        assert!((tapered_annual_allowance(100_000.0, &pens) - 60_000.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn annual_allowance_charge_worked_example() {
+        let pens = pensions_2025();
+        // £70,000 contribution, £100,000 adjusted income (no taper), higher rate.
+        // Excess = £70,000 - £60,000 = £10,000 × 40% = £4,000.
+        let charge = annual_allowance_charge(70_000.0, 100_000.0, 0.40, &pens);
+        assert!((charge - 4_000.0).abs() < 0.01, "got {}", charge);
+        // Within allowance: no charge.
+        assert_eq!(annual_allowance_charge(50_000.0, 100_000.0, 0.40, &pens), 0.0);
+    }
+
+    #[test]
+    fn gross_up_contribution_worked_example() {
+        // £80 net at 20% → £100 gross.
+        assert!((gross_up_contribution(80.0, 0.20) - 100.0).abs() < 0.01);
     }
 }
 

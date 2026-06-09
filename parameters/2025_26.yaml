@@ -241,10 +241,29 @@ council_tax:
 capital_gains_tax:
   # Taxation of Chargeable Gains Act 1992; Finance Act 2024 s.7 (rate increases)
   # AEA reduced to £3,000 from 2024/25 (Finance Act 2023 s.4)
+  # Rates from 30 October 2024: basic 18%, higher 24% (residential already 18/24).
   annual_exempt_amount: 3000.0
   basic_rate: 0.18
   higher_rate: 0.24
+  residential_surcharge: 0.0  # residential unified with non-residential from Apr 2025
   realisation_rate: 0.50
+
+cgt_response:
+  # Realisation behavioural response (PolicyEngine-UK capital_gains_behavioural_response).
+  # Static baseline: elasticity 0 ⇒ no response. Reforms set elasticity (negative)
+  # and baseline_rate (the pre-reform marginal rate) to activate.
+  elasticity: 0.0
+  baseline_rate: 0.0
+
+pensions:
+  # Finance Act 2004 Part 4. Annual allowance £60,000 from 2023/24 (FA 2023 s.18).
+  # Tapered for adjusted income > £260,000, down to a £10,000 minimum (FA 2004 s.228ZA).
+  annual_allowance: 60000.0
+  annual_allowance_taper_threshold: 260000.0
+  annual_allowance_taper_rate: 0.5  # £1 reduction per £2 over threshold
+  annual_allowance_minimum: 10000.0
+  relief_at_source: false  # default: net-pay treatment of reported contributions
+  basic_rate: 0.20
 
 stamp_duty:
   # SDLT — England + NI. Finance Act 2003 s.55, as amended; bands from 1 April 2025
