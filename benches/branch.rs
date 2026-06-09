@@ -104,6 +104,7 @@ fn benches(c: &mut Criterion) {
     let mut reform_params = baseline_params.clone();
     reform_params.income_tax.personal_allowance += 5_000.0;
     let baseline_old_sp = baseline_params.state_pension.old_basic_pension_weekly;
+    let baseline_new_sp = baseline_params.state_pension.new_state_pension_weekly;
 
     let (people, benunits, households) = make_frame(n);
     let baseline = Simulation::new(
@@ -190,6 +191,7 @@ fn benches(c: &mut Criterion) {
                     households.clone(),
                     reform_params.clone(),
                     baseline_old_sp,
+                    baseline_new_sp,
                     year,
                 );
                 let rr = reform_sim.run();

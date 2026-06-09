@@ -129,10 +129,10 @@ impl Simulation {
     /// Fork this simulation under a counterfactual `parameters`, reusing the
     /// entity frame.
     ///
-    /// The original simulation's `baseline_old_sp_weekly` carries through, so
-    /// reformed state pension scales correctly when reform parameters change
-    /// the basic SP rate (mirroring the existing `new_with_baseline_sp`
-    /// pattern in `main.rs`).
+    /// The original simulation's baseline SP rates carry through, so reformed
+    /// state pension scales correctly when reform parameters change the basic or
+    /// new SP rate (mirroring the existing `new_with_baseline_sp` pattern in
+    /// `main.rs`).
     pub fn branch(&self, parameters: Parameters) -> Self {
         Simulation {
             people: self.people.clone(),
@@ -140,6 +140,7 @@ impl Simulation {
             households: self.households.clone(),
             parameters,
             baseline_old_sp_weekly: self.baseline_old_sp_weekly,
+            baseline_new_sp_weekly: self.baseline_new_sp_weekly,
             fiscal_year: self.fiscal_year,
         }
     }
