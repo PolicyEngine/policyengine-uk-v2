@@ -37,6 +37,10 @@ harness = false
 name = "cgt_surcharge"
 harness = false
 
+[[bench]]
+name = "speedtest"
+harness = false
+
 [profile.release]
 opt-level = 3
 lto = true
