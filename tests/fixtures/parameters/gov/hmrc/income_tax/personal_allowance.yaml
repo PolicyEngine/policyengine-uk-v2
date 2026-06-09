@@ -1,0 +1,8 @@
+description: Income tax personal allowance. Auto-uprated forward by CPI.
+values:
+  2021-04-06: 12570
+  2022-04-06: 12570
+metadata:
+  unit: currency-GBP
+  label: Personal allowance
+  uprating: gov.indices.cpi

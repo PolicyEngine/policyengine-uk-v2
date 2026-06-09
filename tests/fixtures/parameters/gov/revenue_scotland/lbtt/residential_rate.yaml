@@ -1,0 +1,26 @@
+description: Rates on Scotland's residential property purchases (LBTT).
+brackets:
+- rate:
+    2015-04-01: 0
+  threshold:
+    2015-04-01: 0
+- rate:
+    2015-04-01: 0.02
+  threshold:
+    2015-04-01: 145000
+- rate:
+    2015-04-01: 0.05
+  threshold:
+    2015-04-01: 250000
+- rate:
+    2015-04-01: 0.10
+  threshold:
+    2015-04-01: 325000
+- rate:
+    2015-04-01: 0.12
+  threshold:
+    2015-04-01: 750000
+metadata:
+  label: LBTT on residential property
+  rate_unit: /1
+  threshold_unit: currency-GBP
