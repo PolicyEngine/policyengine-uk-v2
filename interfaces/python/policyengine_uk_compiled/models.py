@@ -160,6 +160,24 @@ class CouncilTaxParams(BaseModel):
     single_person_discount_rate: Optional[float] = None
 
 
+class CouncilTaxReductionParams(BaseModel):
+    """Council Tax Reduction / Benefit (means-tested support).
+
+    Local Government Finance Act 2012 s.10; Council Tax Reduction Schemes
+    (England) Regulations 2012 (SI 2012/2885). Pension-age claimants get up to
+    100% support; working-age claimants are capped at `max_support_working_age`
+    (England LA average ~0.90). The means test mirrors Housing Benefit but uses
+    the 20% CTR/CTB taper. All fields optional for use as a reform overlay.
+    """
+    taper_rate: Optional[float] = None
+    max_support_working_age: Optional[float] = None
+    personal_allowance_single_under25: Optional[float] = None
+    personal_allowance_single_25_plus: Optional[float] = None
+    personal_allowance_couple: Optional[float] = None
+    child_allowance: Optional[float] = None
+    family_premium: Optional[float] = None
+
+
 class StampDutyBand(BaseModel):
     rate: float
     threshold: float
@@ -276,6 +294,7 @@ class Parameters(BaseModel):
     disability_premiums: Optional[DisabilityPremiumParams] = None
     income_related_benefits: Optional[IncomeRelatedBenefitParams] = None
     council_tax: Optional[CouncilTaxParams] = None
+    council_tax_reduction: Optional[CouncilTaxReductionParams] = None
     capital_gains_tax: Optional[CapitalGainsTaxParams] = None
     stamp_duty: Optional[StampDutyParams] = None
     dla:  Optional["DlaParams"] = None
@@ -347,6 +366,7 @@ class ProgramBreakdown(BaseModel):
     stamp_duty: float = 0.0
     wealth_tax: float = 0.0
     council_tax: float = 0.0
+    council_tax_reduction: float = 0.0
     universal_credit: float
     child_benefit: float
     state_pension: float

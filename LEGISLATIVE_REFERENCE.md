@@ -695,6 +695,65 @@ Future-year parameters (2026/27 onward) are projected using OBR EFO March 2026 g
 
 ---
 
+## 15. Council Tax and Council Tax Reduction
+
+### Primary authority
+
+- **Local Government Finance Act 1992** (c.14) — council tax, bands, discounts.
+- **Local Government Finance Act 2012** (c.17) s.10 — abolished Council Tax Benefit
+  and localised support as Council Tax Reduction (CTR) from April 2013.
+- **Council Tax Reduction Schemes (Prescribed Requirements) (England) Regulations 2012**
+  ([SI 2012/2885](https://www.legislation.gov.uk/uksi/2012/2885)) — the pension-age
+  national scheme and the framework for working-age local schemes.
+
+### 15.1 Council tax liability
+
+Council tax is a household-level annual charge set by reference to the property's
+valuation band (A–H, based on 1991 values in England). Each band is a fixed fraction
+of the Band D charge (LGFA 1992 s.5):
+
+| Band | A | B | C | D | E | F | G | H |
+|------|---|---|---|---|---|---|---|---|
+| Multiplier | 6/9 | 7/9 | 8/9 | 1 | 11/9 | 13/9 | 15/9 | 18/9 |
+
+The engine uses the FRS-reported council tax where available, otherwise band ×
+LA-average Band D rate (England average £2,280 for 2025/26, DLUHC Council Tax levels
+statistics). The **single-person discount** of 25% (LGFA 1992 s.11(1)(a)) is applied
+when only one adult (18+) is resident.
+
+### 15.2 Council Tax Reduction / Benefit
+
+CTR is a means-tested reduction in the council tax liability:
+
+- **Pension-age** claimants are covered by the prescribed national scheme
+  (SI 2012/2885), broadly mirroring the abolished CTB and capable of reducing the bill
+  to nil (maximum support 100%).
+- **Working-age** claimants are subject to a locally-designed scheme. Most billing
+  authorities now require a minimum contribution, so the engine models a representative
+  England-average maximum support of 90% (`max_support_working_age`).
+
+The means test mirrors Housing Benefit — a weekly applicable amount (personal
+allowance + family premium + child allowances) is compared with weekly income and the
+excess is tapered — but uses the **CTR/CTB taper of 20%** (SI 2012/2885 Sch.1 para.30)
+rather than HB's 65%:
+
+```
+CTR = min( max_support × liability,
+           max(0, liability − (income − applicable_amount) × 0.20) )
+```
+
+CTR is added to HBAI net income (it is treated as income in HBAI) and reduces net
+council tax.
+
+**Devolved variants (remaining work):** Scotland and Wales operate their own CTR
+schemes (Council Tax Reduction (Scotland) Regulations 2012, SSI 2012/303; Council Tax
+Reduction Schemes and Prescribed Requirements (Wales) Regulations 2013, SI 2013/3029)
+with different applicable amounts and 100%-support defaults. The current implementation
+applies the England-average scheme nationally; the devolved scheme parameters are a
+follow-up slice.
+
+---
+
 ## Appendix: Key Statutory Instruments for 2025/26
 
 | SI | Title | Relevance |

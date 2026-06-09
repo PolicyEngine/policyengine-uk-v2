@@ -82,6 +82,9 @@ pub struct HouseholdResult {
     pub wealth_tax: f64,
     /// Council tax (calculated from parameters, for reform modelling)
     pub council_tax_calculated: f64,
+    /// Council Tax Reduction / Benefit (means-tested support towards council tax).
+    /// Reduces net council tax and is counted as a benefit in net income.
+    pub council_tax_reduction: f64,
     /// Modified OECD equivalisation factor for the household
     pub equivalisation_factor: f64,
     /// HBAI net income BHC (before housing costs)
@@ -335,14 +338,39 @@ impl Simulation {
                 .map(|p| variables::wealth_taxes::calculate_council_tax(hh, p, adult_count == 1))
                 .unwrap_or(hh.council_tax);
 
+            // Council Tax Reduction / Benefit: means-tested support against the
+            // council tax liability. Council tax is a single household-level bill,
+            // so the means test is applied to the household reference person's
+            // benefit unit (the householder) — Council Tax Reduction Schemes
+            // (England) Regulations 2012 (SI 2012/2885). Other benefit units in a
+            // shared household are non-dependants for CTR purposes (not modelled).
+            let council_tax_reduction = self.parameters.council_tax_reduction.as_ref()
+                .and_then(|p| {
+                    // Use the household reference person's benefit unit. The
+                    // household head is flagged on the person; fall back to the
+                    // first benefit unit.
+                    let head_bid = hh.person_ids.iter()
+                        .find(|&&pid| self.people[pid].is_household_head)
+                        .map(|&pid| self.people[pid].benunit_id)
+                        .or_else(|| hh.benunit_ids.first().copied());
+                    head_bid.map(|bid| {
+                        variables::council_tax::calculate_council_tax_reduction(
+                            &self.benunits[bid], &self.people, p, council_tax_calculated,
+                        )
+                    })
+                })
+                .unwrap_or(0.0);
+
             let total_tax = direct_tax + vat + fuel_duty + alcohol_duty + tobacco_duty
                 + cgt + stamp_duty + wealth_tax;
             // HBAI net income: gross minus direct taxes and pension contributions, plus benefits.
             // Excludes indirect taxes (VAT, duties) and transaction/wealth taxes (SDLT, wealth tax)
             // to match the government HBAI definition used for poverty and distributional analysis.
-            let net_income = net_income_before_vat;
+            // Council Tax Reduction is a means-tested benefit, so it is added to net income
+            // (consistent with HBAI, which counts CTR/CTB as income).
+            let net_income = net_income_before_vat + council_tax_reduction;
             // Extended net income: subtracts indirect and wealth taxes for fiscal analysis.
-            let extended_net_income = net_income_before_vat - vat - stamp_duty - wealth_tax;
+            let extended_net_income = net_income - vat - stamp_duty - wealth_tax;
 
             // Modified OECD equivalisation scale (used by HBAI):
             // First adult: 0.67, additional adults (14+): 0.33, children (<14): 0.20
@@ -359,14 +387,19 @@ impl Simulation {
                 0.67 + (adults.saturating_sub(1) as f64) * 0.33 + (children as f64) * 0.20
             };
 
-            // AHC: subtract rent and council tax (housing costs), using HBAI net income
+            // AHC: subtract rent and council tax (housing costs), using HBAI net income.
+            // Council tax is net of any Council Tax Reduction (CTR offsets the bill),
+            // so AHC nets out CTR via net_income while subtracting the gross council tax.
             let housing_costs = hh.rent + hh.council_tax;
             let net_income_ahc = net_income - housing_costs;
 
             HouseholdResult {
                 gross_income: gross,
                 total_tax,
-                total_benefits,
+                // Surface CTR as a benefit alongside the modelled benefit-unit
+                // benefits. It is already reflected in `net_income` separately,
+                // so it is not double-counted in the net income computation.
+                total_benefits: total_benefits + council_tax_reduction,
                 net_income,
                 vat,
                 fuel_duty,
@@ -376,6 +409,7 @@ impl Simulation {
                 stamp_duty,
                 wealth_tax,
                 council_tax_calculated,
+                council_tax_reduction,
                 equivalisation_factor: eq_factor,
                 equivalised_net_income: net_income / eq_factor,
                 net_income_ahc,

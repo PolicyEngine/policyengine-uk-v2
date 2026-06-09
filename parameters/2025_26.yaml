@@ -238,6 +238,23 @@ council_tax:
   # DLUHC Council Tax levels statistics 2025/26: England average Band D = £2,280
   average_band_d: 2280.0
 
+council_tax_reduction:
+  # Council Tax Reduction / Benefit (means-tested support towards council tax).
+  # Local Government Finance Act 2012 s.10; Council Tax Reduction Schemes
+  # (Prescribed Requirements) (England) Regulations 2012 (SI 2012/2885).
+  # Taper rate 20% (SI 2012/2885 Sch.1 para.30).
+  taper_rate: 0.20
+  # Working-age maximum support: England LA average ~90% (most schemes now
+  # require a minimum payment). Pension-age claimants always get up to 100%.
+  max_support_working_age: 0.90
+  # Applicable-amount personal allowances (weekly) — mirror Housing Benefit
+  # (SI 2012/2885 Sch.1, cross-referencing HB Regs 2006 Sch.3 allowances).
+  personal_allowance_single_under25: 71.70
+  personal_allowance_single_25_plus: 90.50
+  personal_allowance_couple: 142.25
+  child_allowance: 83.73
+  family_premium: 18.53
+
 capital_gains_tax:
   # Taxation of Chargeable Gains Act 1992; Finance Act 2024 s.7 (rate increases)
   # AEA reduced to £3,000 from 2024/25 (Finance Act 2023 s.4)
