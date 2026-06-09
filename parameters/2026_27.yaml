@@ -105,7 +105,8 @@ tax_credits:
 
 
 scottish_child_payment:
-  weekly_amount: 26.70
+  # Uprated to £28.20/week from April 2026 (Social Security Scotland uprating)
+  weekly_amount: 28.20
   max_age: 16.0
 
 disability_premiums:

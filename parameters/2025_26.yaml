@@ -155,9 +155,9 @@ tax_credits:
 
 
 scottish_child_payment:
-  # Social Security (Scotland) Act 2018; SSI 2020/351
-  # £26.70/week from November 2024
-  weekly_amount: 26.70
+  # Social Security (Scotland) Act 2018; Scottish Child Payment Regulations 2020 (SSI 2020/351)
+  # Uprated to £27.15/week from April 2025 (Social Security (Up-rating) (Scotland) Order 2025, SSI 2025/100)
+  weekly_amount: 27.15
   max_age: 16.0
 
 disability_premiums:

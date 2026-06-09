@@ -606,6 +606,107 @@ mod tests {
         assert!((results[1].income_tax - tax_before_b).abs() < 0.01,
             "Higher rate taxpayer should not receive marriage allowance");
     }
+
+    // ── Scottish income tax (worked examples) ───────────────────────────────
+    //
+    // Scotland Act 1998 s.80C; rates set by the Scottish Rate Resolution 2025/26.
+    // A Scottish taxpayer pays the five/six-band Scottish rates on non-savings,
+    // non-dividend income; rUK taxpayers pay the three-band UK rates. The
+    // personal allowance (£12,570) is reserved UK-wide, so the Scottish band
+    // thresholds below apply to *taxable* income (income after the PA).
+    //
+    // Expected figures computed directly from the 2025/26 Scottish bands:
+    //   starter 19% to £2,827, basic 20% to £14,921, intermediate 21% to
+    //   £31,092, higher 42% to £62,430, advanced 45% to £125,140, top 48%.
+
+    fn scottish_person(employment_income: f64) -> Person {
+        let mut p = test_person(employment_income);
+        p.is_in_scotland = true;
+        p
+    }
+
+    #[test]
+    fn test_scottish_income_tax_basic_band() {
+        // £30,000 income → taxable £17,430.
+        //   £2,827 @ 19%  = £537.13
+        //   £12,094 @ 20% = £2,418.80  (basic band: 14,921 - 2,827)
+        //   £2,509 @ 21%  = £526.89    (17,430 - 14,921)
+        //   total ≈ £3,482.82
+        let params = Parameters::for_year(2025).unwrap();
+        let result = calculate(&scottish_person(30_000.0), &params, 0.0);
+        assert!((result.income_tax - 3_482.82).abs() < 1.0,
+            "Scottish £30k: expected ~£3,482.82, got £{:.2}", result.income_tax);
+    }
+
+    #[test]
+    fn test_scottish_income_tax_higher_band() {
+        // £50,000 income → taxable £37,430.
+        //   starter  £2,827 @ 19%  = £537.13
+        //   basic    £12,094 @ 20% = £2,418.80
+        //   interm.  £16,171 @ 21% = £3,395.91 (31,092 - 14,921)
+        //   higher   £6,338 @ 42%  = £2,661.96 (37,430 - 31,092)
+        //   total ≈ £9,013.80
+        let params = Parameters::for_year(2025).unwrap();
+        let result = calculate(&scottish_person(50_000.0), &params, 0.0);
+        assert!((result.income_tax - 9_013.80).abs() < 1.0,
+            "Scottish £50k: expected ~£9,013.80, got £{:.2}", result.income_tax);
+    }
+
+    #[test]
+    fn test_scottish_income_tax_advanced_band() {
+        // £75,000 income → taxable £62,430 (exactly the advanced threshold).
+        //   starter  £2,827 @ 19%  = £537.13
+        //   basic    £12,094 @ 20% = £2,418.80
+        //   interm.  £16,171 @ 21% = £3,395.91
+        //   higher   £31,338 @ 42% = £13,161.96 (62,430 - 31,092)
+        //   total ≈ £19,513.80
+        let params = Parameters::for_year(2025).unwrap();
+        let result = calculate(&scottish_person(75_000.0), &params, 0.0);
+        assert!((result.income_tax - 19_513.80).abs() < 1.0,
+            "Scottish £75k: expected ~£19,513.80, got £{:.2}", result.income_tax);
+    }
+
+    #[test]
+    fn test_scottish_income_tax_top_band() {
+        // £150,000 income → PA fully tapered (income > £125,140), taxable £150,000.
+        //   starter  £2,827 @ 19%   = £537.13
+        //   basic    £12,094 @ 20%  = £2,418.80
+        //   interm.  £16,171 @ 21%  = £3,395.91
+        //   higher   £31,338 @ 42%  = £13,161.96
+        //   advanced £62,710 @ 45%  = £28,219.50 (125,140 - 62,430)
+        //   top      £24,860 @ 48%  = £11,932.80 (150,000 - 125,140)
+        //   total ≈ £59,666.10
+        let params = Parameters::for_year(2025).unwrap();
+        let result = calculate(&scottish_person(150_000.0), &params, 0.0);
+        assert!((result.income_tax - 59_666.10).abs() < 1.5,
+            "Scottish £150k: expected ~£59,666.10, got £{:.2}", result.income_tax);
+    }
+
+    #[test]
+    fn test_scotland_vs_ruk_divergence_at_same_income() {
+        // The same £50,000 earner: a Scottish taxpayer pays materially more
+        // than an rUK taxpayer because of the 42% higher rate (vs 40%) and the
+        // earlier higher-rate threshold (£31,092 taxable vs £37,700).
+        //   rUK:      £7,486.00   Scotland: £9,013.80   gap ≈ £1,527.80
+        let params = Parameters::for_year(2025).unwrap();
+        let ruk = calculate(&test_person(50_000.0), &params, 0.0);
+        let scot = calculate(&scottish_person(50_000.0), &params, 0.0);
+
+        assert!((ruk.income_tax - 7_486.0).abs() < 1.0,
+            "rUK £50k: expected ~£7,486, got £{:.2}", ruk.income_tax);
+        assert!(scot.income_tax > ruk.income_tax,
+            "Scottish taxpayer should pay more than rUK at £50k");
+        assert!((scot.income_tax - ruk.income_tax - 1_527.80).abs() < 2.0,
+            "Scotland-vs-rUK gap at £50k: expected ~£1,527.80, got £{:.2}",
+            scot.income_tax - ruk.income_tax);
+
+        // Low earners diverge the other way: the 19% starter rate makes Scotland
+        // slightly cheaper at £15,000.
+        let ruk_low = calculate(&test_person(15_000.0), &params, 0.0);
+        let scot_low = calculate(&scottish_person(15_000.0), &params, 0.0);
+        assert!(scot_low.income_tax < ruk_low.income_tax,
+            "Scottish starter rate should make a £15k earner pay less than rUK");
+    }
 }
 
 #[cfg(test)]

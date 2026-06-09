@@ -103,7 +103,8 @@ tax_credits:
 
 
 scottish_child_payment:
-  weekly_amount: 26.70
+  # Projected ~CPI uprating from £28.20 (2026/27), consistent with other benefit projections
+  weekly_amount: 29.93
   max_age: 16.0
 
 disability_premiums:
