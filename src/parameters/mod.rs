@@ -149,24 +149,68 @@ pub struct IncomeTaxParams {
 fn default_ma_fraction() -> f64 { 0.10 }
 fn default_ma_rounding() -> f64 { 10.0 }
 
+/// National Insurance parameters, organised by contribution class to mirror the
+/// Python `gov/hmrc/national_insurance/class_1|2|3|4` parameter tree.
+///
+/// The four class sub-structs are `#[serde(flatten)]`ed into a single flat map,
+/// so the on-disk YAML (and the JSON reform-overlay surface consumed by the
+/// Python wrapper) keeps the historical flat key layout while Rust code reads
+/// through a class-organised API (`params.national_insurance.class_1.main_rate`).
+///
+/// Source: SSCBA 1992 ss.5–18 (Class 1, 2, 3, 4); NIC Act 2024 c.5; NIC Act 2025 c.11.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NationalInsuranceParams {
-    // Class 1 employee (primary)
+    #[serde(flatten)]
+    pub class_1: NiClass1Params,
+    #[serde(flatten)]
+    pub class_2: NiClass2Params,
+    #[serde(flatten)]
+    pub class_3: NiClass3Params,
+    #[serde(flatten)]
+    pub class_4: NiClass4Params,
+}
+
+/// Class 1 contributions on employment income — both the primary (employee) and
+/// secondary (employer) legs. SSCBA 1992 ss.5–9.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NiClass1Params {
+    // Primary (employee)
     pub primary_threshold_annual: f64,
     pub upper_earnings_limit_annual: f64,
     pub main_rate: f64,
     pub additional_rate: f64,
-    // Class 1 employer (secondary)
+    // Secondary (employer)
     #[serde(default = "default_secondary_threshold")]
     pub secondary_threshold_annual: f64,
     #[serde(default = "default_employer_rate")]
     pub employer_rate: f64,
-    // Class 2 (self-employed flat rate)
+}
+
+/// Class 2 self-employed flat-rate contributions. SSCBA 1992 s.11.
+/// Abolished from 6 April 2024 (NIC Act 2024); rate/threshold default to zero.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NiClass2Params {
     #[serde(default = "default_class2_flat_rate")]
     pub class2_flat_rate_weekly: f64,
     #[serde(default = "default_class2_spt")]
     pub class2_small_profits_threshold: f64,
-    // Class 4 (self-employed)
+}
+
+/// Class 3 voluntary contributions. SSCBA 1992 s.13.
+///
+/// Stub: there is no input field identifying voluntary contributors in the FRS,
+/// so this is never charged. The weekly rate is carried for completeness and to
+/// keep the parameter tree shape-compatible with Python. Defaults to zero so it
+/// has no effect on output unless explicitly populated in a year's YAML.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NiClass3Params {
+    #[serde(default = "default_class3_flat_rate")]
+    pub class3_flat_rate_weekly: f64,
+}
+
+/// Class 4 self-employed profit-based contributions. SSCBA 1992 s.15.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NiClass4Params {
     pub class4_lower_profits_limit: f64,
     pub class4_upper_profits_limit: f64,
     pub class4_main_rate: f64,
@@ -178,6 +222,8 @@ fn default_employer_rate() -> f64 { 0.15 }
 // Class 2 abolished from 6 April 2024 (NIC Act 2024); default to 0 for post-2024 years
 fn default_class2_flat_rate() -> f64 { 0.0 }
 fn default_class2_spt() -> f64 { 0.0 }
+// Class 3 voluntary: stub, never charged without an explicit input field.
+fn default_class3_flat_rate() -> f64 { 0.0 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UniversalCreditParams {
@@ -829,7 +875,7 @@ mod tests {
         let params = Parameters::for_year(2025).unwrap();
         assert_eq!(params.fiscal_year, "2025/26");
         assert!((params.income_tax.personal_allowance - 12570.0).abs() < 0.01);
-        assert!((params.national_insurance.main_rate - 0.08).abs() < 0.001);
+        assert!((params.national_insurance.class_1.main_rate - 0.08).abs() < 0.001);
     }
 
     #[test]
@@ -854,6 +900,6 @@ mod tests {
         let reformed = base.apply_yaml_overlay(overlay).unwrap();
         assert!((reformed.income_tax.personal_allowance - 20000.0).abs() < 0.01);
         // Other values should be unchanged
-        assert!((reformed.national_insurance.main_rate - 0.08).abs() < 0.001);
+        assert!((reformed.national_insurance.class_1.main_rate - 0.08).abs() < 0.001);
     }
 }

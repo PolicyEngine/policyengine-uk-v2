@@ -301,48 +301,63 @@ fn calculate_dividend_tax(other_taxable: f64, dividend_taxable: f64, params: &Pa
         + in_additional * params.income_tax.dividend_additional_rate
 }
 
-/// National Insurance: Class 1 employee contributions (on employment income)
+/// National Insurance: Class 1 employee (primary) contributions on employment income.
+/// SSCBA 1992 ss.6–8: main rate between the primary threshold and the upper earnings
+/// limit (UEL), additional rate above the UEL.
 fn calculate_ni_class1(person: &Person, params: &Parameters) -> f64 {
     let earnings = person.employment_income;
-    let ni = &params.national_insurance;
+    let c1 = &params.national_insurance.class_1;
 
-    let main_band = (earnings.min(ni.upper_earnings_limit_annual) - ni.primary_threshold_annual).max(0.0);
-    let additional_band = (earnings - ni.upper_earnings_limit_annual).max(0.0);
+    let main_band = (earnings.min(c1.upper_earnings_limit_annual) - c1.primary_threshold_annual).max(0.0);
+    let additional_band = (earnings - c1.upper_earnings_limit_annual).max(0.0);
 
-    main_band * ni.main_rate + additional_band * ni.additional_rate
+    main_band * c1.main_rate + additional_band * c1.additional_rate
+}
+
+/// National Insurance: Class 1 employer (secondary) contributions on employment income.
+/// SSCBA 1992 s.9: secondary rate on earnings above the secondary threshold.
+fn calculate_ni_employer(person: &Person, params: &Parameters) -> f64 {
+    let earnings = person.employment_income;
+    let c1 = &params.national_insurance.class_1;
+
+    let above_secondary = (earnings - c1.secondary_threshold_annual).max(0.0);
+    above_secondary * c1.employer_rate
 }
 
 /// National Insurance: Class 2 self-employed flat-rate contributions.
 /// SSCBA 1992 s.11: flat weekly rate if self-employment profits exceed small profits threshold.
 fn calculate_ni_class2(person: &Person, params: &Parameters) -> f64 {
+    let c2 = &params.national_insurance.class_2;
     let profits = person.self_employment_income;
-    if profits < params.national_insurance.class2_small_profits_threshold {
+    if profits < c2.class2_small_profits_threshold {
         return 0.0;
     }
-    params.national_insurance.class2_flat_rate_weekly * (365.25 / 7.0)
+    c2.class2_flat_rate_weekly * (365.25 / 7.0)
 }
 
-/// National Insurance: Class 1 employer contributions
-fn calculate_ni_employer(person: &Person, params: &Parameters) -> f64 {
-    let earnings = person.employment_income;
-    let ni = &params.national_insurance;
-
-    let above_secondary = (earnings - ni.secondary_threshold_annual).max(0.0);
-    above_secondary * ni.employer_rate
+/// National Insurance: Class 3 voluntary contributions.
+/// SSCBA 1992 s.13. Stub — no FRS input field identifies voluntary contributors,
+/// so this always returns zero. Kept for parameter-tree parity with Python and so
+/// the calculation can be wired up if voluntary-contribution data is added later.
+#[allow(dead_code)]
+fn calculate_ni_class3(_person: &Person, _params: &Parameters) -> f64 {
+    0.0
 }
 
 /// National Insurance: Class 4 contributions (on self-employment profits)
+/// SSCBA 1992 s.15: main rate between the lower and upper profits limits,
+/// additional rate above the upper profits limit.
 fn calculate_ni_class4(person: &Person, params: &Parameters) -> f64 {
     let profits = person.self_employment_income;
     if profits <= 0.0 {
         return 0.0;
     }
-    let ni = &params.national_insurance;
+    let c4 = &params.national_insurance.class_4;
 
-    let main_band = (profits.min(ni.class4_upper_profits_limit) - ni.class4_lower_profits_limit).max(0.0);
-    let additional_band = (profits - ni.class4_upper_profits_limit).max(0.0);
+    let main_band = (profits.min(c4.class4_upper_profits_limit) - c4.class4_lower_profits_limit).max(0.0);
+    let additional_band = (profits - c4.class4_upper_profits_limit).max(0.0);
 
-    main_band * ni.class4_main_rate + additional_band * ni.class4_additional_rate
+    main_band * c4.class4_main_rate + additional_band * c4.class4_additional_rate
 }
 
 #[cfg(test)]
@@ -402,7 +417,7 @@ mod tests {
         let result = calculate(&test_person_se(40000.0), &params, 0.0);
         // Class 4: (40000 - 12570) × 0.06 = £1,645.80
         // Class 2: £3.45 × 52.18 = ~£179.96
-        let expected = 1645.80 + params.national_insurance.class2_flat_rate_weekly * (365.25 / 7.0);
+        let expected = 1645.80 + params.national_insurance.class_2.class2_flat_rate_weekly * (365.25 / 7.0);
         assert!((result.national_insurance - expected).abs() < 1.0,
             "Expected ~{:.2}, got {:.2}", expected, result.national_insurance);
     }
@@ -821,7 +836,7 @@ mod parameter_impact_tests {
         let mut params = Parameters::for_year(2025).unwrap();
         let p = basic_earner();
         let base = calc(&p, &params).national_insurance;
-        params.national_insurance.primary_threshold_annual += 1000.0;
+        params.national_insurance.class_1.primary_threshold_annual += 1000.0;
         let reformed = calc(&p, &params).national_insurance;
         assert!(reformed < base, "Raising NI primary threshold should reduce employee NI");
     }
@@ -831,7 +846,7 @@ mod parameter_impact_tests {
         let mut params = Parameters::for_year(2025).unwrap();
         let p = higher_earner();
         let base = calc(&p, &params).national_insurance;
-        params.national_insurance.upper_earnings_limit_annual += 5000.0;
+        params.national_insurance.class_1.upper_earnings_limit_annual += 5000.0;
         let reformed = calc(&p, &params).national_insurance;
         assert!(reformed > base, "Raising UEL should increase NI for higher earner (more at main rate)");
     }
@@ -841,7 +856,7 @@ mod parameter_impact_tests {
         let mut params = Parameters::for_year(2025).unwrap();
         let p = basic_earner();
         let base = calc(&p, &params).national_insurance;
-        params.national_insurance.main_rate += 0.02;
+        params.national_insurance.class_1.main_rate += 0.02;
         let reformed = calc(&p, &params).national_insurance;
         assert!(reformed > base, "Raising NI main rate should increase employee NI");
     }
@@ -852,7 +867,7 @@ mod parameter_impact_tests {
         // Need earner above UEL (£50270)
         let mut p = Person::default(); p.age = 35.0; p.employment_income = 80000.0;
         let base = calc(&p, &params).national_insurance;
-        params.national_insurance.additional_rate += 0.02;
+        params.national_insurance.class_1.additional_rate += 0.02;
         let reformed = calc(&p, &params).national_insurance;
         assert!(reformed > base, "Raising NI additional rate should increase NI above UEL");
     }
@@ -862,7 +877,7 @@ mod parameter_impact_tests {
         let mut params = Parameters::for_year(2025).unwrap();
         let p = basic_earner();
         let base = calc(&p, &params).employer_ni;
-        params.national_insurance.secondary_threshold_annual += 1000.0;
+        params.national_insurance.class_1.secondary_threshold_annual += 1000.0;
         let reformed = calc(&p, &params).employer_ni;
         assert!(reformed < base, "Raising secondary threshold should reduce employer NI");
     }
@@ -872,7 +887,7 @@ mod parameter_impact_tests {
         let mut params = Parameters::for_year(2025).unwrap();
         let p = basic_earner();
         let base = calc(&p, &params).employer_ni;
-        params.national_insurance.employer_rate += 0.02;
+        params.national_insurance.class_1.employer_rate += 0.02;
         let reformed = calc(&p, &params).employer_ni;
         assert!(reformed > base, "Raising employer rate should increase employer NI");
     }
@@ -883,7 +898,7 @@ mod parameter_impact_tests {
         let mut params = Parameters::for_year(2023).unwrap();
         let p = se_earner();
         let base = calc(&p, &params).national_insurance;
-        params.national_insurance.class2_flat_rate_weekly += 1.0;
+        params.national_insurance.class_2.class2_flat_rate_weekly += 1.0;
         let reformed = calc(&p, &params).national_insurance;
         assert!(reformed > base, "Raising Class 2 flat rate should increase NI for self-employed");
     }
@@ -896,7 +911,7 @@ mod parameter_impact_tests {
         let mut p = Person::default(); p.age = 35.0; p.self_employment_income = 7000.0;
         let base = calc(&p, &params).national_insurance;
         // Raise SPT above person's income → no more Class 2
-        params.national_insurance.class2_small_profits_threshold = 8000.0;
+        params.national_insurance.class_2.class2_small_profits_threshold = 8000.0;
         let reformed = calc(&p, &params).national_insurance;
         assert!(reformed < base, "Raising SPT above income should remove Class 2 liability");
     }
@@ -906,7 +921,7 @@ mod parameter_impact_tests {
         let mut params = Parameters::for_year(2025).unwrap();
         let p = se_earner();
         let base = calc(&p, &params).national_insurance;
-        params.national_insurance.class4_lower_profits_limit += 1000.0;
+        params.national_insurance.class_4.class4_lower_profits_limit += 1000.0;
         let reformed = calc(&p, &params).national_insurance;
         assert!(reformed < base, "Raising Class 4 lower limit should reduce NI for self-employed");
     }
@@ -917,7 +932,7 @@ mod parameter_impact_tests {
         // Need SE earner above upper limit (~£50270)
         let mut p = Person::default(); p.age = 35.0; p.self_employment_income = 80000.0;
         let base = calc(&p, &params).national_insurance;
-        params.national_insurance.class4_upper_profits_limit += 5000.0;
+        params.national_insurance.class_4.class4_upper_profits_limit += 5000.0;
         let reformed = calc(&p, &params).national_insurance;
         assert!(reformed > base, "Raising Class 4 upper limit should increase NI above it (more at main rate)");
     }
@@ -927,7 +942,7 @@ mod parameter_impact_tests {
         let mut params = Parameters::for_year(2025).unwrap();
         let p = se_earner();
         let base = calc(&p, &params).national_insurance;
-        params.national_insurance.class4_main_rate += 0.02;
+        params.national_insurance.class_4.class4_main_rate += 0.02;
         let reformed = calc(&p, &params).national_insurance;
         assert!(reformed > base, "Raising Class 4 main rate should increase NI for self-employed");
     }
@@ -937,8 +952,77 @@ mod parameter_impact_tests {
         let mut params = Parameters::for_year(2025).unwrap();
         let mut p = Person::default(); p.age = 35.0; p.self_employment_income = 80000.0;
         let base = calc(&p, &params).national_insurance;
-        params.national_insurance.class4_additional_rate += 0.02;
+        params.national_insurance.class_4.class4_additional_rate += 0.02;
         let reformed = calc(&p, &params).national_insurance;
         assert!(reformed > base, "Raising Class 4 additional rate should increase NI above upper limit");
+    }
+
+    #[test]
+    fn ni_class3_is_stub_zero() {
+        // Class 3 is voluntary and never charged: the engine returns zero regardless
+        // of income, even though a (non-zero) standard weekly rate is carried in the
+        // parameter for parity with the Python tree.
+        let params = Parameters::for_year(2025).unwrap();
+        assert!(params.national_insurance.class_3.class3_flat_rate_weekly > 0.0);
+        let mut p = Person::default();
+        p.age = 35.0;
+        p.employment_income = 60000.0;
+        p.self_employment_income = 40000.0;
+        assert_eq!(calculate_ni_class3(&p, &params), 0.0);
+    }
+
+    #[test]
+    fn ni_params_flatten_roundtrip() {
+        // The class sub-structs are serde(flatten)ed, so the YAML/JSON form stays
+        // flat. A serialize → deserialize round-trip must preserve every class value
+        // and keep the flat key layout that external consumers depend on.
+        let params = Parameters::for_year(2025).unwrap();
+        let json = serde_json::to_value(&params.national_insurance).unwrap();
+        // Flat keys, not nested under class_1/class_4.
+        assert!(json.get("primary_threshold_annual").is_some());
+        assert!(json.get("class4_main_rate").is_some());
+        assert!(json.get("class_1").is_none());
+
+        let reparsed: crate::parameters::NationalInsuranceParams =
+            serde_json::from_value(json).unwrap();
+        assert_eq!(reparsed.class_1.main_rate, params.national_insurance.class_1.main_rate);
+        assert_eq!(reparsed.class_1.employer_rate, params.national_insurance.class_1.employer_rate);
+        assert_eq!(
+            reparsed.class_4.class4_main_rate,
+            params.national_insurance.class_4.class4_main_rate
+        );
+    }
+
+    #[test]
+    fn ni_class1_employee_worked_example_2025_26() {
+        // HMRC 2025/26 Class 1 employee: £40,000 salary.
+        // Main band = 40,000 − 12,570 = 27,430 at 8% = £2,194.40. Nothing above UEL.
+        let params = Parameters::for_year(2025).unwrap();
+        let mut p = Person::default();
+        p.age = 35.0;
+        p.employment_income = 40_000.0;
+        assert!((calculate_ni_class1(&p, &params) - 2_194.40).abs() < 0.01);
+    }
+
+    #[test]
+    fn ni_class1_employer_worked_example_2025_26() {
+        // HMRC 2025/26 Class 1 employer (secondary): £40,000 salary.
+        // (40,000 − 5,000) × 15% = £5,250.00.
+        let params = Parameters::for_year(2025).unwrap();
+        let mut p = Person::default();
+        p.age = 35.0;
+        p.employment_income = 40_000.0;
+        assert!((calculate_ni_employer(&p, &params) - 5_250.00).abs() < 0.01);
+    }
+
+    #[test]
+    fn ni_class4_worked_example_2025_26() {
+        // HMRC 2025/26 Class 4: £40,000 profit.
+        // (40,000 − 12,570) × 6% = £1,645.80. Nothing above UPL.
+        let params = Parameters::for_year(2025).unwrap();
+        let mut p = Person::default();
+        p.age = 35.0;
+        p.self_employment_income = 40_000.0;
+        assert!((calculate_ni_class4(&p, &params) - 1_645.80).abs() < 0.01);
     }
 }

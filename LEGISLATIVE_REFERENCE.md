@@ -151,6 +151,18 @@ For 2023/24 and earlier years, Class 2 was charged at a flat weekly rate (£3.45
 on self-employed persons whose profits exceeded the Small Profits Threshold. From 2024/25 onward,
 the rate is zero.
 
+### 2.3a Class 3 Contributions (Voluntary)
+
+Source: SSCBA 1992 s.13 ([`ukpga/1992/4/section/13`](https://www.legislation.gov.uk/ukpga/1992/4/section/13))
+
+Class 3 contributions are voluntary, paid at a flat weekly rate to fill gaps in a
+contributor's National Insurance record (e.g. to qualify for the State Pension).
+They are **not modelled** here: the FRS contains no input field identifying who
+chooses to pay voluntary contributions, so the engine never charges Class 3. The
+parameter (`class3_flat_rate_weekly`, default 0) is carried only for parity with
+the Python parameter tree and to allow the calculation to be wired up if
+voluntary-contribution data is added in future.
+
 ### 2.4 Class 4 Contributions (Self-Employed Profits)
 
 Source: SSCBA 1992 s.15 ([`ukpga/1992/4/section/15`](https://www.legislation.gov.uk/ukpga/1992/4/section/15));
