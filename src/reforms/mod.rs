@@ -3,6 +3,11 @@ use crate::engine::simulation::{BenUnitResult, SimulationResults};
 use crate::parameters::Parameters;
 use std::path::Path;
 
+/// Structural reforms: a reform abstraction beyond YAML parameter overlay
+/// (neutralise / output-override / compose) plus an example registry. See
+/// [`structural::StructuralReform`].
+pub mod structural;
+
 /// A reform is a named bundle of policy changes applied on top of baseline law.
 ///
 /// Today a reform can do two things:
