@@ -53,6 +53,11 @@ pub struct Parameters {
     /// Council tax (calculated). Allows reform modelling via band_d rate override.
     #[serde(default)]
     pub council_tax: Option<CouncilTaxParams>,
+    /// Council Tax Reduction / Benefit (means-tested support towards council tax).
+    /// Local Government Finance Act 2012 s.10 + Council Tax Reduction Schemes
+    /// (England) Regulations 2012 (SI 2012/2885).
+    #[serde(default)]
+    pub council_tax_reduction: Option<CouncilTaxReductionParams>,
     /// Capital gains tax. TCGA 1992; 18%/24% from October 2024 Budget.
     #[serde(default)]
     pub capital_gains_tax: Option<CapitalGainsTaxParams>,
@@ -430,6 +435,45 @@ pub struct CouncilTaxParams {
 }
 
 fn default_single_person_discount() -> f64 { 0.25 }
+
+/// Council Tax Reduction / Benefit (CTR/CTB) parameters.
+///
+/// CTR is a means-tested reduction in a household's council tax liability. It
+/// replaced Council Tax Benefit from April 2013 (Local Government Finance Act
+/// 2012 s.10). For pension-age claimants a single national scheme applies
+/// (Council Tax Reduction Schemes (Prescribed Requirements) (England)
+/// Regulations 2012, SI 2012/2885), broadly mirroring the abolished CTB and
+/// capable of reducing the bill to nil. For working-age claimants each billing
+/// authority designs its own scheme; we model a representative England-average
+/// scheme with a maximum-support cap (most authorities now require a minimum
+/// contribution, so the average maximum support is below 100%).
+///
+/// The means test mirrors Housing Benefit: a weekly applicable amount is
+/// compared with weekly income, and the excess is tapered. The taper rate
+/// for CTR/CTB is 20% (SI 2012/2885 Sch.1 para.30), distinct from HB's 65%.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CouncilTaxReductionParams {
+    /// Taper / withdrawal rate applied to income above the applicable amount.
+    /// SI 2012/2885 Sch.1 para.30: 20%.
+    #[serde(default = "default_ctr_taper")]
+    pub taper_rate: f64,
+    /// Maximum fraction of council tax liability that can be covered, for
+    /// working-age claimants. Pension-age claimants always use 1.0. England
+    /// LA average ≈ 0.90 (most working-age schemes require a minimum payment).
+    #[serde(default = "default_ctr_max_support_working_age")]
+    pub max_support_working_age: f64,
+    /// Applicable-amount personal allowances (weekly). Mirror the Housing
+    /// Benefit applicable amounts (SI 2012/2885 Sch.1, cross-referencing the
+    /// HB Regs 2006 allowances).
+    pub personal_allowance_single_under25: f64,
+    pub personal_allowance_single_25_plus: f64,
+    pub personal_allowance_couple: f64,
+    pub child_allowance: f64,
+    pub family_premium: f64,
+}
+
+fn default_ctr_taper() -> f64 { 0.20 }
+fn default_ctr_max_support_working_age() -> f64 { 0.90 }
 
 fn default_band_multipliers() -> Vec<f64> {
     vec![6.0/9.0, 7.0/9.0, 8.0/9.0, 1.0, 11.0/9.0, 13.0/9.0, 15.0/9.0, 18.0/9.0]

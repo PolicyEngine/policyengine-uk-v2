@@ -278,6 +278,7 @@ struct ProgramBreakdown {
     stamp_duty: f64,
     wealth_tax: f64,
     council_tax: f64,
+    council_tax_reduction: f64,
     universal_credit: f64,
     child_benefit: f64,
     state_pension: f64,
@@ -766,6 +767,7 @@ fn main() -> anyhow::Result<()> {
         let mut stamp_duty_total = 0.0f64;
         let mut wealth_tax_total = 0.0f64;
         let mut council_tax_total = 0.0f64;
+        let mut council_tax_reduction_total = 0.0f64;
         let mut it_payers = 0.0f64;
         let mut ni_payers = 0.0f64;
         let mut eni_payers = 0.0f64;
@@ -779,6 +781,7 @@ fn main() -> anyhow::Result<()> {
             stamp_duty_total += hh.weight * hr.stamp_duty;
             wealth_tax_total += hh.weight * hr.wealth_tax;
             council_tax_total += hh.weight * hr.council_tax_calculated;
+            council_tax_reduction_total += hh.weight * hr.council_tax_reduction;
             for &pid in &hh.person_ids {
                 let person = &people[pid];
                 total_employment += hh.weight * person.employment_income;
@@ -878,6 +881,7 @@ fn main() -> anyhow::Result<()> {
             stamp_duty: stamp_duty_total,
             wealth_tax: wealth_tax_total,
             council_tax: council_tax_total,
+            council_tax_reduction: council_tax_reduction_total,
             universal_credit: uc,
             child_benefit: cb,
             state_pension: sp,
