@@ -1,0 +1,105 @@
+name: Speedtest
+
+# Reports how the time to run the engine over 100k households changes in a PR
+# (issue #69). Runs the `speedtest` bench on the PR head and on the base commit,
+# then posts/updates a sticky PR comment with the absolute timing and the delta.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: speedtest-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  speedtest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v6
+        with:
+          # Need the base commit's history so we can check it out for comparison.
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-speedtest-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-speedtest-
+
+      - name: Run speedtest on PR head
+        run: |
+          set -o pipefail
+          cargo bench --bench speedtest 2>/dev/null \
+            | grep '^SPEEDTEST_JSON=' | tail -1 | sed 's/^SPEEDTEST_JSON=//' > pr.json
+          echo "PR head:"; cat pr.json
+
+      - name: Run speedtest on base commit
+        run: |
+          set -o pipefail
+          git checkout --quiet ${{ github.event.pull_request.base.sha }}
+          if [ ! -f benches/speedtest.rs ]; then
+            echo "Base commit has no speedtest bench — reporting absolute timing only."
+            exit 0
+          fi
+          cargo bench --bench speedtest 2>/dev/null \
+            | grep '^SPEEDTEST_JSON=' | tail -1 | sed 's/^SPEEDTEST_JSON=//' > base.json
+          echo "Base:"; cat base.json
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const read = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
+            const pr = read('pr.json');
+            const base = read('base.json');
+
+            const fmt = (n) => n.toLocaleString('en-US');
+            const marker = '<!-- speedtest-report -->';
+            let body = `${marker}\n### ⏱️ Speedtest — ${fmt(pr.households)} households\n\n`;
+
+            if (base && base.median_ms > 0) {
+              const delta = pr.median_ms - base.median_ms;
+              const pct = (delta / base.median_ms) * 100;
+              // Faster (negative delta) is good.
+              const emoji = pct <= -3 ? '🟢 faster' : pct >= 3 ? '🔴 slower' : '⚪ no change';
+              const sign = (x) => (x >= 0 ? '+' : '');
+              body +=
+                `| | Base | This PR | Δ |\n` +
+                `|---|---:|---:|---:|\n` +
+                `| Median run | ${base.median_ms.toFixed(2)} ms | ${pr.median_ms.toFixed(2)} ms | ${sign(delta)}${delta.toFixed(2)} ms (${sign(pct)}${pct.toFixed(1)}%) |\n` +
+                `| Throughput | ${fmt(base.households_per_sec)} hh/s | ${fmt(pr.households_per_sec)} hh/s | |\n\n` +
+                `**${emoji}** (${sign(pct)}${pct.toFixed(1)}% median run time)\n`;
+            } else {
+              body +=
+                `| Metric | This PR |\n` +
+                `|---|---:|\n` +
+                `| Median run | ${pr.median_ms.toFixed(2)} ms |\n` +
+                `| Mean run | ${pr.mean_ms.toFixed(2)} ms |\n` +
+                `| Throughput | ${fmt(pr.households_per_sec)} hh/s |\n\n` +
+                `_No baseline available (the speedtest bench is not on the base commit), so only absolute timing is shown. Future PRs will show the delta._\n`;
+            }
+
+            body += `\n<sub>${pr.runs} timed runs, median reported. Synthetic single-adult household frame — no FRS data required.</sub>`;
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
