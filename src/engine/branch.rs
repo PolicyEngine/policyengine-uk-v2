@@ -10,9 +10,7 @@
 //! `Simulation::branch` packages the "clone-and-reparameterise" idiom: given a
 //! baseline `Simulation` and a counterfactual `Parameters`, it returns a new
 //! `Simulation` that shares the same entity frame but runs against the reform
-//! rules. The original baseline-old-SP rate carries over so reform-side state
-//! pension scales relative to the original baseline (matching the existing
-//! `new_with_baseline_sp` constructor used by `main.rs`).
+//! rules.
 //!
 //! `Comparison::between` produces a flat per-household diff between two
 //! `SimulationResults` plus a handful of population aggregates (net cost,
@@ -128,18 +126,12 @@ impl Comparison {
 impl Simulation {
     /// Fork this simulation under a counterfactual `parameters`, reusing the
     /// entity frame.
-    ///
-    /// The original simulation's `baseline_old_sp_weekly` carries through, so
-    /// reformed state pension scales correctly when reform parameters change
-    /// the basic SP rate (mirroring the existing `new_with_baseline_sp`
-    /// pattern in `main.rs`).
     pub fn branch(&self, parameters: Parameters) -> Self {
-        Simulation::new_with_baseline_sp(
+        Simulation::new(
             self.people.clone(),
             self.benunits.clone(),
             self.households.clone(),
             parameters,
-            self.baseline_old_sp_weekly,
             self.fiscal_year,
         )
     }

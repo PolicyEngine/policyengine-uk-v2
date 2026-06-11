@@ -1,9 +1,3 @@
-mod axiom;
-mod engine;
-mod parameters;
-mod variables;
-mod data;
-mod reforms;
 
 use clap::Parser;
 use colored::Colorize;
@@ -11,17 +5,18 @@ use comfy_table::{Table, ContentArrangement, presets};
 use serde::Serialize;
 use std::path::PathBuf;
 
-use crate::engine::Simulation;
-use crate::parameters::Parameters;
-use crate::reforms::Reform;
-use crate::data::frs::load_frs;
-use crate::data::spi::load_spi;
-use crate::data::lcfs::load_lcfs;
-use crate::data::was::load_was;
-use crate::data::clean::{write_clean_csvs, load_clean_dataset, write_microdata, write_microdata_to_stdout};
-use crate::data::stdin::load_dataset_from_reader;
-use crate::data::efrs;
-use crate::data::calibrate;
+use policyengine_uk_rust::engine::Simulation;
+use policyengine_uk_rust::run;
+use policyengine_uk_rust::parameters::Parameters;
+use policyengine_uk_rust::reforms::Reform;
+use policyengine_uk_rust::data::frs::load_frs;
+use policyengine_uk_rust::data::spi::load_spi;
+use policyengine_uk_rust::data::lcfs::load_lcfs;
+use policyengine_uk_rust::data::was::load_was;
+use policyengine_uk_rust::data::clean::{write_clean_csvs, load_clean_dataset, write_microdata, write_microdata_to_stdout};
+use policyengine_uk_rust::data::stdin::load_dataset_from_reader;
+use policyengine_uk_rust::data::efrs;
+use policyengine_uk_rust::data::calibrate;
 
 #[derive(Parser)]
 #[command(name = "policyengine-uk")]
@@ -153,184 +148,6 @@ struct Cli {
     /// household calculations. Suitable for SPI and other datasets without household structure.
     #[arg(long)]
     persons_only: bool,
-}
-
-#[derive(Serialize, Clone)]
-struct HbaiIncomes {
-    /// Weighted mean equivalised net income BHC
-    mean_equiv_bhc: f64,
-    /// Weighted mean equivalised net income AHC
-    mean_equiv_ahc: f64,
-    /// Weighted mean net income BHC (non-equivalised)
-    mean_bhc: f64,
-    /// Weighted mean net income AHC (non-equivalised)
-    mean_ahc: f64,
-    /// Median equivalised net income BHC (poverty reference line = 60% of this)
-    median_equiv_bhc: f64,
-    /// Median equivalised net income AHC
-    median_equiv_ahc: f64,
-}
-
-#[derive(Serialize)]
-struct PovertyHeadcounts {
-    /// Relative poverty (60% median BHC equiv), children
-    relative_bhc_children: f64,
-    /// Relative poverty (60% median BHC equiv), working-age adults
-    relative_bhc_working_age: f64,
-    /// Relative poverty (60% median BHC equiv), pensioners
-    relative_bhc_pensioners: f64,
-    /// Relative poverty (60% median AHC equiv), children
-    relative_ahc_children: f64,
-    /// Relative poverty (60% median AHC equiv), working-age adults
-    relative_ahc_working_age: f64,
-    /// Relative poverty (60% median AHC equiv), pensioners
-    relative_ahc_pensioners: f64,
-    /// Absolute poverty (60% median BHC equiv fixed at 2010/11 baseline), BHC, children
-    absolute_bhc_children: f64,
-    /// Absolute poverty BHC, working-age adults
-    absolute_bhc_working_age: f64,
-    /// Absolute poverty BHC, pensioners
-    absolute_bhc_pensioners: f64,
-    /// Absolute poverty AHC, children
-    absolute_ahc_children: f64,
-    /// Absolute poverty AHC, working-age adults
-    absolute_ahc_working_age: f64,
-    /// Absolute poverty AHC, pensioners
-    absolute_ahc_pensioners: f64,
-}
-
-#[derive(Serialize)]
-struct JsonOutput {
-    fiscal_year: String,
-    budgetary_impact: BudgetaryImpact,
-    income_breakdown: IncomeBreakdown,
-    program_breakdown: ProgramBreakdown,
-    caseloads: Caseloads,
-    decile_impacts: Vec<DecileImpact>,
-    winners_losers: WinnersLosers,
-    baseline_hbai_incomes: HbaiIncomes,
-    reform_hbai_incomes: HbaiIncomes,
-    baseline_poverty: PovertyHeadcounts,
-    reform_poverty: PovertyHeadcounts,
-    /// CPI index (2025/26 = 100) for deflating nominal values to real terms.
-    cpi_index: f64,
-}
-
-/// CPI index by fiscal year (2025/26 = 100).
-/// Sources: ONS CPI annual average (historical), OBR EFO March 2026 table 1.7 (forecast).
-/// Each value is the annual average CPI index aligned to the fiscal year label.
-fn cpi_index_for_year(year: u32) -> f64 {
-    // ONS CPI Index (2015=100) annual averages, mapped to fiscal years.
-    // Historical values from ONS series D7BT; forecasts from OBR EFO March 2026 table 1.7.
-    // All rebased to 2025/26 = 100.
-    let table: &[(u32, f64)] = &[
-        (1994, 55.5), (1995, 56.9), (1996, 58.3), (1997, 59.5),
-        (1998, 61.0), (1999, 61.7), (2000, 62.7), (2001, 63.6),
-        (2002, 64.7), (2003, 65.7), (2004, 66.8), (2005, 68.1),
-        (2006, 69.8), (2007, 71.5), (2008, 74.1), (2009, 75.5),
-        (2010, 78.0), (2011, 81.5), (2012, 83.6), (2013, 85.6),
-        (2014, 86.5), (2015, 86.5), (2016, 87.5), (2017, 89.9),
-        (2018, 92.1), (2019, 93.8), (2020, 94.6), (2021, 97.5),
-        (2022, 107.3), (2023, 113.4), (2024, 133.853167),
-        (2025, 138.368083), (2026, 141.552006), (2027, 144.338518),
-        (2028, 147.191323), (2029, 150.164842),
-    ];
-    // Rebase so 2025/26 = 100
-    let base = 138.368083;
-    table.iter()
-        .find(|(y, _)| *y == year)
-        .map(|(_, v)| v / base * 100.0)
-        .unwrap_or(100.0)
-}
-
-#[derive(Serialize)]
-struct BudgetaryImpact {
-    baseline_revenue: f64,
-    reform_revenue: f64,
-    revenue_change: f64,
-    baseline_benefits: f64,
-    reform_benefits: f64,
-    benefit_spending_change: f64,
-    net_cost: f64,
-}
-
-#[derive(Serialize)]
-struct IncomeBreakdown {
-    employment_income: f64,
-    self_employment_income: f64,
-    pension_income: f64,
-    savings_interest_income: f64,
-    dividend_income: f64,
-    property_income: f64,
-    other_income: f64,
-}
-
-#[derive(Serialize)]
-struct ProgramBreakdown {
-    income_tax: f64,
-    hicbc: f64,
-    employee_ni: f64,
-    employer_ni: f64,
-    vat: f64,
-    fuel_duty: f64,
-    alcohol_duty: f64,
-    tobacco_duty: f64,
-    capital_gains_tax: f64,
-    stamp_duty: f64,
-    wealth_tax: f64,
-    council_tax: f64,
-    universal_credit: f64,
-    child_benefit: f64,
-    state_pension: f64,
-    pension_credit: f64,
-    housing_benefit: f64,
-    child_tax_credit: f64,
-    working_tax_credit: f64,
-    income_support: f64,
-    esa_income_related: f64,
-    jsa_income_based: f64,
-    carers_allowance: f64,
-    scottish_child_payment: f64,
-    benefit_cap_reduction: f64,
-    passthrough_benefits: f64,
-}
-
-#[derive(Serialize)]
-struct Caseloads {
-    income_tax_payers: f64,
-    ni_payers: f64,
-    employer_ni_payers: f64,
-    universal_credit: f64,
-    child_benefit: f64,
-    state_pension: f64,
-    pension_credit: f64,
-    housing_benefit: f64,
-    child_tax_credit: f64,
-    working_tax_credit: f64,
-    income_support: f64,
-    esa_income_related: f64,
-    jsa_income_based: f64,
-    carers_allowance: f64,
-    scottish_child_payment: f64,
-    benefit_cap_affected: f64,
-}
-
-#[derive(Serialize)]
-struct DecileImpact {
-    decile: usize,
-    avg_baseline_income: f64,
-    avg_reform_income: f64,
-    avg_change: f64,
-    pct_change: f64,
-}
-
-#[derive(Serialize)]
-struct WinnersLosers {
-    winners_pct: f64,
-    losers_pct: f64,
-    unchanged_pct: f64,
-    avg_gain: f64,
-    avg_loss: f64,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -539,44 +356,11 @@ fn main() -> anyhow::Result<()> {
     };
 
     // Run baseline simulation
-    let baseline_sim = Simulation::new(
-        dataset.people.clone(),
-        dataset.benunits.clone(),
-        dataset.households.clone(),
-        baseline_params.clone(),
-        cli.year,
-    );
-    let baseline = baseline_sim.run();
+    let baseline = run::run_baseline(&dataset, &baseline_params, cli.year);
 
-    // Apply OBR labour supply responses if enabled in the policy parameters.
-    // Adjusts employment incomes in the policy dataset before running the reform simulation.
-    let policy_people = if policy_params.labour_supply.enabled {
-        let baseline_net: Vec<f64> = baseline.household_results.iter()
-            .map(|hr| hr.net_income)
-            .collect();
-        crate::variables::labour_supply::apply_labour_supply_responses(
-            &dataset.people,
-            &dataset.benunits,
-            &dataset.households,
-            &baseline_params,
-            &policy_params,
-            &baseline_net,
-            cli.year,
-        )
-    } else {
-        dataset.people.clone()
-    };
-
-    // Run policy simulation (pass baseline old SP rate so reported amounts scale correctly)
-    let policy_sim = Simulation::new_with_baseline_sp(
-        policy_people,
-        dataset.benunits.clone(),
-        dataset.households.clone(),
-        policy_params.clone(),
-        baseline_params.state_pension.old_basic_pension_weekly,
-        cli.year,
-    );
-    let mut reformed = policy_sim.run();
+    // Labour supply responses (if enabled in the policy parameters) plus the
+    // policy simulation.
+    let mut reformed = run::run_reform(&dataset, &baseline_params, &policy_params, &baseline, cli.year);
     // Neutralisation runs after the reform simulation completes, so baseline
     // results are unaffected. No-op when the reform has an empty `neutralise`.
     if let Some(r) = reform.as_ref() {
@@ -658,416 +442,21 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // Analysis
-    let households = &dataset.households;
-
-    let baseline_revenue: f64 = households.iter()
-        .map(|h| h.weight * baseline.household_results[h.id].total_tax)
-        .sum();
-    let reform_revenue: f64 = households.iter()
-        .map(|h| h.weight * reformed.household_results[h.id].total_tax)
-        .sum();
-    let revenue_change = reform_revenue - baseline_revenue;
-
-    let baseline_benefits: f64 = households.iter()
-        .map(|h| h.weight * baseline.household_results[h.id].total_benefits)
-        .sum();
-    let reform_benefits: f64 = households.iter()
-        .map(|h| h.weight * reformed.household_results[h.id].total_benefits)
-        .sum();
-    let benefit_change = reform_benefits - baseline_benefits;
-    let net_cost = -revenue_change + benefit_change;
-
-    // Decile analysis — ranked by equivalised HBAI net income BHC (baseline).
-    // Changes are measured on equivalised extended net income (HBAI minus stamp duty/wealth tax),
-    // so that reforms to those taxes show up in decile impacts and winners/losers.
-    let mut hh_incomes: Vec<(usize, f64, f64, f64)> = households.iter().map(|hh| {
-        let bl = &baseline.household_results[hh.id];
-        let rf = &reformed.household_results[hh.id];
-        let eq = bl.equivalisation_factor.max(1e-9);
-        (hh.id,
-         bl.equivalised_net_income,
-         bl.extended_net_income / eq,
-         rf.extended_net_income / eq)
-    }).collect();
-    hh_incomes.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-
-    let decile_size = hh_incomes.len() / 10;
-    let mut decile_impacts = Vec::new();
-    for d in 0..10 {
-        let start = d * decile_size;
-        let end = if d == 9 { hh_incomes.len() } else { (d + 1) * decile_size };
-        let slice = &hh_incomes[start..end];
-        let n = slice.len() as f64;
-        let avg_base: f64 = slice.iter().map(|h| h.2).sum::<f64>() / n;   // baseline extended
-        let avg_reform: f64 = slice.iter().map(|h| h.3).sum::<f64>() / n; // reform extended
-        let avg_change = avg_reform - avg_base;
-        let pct_change = if avg_base != 0.0 { 100.0 * avg_change / avg_base } else { 0.0 };
-        decile_impacts.push(DecileImpact {
-            decile: d + 1,
-            avg_baseline_income: (avg_base * 100.0).round() / 100.0,
-            avg_reform_income: (avg_reform * 100.0).round() / 100.0,
-            avg_change: (avg_change * 100.0).round() / 100.0,
-            pct_change: (pct_change * 100.0).round() / 100.0,
-        });
-    }
-
-    // Winners and losers
-    let mut winners = 0.0f64;
-    let mut losers = 0.0f64;
-    let mut unchanged = 0.0f64;
-    let mut total_gain = 0.0f64;
-    let mut total_loss = 0.0f64;
-
-    for hh in households {
-        let change = reformed.household_results[hh.id].extended_net_income
-            - baseline.household_results[hh.id].extended_net_income;
-        if change > 1.0 {
-            winners += hh.weight;
-            total_gain += hh.weight * change;
-        } else if change < -1.0 {
-            losers += hh.weight;
-            total_loss += hh.weight * change;
-        } else {
-            unchanged += hh.weight;
-        }
-    }
-
-    let total_hh = winners + losers + unchanged;
-    let winners_losers = WinnersLosers {
-        winners_pct: (1000.0 * winners / total_hh).round() / 10.0,
-        losers_pct: (1000.0 * losers / total_hh).round() / 10.0,
-        unchanged_pct: (1000.0 * unchanged / total_hh).round() / 10.0,
-        avg_gain: if winners > 0.0 { (total_gain / winners).round() } else { 0.0 },
-        avg_loss: if losers > 0.0 { (total_loss.abs() / losers).round() } else { 0.0 },
-    };
-
-    // Program-level breakdown and caseloads (weighted totals from reform)
-    let benunits = &dataset.benunits;
-    let people = &dataset.people;
-    let (income_breakdown, program_breakdown, caseloads) = {
-        // Income aggregates
-        let mut total_employment = 0.0f64;
-        let mut total_self_employment = 0.0f64;
-        let mut total_pension = 0.0f64;
-        let mut total_savings = 0.0f64;
-        let mut total_dividend = 0.0f64;
-        let mut total_property = 0.0f64;
-        let mut total_other = 0.0f64;
-        // Tax spending and caseloads
-        let mut income_tax = 0.0f64;
-        let mut hicbc_total = 0.0f64;
-        let mut employee_ni = 0.0f64;
-        let mut employer_ni = 0.0f64;
-        let mut vat_total = 0.0f64;
-        let mut fuel_duty_total = 0.0f64;
-        let mut alcohol_duty_total = 0.0f64;
-        let mut tobacco_duty_total = 0.0f64;
-        let mut cgt_total = 0.0f64;
-        let mut stamp_duty_total = 0.0f64;
-        let mut wealth_tax_total = 0.0f64;
-        let mut council_tax_total = 0.0f64;
-        let mut it_payers = 0.0f64;
-        let mut ni_payers = 0.0f64;
-        let mut eni_payers = 0.0f64;
-        for hh in households {
-            let hr = &reformed.household_results[hh.id];
-            vat_total += hh.weight * hr.vat;
-            fuel_duty_total += hh.weight * hr.fuel_duty;
-            alcohol_duty_total += hh.weight * hr.alcohol_duty;
-            tobacco_duty_total += hh.weight * hr.tobacco_duty;
-            cgt_total += hh.weight * hr.capital_gains_tax;
-            stamp_duty_total += hh.weight * hr.stamp_duty;
-            wealth_tax_total += hh.weight * hr.wealth_tax;
-            council_tax_total += hh.weight * hr.council_tax_calculated;
-            for &pid in &hh.person_ids {
-                let person = &people[pid];
-                total_employment += hh.weight * person.employment_income;
-                total_self_employment += hh.weight * person.self_employment_income;
-                total_pension += hh.weight * person.pension_income;
-                total_savings += hh.weight * person.savings_interest_income;
-                total_dividend += hh.weight * person.dividend_income;
-                total_property += hh.weight * person.property_income;
-                total_other += hh.weight * (person.maintenance_income + person.miscellaneous_income + person.other_income);
-                let pr = &reformed.person_results[pid];
-                income_tax += hh.weight * pr.income_tax;
-                hicbc_total += hh.weight * pr.hicbc;
-                employee_ni += hh.weight * pr.national_insurance;
-                employer_ni += hh.weight * pr.employer_ni;
-                if pr.income_tax > 0.0 { it_payers += hh.weight; }
-                if pr.national_insurance > 0.0 { ni_payers += hh.weight; }
-                if pr.employer_ni > 0.0 { eni_payers += hh.weight; }
-            }
-        }
-        // Benefit spending and caseloads
-        let mut uc = 0.0f64;
-        let mut cb = 0.0f64;
-        let mut sp = 0.0f64;
-        let mut pc = 0.0f64;
-        let mut hb = 0.0f64;
-        let mut ctc = 0.0f64;
-        let mut wtc = 0.0f64;
-        let mut is_val = 0.0f64;
-        let mut esa_ir = 0.0f64;
-        let mut jsa_ib = 0.0f64;
-        let mut ca = 0.0f64;
-        let mut scp = 0.0f64;
-        let mut cap = 0.0f64;
-        let mut passthrough = 0.0f64;
-        let mut cl_uc = 0.0f64;
-        let mut cl_cb = 0.0f64;
-        let mut cl_sp = 0.0f64;
-        let mut cl_pc = 0.0f64;
-        let mut cl_hb = 0.0f64;
-        let mut cl_ctc = 0.0f64;
-        let mut cl_wtc = 0.0f64;
-        let mut cl_is = 0.0f64;
-        let mut cl_esa = 0.0f64;
-        let mut cl_jsa = 0.0f64;
-        let mut cl_ca = 0.0f64;
-        let mut cl_scp = 0.0f64;
-        let mut cl_cap = 0.0f64;
-        for bu in benunits {
-            let w = households[bu.household_id].weight;
-            let br = &reformed.benunit_results[bu.id];
-            uc += w * br.universal_credit;
-            cb += w * br.child_benefit;
-            sp += w * br.state_pension;
-            pc += w * br.pension_credit;
-            hb += w * br.housing_benefit;
-            ctc += w * br.child_tax_credit;
-            wtc += w * br.working_tax_credit;
-            is_val += w * br.income_support;
-            esa_ir += w * br.esa_income_related;
-            jsa_ib += w * br.jsa_income_based;
-            ca += w * br.carers_allowance;
-            scp += w * br.scottish_child_payment;
-            cap += w * br.benefit_cap_reduction;
-            passthrough += w * br.passthrough_benefits;
-            if br.universal_credit > 0.0 { cl_uc += w; }
-            if br.child_benefit > 0.0 { cl_cb += w; }
-            if br.state_pension > 0.0 { cl_sp += w; }
-            if br.pension_credit > 0.0 { cl_pc += w; }
-            if br.housing_benefit > 0.0 { cl_hb += w; }
-            if br.child_tax_credit > 0.0 { cl_ctc += w; }
-            if br.working_tax_credit > 0.0 { cl_wtc += w; }
-            if br.income_support > 0.0 { cl_is += w; }
-            if br.esa_income_related > 0.0 { cl_esa += w; }
-            if br.jsa_income_based > 0.0 { cl_jsa += w; }
-            if br.carers_allowance > 0.0 { cl_ca += w; }
-            if br.scottish_child_payment > 0.0 { cl_scp += w; }
-            if br.benefit_cap_reduction > 0.0 { cl_cap += w; }
-        }
-        (IncomeBreakdown {
-            employment_income: total_employment,
-            self_employment_income: total_self_employment,
-            pension_income: total_pension,
-            savings_interest_income: total_savings,
-            dividend_income: total_dividend,
-            property_income: total_property,
-            other_income: total_other,
-        }, ProgramBreakdown {
-            income_tax,
-            hicbc: hicbc_total,
-            employee_ni,
-            employer_ni,
-            vat: vat_total,
-            fuel_duty: fuel_duty_total,
-            alcohol_duty: alcohol_duty_total,
-            tobacco_duty: tobacco_duty_total,
-            capital_gains_tax: cgt_total,
-            stamp_duty: stamp_duty_total,
-            wealth_tax: wealth_tax_total,
-            council_tax: council_tax_total,
-            universal_credit: uc,
-            child_benefit: cb,
-            state_pension: sp,
-            pension_credit: pc,
-            housing_benefit: hb,
-            child_tax_credit: ctc,
-            working_tax_credit: wtc,
-            income_support: is_val,
-            esa_income_related: esa_ir,
-            jsa_income_based: jsa_ib,
-            carers_allowance: ca,
-            scottish_child_payment: scp,
-            benefit_cap_reduction: cap,
-            passthrough_benefits: passthrough,
-        }, Caseloads {
-            income_tax_payers: it_payers,
-            ni_payers,
-            employer_ni_payers: eni_payers,
-            universal_credit: cl_uc,
-            child_benefit: cl_cb,
-            state_pension: cl_sp,
-            pension_credit: cl_pc,
-            housing_benefit: cl_hb,
-            child_tax_credit: cl_ctc,
-            working_tax_credit: cl_wtc,
-            income_support: cl_is,
-            esa_income_related: cl_esa,
-            jsa_income_based: cl_jsa,
-            carers_allowance: cl_ca,
-            scottish_child_payment: cl_scp,
-            benefit_cap_affected: cl_cap,
-        })
-    };
-
-    // ── HBAI income aggregates ────────────────────────────────────────────────
-    let total_weight: f64 = households.iter().map(|h| h.weight).sum();
-
-    let compute_hbai_incomes = |results: &crate::engine::simulation::SimulationResults| -> HbaiIncomes {
-        // Weighted median over individuals: each person carries the household's weight.
-        let total_person_weight: f64 = households.iter()
-            .map(|h| h.weight * (h.person_ids.len() as f64))
-            .sum();
-        let weighted_median = |vals: &mut Vec<(f64, f64)>| -> f64 {
-            vals.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-            let half = total_person_weight / 2.0;
-            let mut cum = 0.0;
-            for &(v, w) in vals.iter() {
-                cum += w;
-                if cum >= half { return v; }
-            }
-            vals.last().map(|&(v, _)| v).unwrap_or(0.0)
-        };
-
-        let mut equiv_bhc: Vec<(f64, f64)> = households.iter()
-            .map(|h| {
-                let w = h.weight * (h.person_ids.len() as f64);
-                (results.household_results[h.id].equivalised_net_income, w)
-            })
-            .collect();
-        let mut equiv_ahc: Vec<(f64, f64)> = households.iter()
-            .map(|h| {
-                let w = h.weight * (h.person_ids.len() as f64);
-                (results.household_results[h.id].equivalised_net_income_ahc, w)
-            })
-            .collect();
-
-        let median_equiv_bhc = weighted_median(&mut equiv_bhc);
-        let median_equiv_ahc = weighted_median(&mut equiv_ahc);
-
-        let mean_equiv_bhc = households.iter()
-            .map(|h| h.weight * results.household_results[h.id].equivalised_net_income)
-            .sum::<f64>() / total_weight;
-        let mean_equiv_ahc = households.iter()
-            .map(|h| h.weight * results.household_results[h.id].equivalised_net_income_ahc)
-            .sum::<f64>() / total_weight;
-        let mean_bhc = households.iter()
-            .map(|h| h.weight * results.household_results[h.id].net_income)
-            .sum::<f64>() / total_weight;
-        let mean_ahc = households.iter()
-            .map(|h| h.weight * results.household_results[h.id].net_income_ahc)
-            .sum::<f64>() / total_weight;
-
-        HbaiIncomes { mean_equiv_bhc, mean_equiv_ahc, mean_bhc, mean_ahc,
-                      median_equiv_bhc, median_equiv_ahc }
-    };
-    let baseline_hbai_incomes = compute_hbai_incomes(&baseline);
-    let reform_hbai_incomes = compute_hbai_incomes(&reformed);
-
-    // ── Poverty headcounts ────────────────────────────────────────────────────
-    // Relative lines: 60% of baseline weighted median equivalised income
-    let rel_line_bhc = 0.60 * baseline_hbai_incomes.median_equiv_bhc;
-    let rel_line_ahc = 0.60 * baseline_hbai_incomes.median_equiv_ahc;
-    // Absolute lines: 60% of median in 2010/11 (ONS HBAI reference, uprated by CPI to nominal)
-    // 2010/11 median equivalised BHC ~£14,400/yr; AHC ~£11,600/yr (2010/11 prices)
-    // Uprate to simulation year using CPI index
-    let cpi = cpi_index_for_year(cli.year) / 100.0;
-    let abs_line_bhc = 14_400.0 * cpi;
-    let abs_line_ahc = 11_600.0 * cpi;
-
-    let compute_poverty = |results: &crate::engine::simulation::SimulationResults| -> PovertyHeadcounts {
-        let mut rc_children = 0.0f64; let mut rc_working = 0.0f64; let mut rc_pensioners = 0.0f64;
-        let mut ra_children = 0.0f64; let mut ra_working = 0.0f64; let mut ra_pensioners = 0.0f64;
-        let mut ac_children = 0.0f64; let mut ac_working = 0.0f64; let mut ac_pensioners = 0.0f64;
-        let mut aa_children = 0.0f64; let mut aa_working = 0.0f64; let mut aa_pensioners = 0.0f64;
-        let mut total_children = 0.0f64; let mut total_working = 0.0f64; let mut total_pensioners = 0.0f64;
-
-        for hh in households {
-            let hr = &results.household_results[hh.id];
-            let eq_bhc = hr.equivalised_net_income;
-            let eq_ahc = hr.equivalised_net_income_ahc;
-            let w = hh.weight;
-
-            for &pid in &hh.person_ids {
-                let age = dataset.people[pid].age;
-                let pw = w; // person weight = household weight (no person-level weights)
-                let (child, working, pensioner) = if age < 16.0 {
-                    (true, false, false)
-                } else if age < 66.0 {
-                    (false, true, false)
-                } else {
-                    (false, false, true)
-                };
-
-                if child   { total_children   += pw; }
-                if working { total_working    += pw; }
-                if pensioner { total_pensioners += pw; }
-
-                if eq_bhc < rel_line_bhc {
-                    if child { rc_children += pw; } else if working { rc_working += pw; } else { rc_pensioners += pw; }
-                }
-                if eq_ahc < rel_line_ahc {
-                    if child { ra_children += pw; } else if working { ra_working += pw; } else { ra_pensioners += pw; }
-                }
-                if eq_bhc < abs_line_bhc {
-                    if child { ac_children += pw; } else if working { ac_working += pw; } else { ac_pensioners += pw; }
-                }
-                if eq_ahc < abs_line_ahc {
-                    if child { aa_children += pw; } else if working { aa_working += pw; } else { aa_pensioners += pw; }
-                }
-            }
-        }
-
-        let pct = |n: f64, d: f64| if d > 0.0 { (n / d * 1000.0).round() / 10.0 } else { 0.0 };
-        PovertyHeadcounts {
-            relative_bhc_children:    pct(rc_children,    total_children),
-            relative_bhc_working_age: pct(rc_working,     total_working),
-            relative_bhc_pensioners:  pct(rc_pensioners,  total_pensioners),
-            relative_ahc_children:    pct(ra_children,    total_children),
-            relative_ahc_working_age: pct(ra_working,     total_working),
-            relative_ahc_pensioners:  pct(ra_pensioners,  total_pensioners),
-            absolute_bhc_children:    pct(ac_children,    total_children),
-            absolute_bhc_working_age: pct(ac_working,     total_working),
-            absolute_bhc_pensioners:  pct(ac_pensioners,  total_pensioners),
-            absolute_ahc_children:    pct(aa_children,    total_children),
-            absolute_ahc_working_age: pct(aa_working,     total_working),
-            absolute_ahc_pensioners:  pct(aa_pensioners,  total_pensioners),
-        }
-    };
-
-    let baseline_poverty = compute_poverty(&baseline);
-    let reform_poverty   = compute_poverty(&reformed);
+    let output = run::analyse(&dataset, &baseline_params, &baseline, &reformed, cli.year);
 
     // JSON output mode
     if json_mode {
-        let output = JsonOutput {
-            fiscal_year: baseline_params.fiscal_year.clone(),
-            budgetary_impact: BudgetaryImpact {
-                baseline_revenue,
-                reform_revenue,
-                revenue_change,
-                baseline_benefits,
-                reform_benefits,
-                benefit_spending_change: benefit_change,
-                net_cost,
-            },
-            income_breakdown,
-            program_breakdown,
-            caseloads,
-            decile_impacts,
-            winners_losers,
-            baseline_hbai_incomes,
-            reform_hbai_incomes,
-            baseline_poverty,
-            reform_poverty,
-            cpi_index: cpi_index_for_year(cli.year),
-        };
         println!("{}", serde_json::to_string(&output)?);
         return Ok(());
     }
+
+    let run::JsonOutput {
+        winners_losers, baseline_hbai_incomes, baseline_poverty, budgetary_impact, ..
+    } = &output;
+    let run::BudgetaryImpact {
+        baseline_revenue, reform_revenue, revenue_change, baseline_benefits,
+        reform_benefits, benefit_spending_change: benefit_change, net_cost,
+    } = *budgetary_impact;
 
     // Pretty output
     println!();
@@ -1198,8 +587,8 @@ fn format_change_bn(n: f64) -> String {
 /// Aggregate statistics from a simulation run for validation.
 #[allow(dead_code)]
 fn aggregate_stats(
-    dataset: &crate::data::Dataset,
-    results: &crate::engine::simulation::SimulationResults,
+    dataset: &policyengine_uk_rust::data::Dataset,
+    results: &policyengine_uk_rust::engine::simulation::SimulationResults,
 ) -> (f64, f64, f64, f64, f64, f64, f64, f64, f64, f64, f64, f64) {
     let hhs = &dataset.households;
     let bus = &dataset.benunits;
@@ -1228,9 +617,10 @@ mod obr_validation {
     /// These are gross sanity checks, not precision targets.
     #[test]
     fn obr_2025_revenue_and_spending() {
-        use crate::data::clean::load_clean_dataset;
-        use crate::engine::Simulation;
-        use crate::parameters::Parameters;
+        use policyengine_uk_rust::data::clean::load_clean_dataset;
+        use policyengine_uk_rust::engine::Simulation;
+use policyengine_uk_rust::run;
+        use policyengine_uk_rust::parameters::Parameters;
         use std::path::Path;
 
         if !Path::new("data/frs/2023").exists() {
@@ -1338,9 +728,10 @@ mod obr_validation {
 
 #[cfg(test)]
 mod historical_frs_tests {
-    use crate::data::frs::load_frs;
-    use crate::engine::Simulation;
-    use crate::parameters::Parameters;
+    use policyengine_uk_rust::data::frs::load_frs;
+    use policyengine_uk_rust::engine::Simulation;
+use policyengine_uk_rust::run;
+    use policyengine_uk_rust::parameters::Parameters;
     use std::path::Path;
 
     /// Test that representative historical FRS years load and simulate correctly.

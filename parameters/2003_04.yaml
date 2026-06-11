@@ -44,7 +44,6 @@ child_benefit:
 
 state_pension:
   new_state_pension_weekly: 0.0
-  old_basic_pension_weekly: 77.45
 
 pension_credit:
   # Pension Credit introduced October 2003 (State Pension Credit Act 2002)

@@ -44,7 +44,6 @@ child_benefit:
 
 state_pension:
   new_state_pension_weekly: 0.0
-  old_basic_pension_weekly: 110.15
 
 pension_credit:
   standard_minimum_single: 145.40

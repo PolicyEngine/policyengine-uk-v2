@@ -124,14 +124,12 @@ fn run_net_incomes(
     households: &[Household],
     params: &Parameters,
     fiscal_year: u32,
-    baseline_old_sp: f64,
 ) -> Vec<f64> {
-    let sim = Simulation::new_with_baseline_sp(
+    let sim = Simulation::new(
         people.to_vec(),
         benunits.to_vec(),
         households.to_vec(),
         params.clone(),
-        baseline_old_sp,
         fiscal_year,
     );
     sim.run().household_results.iter().map(|hr| hr.net_income).collect()
@@ -169,7 +167,6 @@ fn batch_marginal_retention(
     households: &[Household],
     params: &Parameters,
     fiscal_year: u32,
-    baseline_old_sp: f64,
     unperturbed_net: &[f64],
     slots: &[Option<usize>],
     max_slot: usize,
@@ -188,7 +185,7 @@ fn batch_marginal_retention(
 
         let perturbed_net = run_net_incomes(
             &perturbed, benunits, households,
-            params, fiscal_year, baseline_old_sp,
+            params, fiscal_year,
         );
 
         // Each perturbed household has exactly one bumped worker — attribute the
@@ -205,6 +202,36 @@ fn batch_marginal_retention(
     retention
 }
 
+/// The reform-independent half of the labour supply computation: adult slot
+/// assignment and baseline marginal retention rates. Depends only on the
+/// baseline parameters and the unmodified population, so callers scoring many
+/// reforms against one baseline can compute it once and reuse it.
+pub struct BaselineRetention {
+    slots: Vec<Option<usize>>,
+    max_slot: usize,
+    retention: Vec<f64>,
+}
+
+/// Compute the baseline-side retention rates (1 sim per adult slot).
+/// Returns `None` when there are no eligible workers.
+pub fn compute_baseline_retention(
+    people: &[Person],
+    benunits: &[BenUnit],
+    households: &[Household],
+    baseline_params: &Parameters,
+    baseline_net: &[f64],
+    fiscal_year: u32,
+) -> Option<BaselineRetention> {
+    let slots = assign_adult_slots(people, households);
+    let max_slot = slots.iter().filter_map(|s| *s).max()?;
+    let retention = batch_marginal_retention(
+        people, benunits, households,
+        baseline_params, fiscal_year,
+        baseline_net, &slots, max_slot,
+    );
+    Some(BaselineRetention { slots, max_slot, retention })
+}
+
 /// Apply OBR labour supply responses, returning an adjusted copy of `people`
 /// with employment incomes updated.
 ///
@@ -219,37 +246,45 @@ pub fn apply_labour_supply_responses(
     baseline_net: &[f64],
     fiscal_year: u32,
 ) -> Vec<Person> {
-    let ls = &policy_params.labour_supply;
-    if !ls.enabled {
+    if !policy_params.labour_supply.enabled {
         return people.to_vec();
     }
-
-    let baseline_old_sp = baseline_params.state_pension.old_basic_pension_weekly;
-
-    // Assign adult slots (O(n), no simulations)
-    let slots = assign_adult_slots(people, households);
-    let max_slot = slots.iter().filter_map(|s| *s).max();
-    let max_slot = match max_slot {
-        Some(s) => s,
+    let base = match compute_baseline_retention(
+        people, benunits, households, baseline_params, baseline_net, fiscal_year,
+    ) {
+        Some(b) => b,
         None => return people.to_vec(), // no eligible workers
     };
+    apply_labour_supply_responses_with_baseline(
+        people, benunits, households, policy_params,
+        baseline_net, &base, fiscal_year,
+    )
+}
+
+/// The reform-dependent half: unperturbed policy net incomes, policy-side
+/// retention (1 sim per slot), and the Slutsky decomposition.
+pub fn apply_labour_supply_responses_with_baseline(
+    people: &[Person],
+    benunits: &[BenUnit],
+    households: &[Household],
+    policy_params: &Parameters,
+    baseline_net: &[f64],
+    base: &BaselineRetention,
+    fiscal_year: u32,
+) -> Vec<Person> {
+    let ls = &policy_params.labour_supply;
+    let BaselineRetention { slots, max_slot, retention: baseline_retention } = base;
 
     // Unperturbed policy net incomes (the income-effect denominator)
     let unperturbed_policy_net = run_net_incomes(
         people, benunits, households,
-        policy_params, fiscal_year, baseline_old_sp,
+        policy_params, fiscal_year,
     );
 
-    // Batched marginal retention: 1 sim per slot per scenario
-    let baseline_retention = batch_marginal_retention(
-        people, benunits, households,
-        baseline_params, fiscal_year, baseline_old_sp,
-        baseline_net, &slots, max_slot,
-    );
     let policy_retention = batch_marginal_retention(
         people, benunits, households,
-        policy_params, fiscal_year, baseline_old_sp,
-        &unperturbed_policy_net, &slots, max_slot,
+        policy_params, fiscal_year,
+        &unperturbed_policy_net, slots, *max_slot,
     );
 
     // Apply Slutsky decomposition

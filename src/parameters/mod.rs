@@ -214,7 +214,6 @@ pub struct ChildBenefitParams {
 pub struct StatePensionParams {
     /// Weekly rates
     pub new_state_pension_weekly: f64,
-    pub old_basic_pension_weekly: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -758,6 +757,17 @@ impl Parameters {
             "No parameter file found for fiscal year {}/{}. Looked for: {}",
             year, year + 1, paths_to_try.join(", ")
         )
+    }
+
+    /// Load parameters for a given fiscal year from an explicit parameters
+    /// directory (used by the python extension, where the working directory
+    /// is arbitrary).
+    pub fn for_year_in(dir: &Path, year: u32) -> anyhow::Result<Self> {
+        let path = dir.join(fiscal_year_filename(year));
+        let contents = std::fs::read_to_string(&path).map_err(|e| {
+            anyhow::anyhow!("Cannot read parameter file {}: {}", path.display(), e)
+        })?;
+        Ok(serde_yaml::from_str(&contents)?)
     }
 
     /// Load parameters from a YAML string.

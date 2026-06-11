@@ -66,7 +66,6 @@ child_benefit:
 state_pension:
   # SI 2024/242 art.6: State Pension Regs 2015 reg.1A — £221.20/week
   new_state_pension_weekly: 221.20
-  old_basic_pension_weekly: 169.50
 
 pension_credit:
   # SI 2024/242 art.29 — State Pension Credit Regs 2002 reg.6
