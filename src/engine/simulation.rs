@@ -160,6 +160,8 @@ impl Simulation {
     /// construction; only fails if the embedded artifacts are broken.
     fn enable_axiom(&mut self) -> anyhow::Result<()> {
         let ni = &self.parameters.national_insurance;
+        let cb = &self.parameters.child_benefit;
+        let pc = &self.parameters.pension_credit;
         self.axiom = Some(crate::axiom::backend::Backend::new(
             &crate::axiom::backend::NicsParameters {
                 main_rate: ni.main_rate,
@@ -170,6 +172,14 @@ impl Simulation {
                 class4_additional_rate: ni.class4_additional_rate,
                 class4_lower_profits_limit: ni.class4_lower_profits_limit,
                 class4_upper_profits_limit: ni.class4_upper_profits_limit,
+            },
+            &crate::axiom::backend::ChildBenefitParameters {
+                eldest_weekly: cb.eldest_weekly,
+                additional_weekly: cb.additional_weekly,
+            },
+            &crate::axiom::backend::PensionCreditParameters {
+                minimum_guarantee_single_weekly: pc.standard_minimum_single,
+                minimum_guarantee_couple_weekly: pc.standard_minimum_couple,
             },
             self.fiscal_year,
         )?);
@@ -224,12 +234,46 @@ impl Simulation {
             );
         }
 
+        // Axiom backend: statute-derived child benefit and pension credit
+        // guarantee credit per benefit unit, injected into the benefit phase
+        // so caps and aggregates flow from the axiom values.
+        let axiom_benefits: Option<(Vec<f64>, Vec<f64>)> = self.axiom.as_ref().map(|backend| {
+            let num_children: Vec<usize> =
+                self.benunits.iter().map(|bu| bu.num_children(&self.people)).collect();
+            let child_benefit = backend
+                .child_benefit(&num_children)
+                .expect("axiom child benefit evaluation failed");
+            // Income for PC purposes — must match calculate_pension_credit.
+            let pc_income: Vec<f64> = self.benunits.iter().map(|bu| {
+                bu.person_ids.iter().map(|&pid| {
+                    let p = &self.people[pid];
+                    p.state_pension
+                        + p.pension_income
+                        + p.employment_income
+                        + p.self_employment_income
+                        + p.savings_interest_income
+                }).sum()
+            }).collect();
+            let is_couple: Vec<bool> =
+                self.benunits.iter().map(|bu| bu.is_couple(&self.people)).collect();
+            let guarantee_credit = backend
+                .guarantee_credit(&pc_income, &is_couple)
+                .expect("axiom guarantee credit evaluation failed");
+            (child_benefit, guarantee_credit)
+        });
+
         // Phase 2: BenUnit-level calculations (parallelised)
         let br: Vec<BenUnitResult> = self.benunits.par_iter().map(|bu| {
             let hh = &self.households[bu.household_id];
-            variables::benefits::calculate_benunit(
+            let axiom = axiom_benefits.as_ref().map(|(cb, gc)| {
+                variables::benefits::AxiomBenefits {
+                    child_benefit: cb[bu.id],
+                    guarantee_credit: gc[bu.id],
+                }
+            });
+            variables::benefits::calculate_benunit_with_axiom(
                 bu, &self.people, &person_results, hh, &self.parameters,
-                baseline_old_sp, fiscal_year,
+                baseline_old_sp, fiscal_year, axiom.as_ref(),
             )
         }).collect();
         benunit_results = br;
@@ -793,33 +837,62 @@ mod tests {
             "Disabled labour supply should not change employment income");
     }
 
-    /// The axiom backend (on by default) must reproduce the hand-coded NICs
-    /// (kept as the verification reference) exactly: the
-    /// statute programs apply the same band arithmetic over weekly/annual
-    /// periods, and the parameter translation (annual thresholds / 52) is
-    /// linear, so annualised results are identical up to float rounding.
+    /// The axiom backend (on by default) must reproduce the hand-coded
+    /// results (kept as the verification reference) exactly: the statute
+    /// programs apply the same arithmetic over weekly/annual periods, and
+    /// the parameter translation (annual thresholds / 52, weekly rates
+    /// as-is) is linear, so annualised results are identical up to float
+    /// rounding. Covers NICs (per person), child benefit and pension credit
+    /// (per benunit), and the downstream household aggregates.
     fn assert_axiom_matches_hand_coded(params: Parameters) {
-        let people: Vec<Person> = (0..200)
-            .map(|i| {
-                let mut p = Person::default();
-                p.id = i;
+        // 200 benunits: adults spanning the NI bands, every third benunit
+        // with 1-2 children (child benefit), every fifth headed by a
+        // pensioner with pension income around the minimum guarantee
+        // (pension credit guarantee credit).
+        let mut people: Vec<Person> = Vec::new();
+        let mut benunits: Vec<BenUnit> = Vec::new();
+        let mut households: Vec<Household> = Vec::new();
+        for i in 0..200 {
+            let mut person_ids = Vec::new();
+            let mut p = Person::default();
+            p.id = people.len();
+            p.is_benunit_head = true;
+            p.is_household_head = true;
+            if i % 5 == 0 {
+                p.age = 70.0;
+                p.state_pension = 9_000.0;
+                p.pension_income = (i % 25) as f64 * 400.0;
+                p.savings_interest_income = (i % 7) as f64 * 100.0;
+            } else {
                 p.age = 35.0;
                 p.employment_income = (i % 40) as f64 * 5_000.0;
                 p.self_employment_income = ((i / 40) % 5) as f64 * 15_000.0 - 10_000.0;
-                p
-            })
-            .collect();
-        let benunits: Vec<BenUnit> = people
-            .iter()
-            .map(|p| BenUnit { id: p.id, household_id: p.id, person_ids: vec![p.id], ..BenUnit::default() })
-            .collect();
-        let households: Vec<Household> = people
-            .iter()
-            .map(|p| Household {
-                id: p.id, person_ids: vec![p.id], benunit_ids: vec![p.id],
+            }
+            person_ids.push(p.id);
+            people.push(p);
+            if i % 3 == 0 {
+                for _ in 0..(1 + (i / 3) % 2) {
+                    let mut c = Person::default();
+                    c.id = people.len();
+                    c.age = 8.0;
+                    person_ids.push(c.id);
+                    people.push(c);
+                }
+            }
+            for &pid in &person_ids {
+                people[pid].benunit_id = i;
+                people[pid].household_id = i;
+            }
+            benunits.push(BenUnit {
+                id: i, household_id: i, person_ids: person_ids.clone(),
+                would_claim_cb: true, would_claim_pc: true,
+                ..BenUnit::default()
+            });
+            households.push(Household {
+                id: i, person_ids, benunit_ids: vec![i],
                 weight: 1.0, ..Household::default()
-            })
-            .collect();
+            });
+        }
 
         let mut sim = Simulation::new(people.clone(), benunits.clone(), households.clone(), params.clone(), 2026);
         let axiom = sim.run();
@@ -834,21 +907,43 @@ mod tests {
             assert!((h.national_insurance - a.national_insurance).abs() < 1e-6,
                 "total NI mismatch: hand-coded {} vs axiom {}", h.national_insurance, a.national_insurance);
         }
+        let mut any_cb = false;
+        let mut any_pc = false;
+        for (h, a) in hand_coded.benunit_results.iter().zip(&axiom.benunit_results) {
+            assert!((h.child_benefit - a.child_benefit).abs() < 1e-6,
+                "child benefit mismatch: hand-coded {} vs axiom {}", h.child_benefit, a.child_benefit);
+            assert!((h.pension_credit - a.pension_credit).abs() < 1e-6,
+                "pension credit mismatch: hand-coded {} vs axiom {}", h.pension_credit, a.pension_credit);
+            assert!((h.total_benefits - a.total_benefits).abs() < 1e-6,
+                "total benefits mismatch: hand-coded {} vs axiom {}", h.total_benefits, a.total_benefits);
+            any_cb |= a.child_benefit > 0.0;
+            any_pc |= a.pension_credit > 0.0;
+        }
+        assert!(any_cb, "test frame should produce some child benefit");
+        assert!(any_pc, "test frame should produce some pension credit");
+        for (h, a) in hand_coded.household_results.iter().zip(&axiom.household_results) {
+            assert!((h.net_income - a.net_income).abs() < 1e-6,
+                "household net income mismatch: hand-coded {} vs axiom {}", h.net_income, a.net_income);
+        }
     }
 
     #[test]
-    fn axiom_nics_matches_hand_coded_baseline() {
+    fn axiom_matches_hand_coded_baseline() {
         assert_axiom_matches_hand_coded(Parameters::for_year(2026).unwrap());
     }
 
     #[test]
-    fn axiom_nics_matches_hand_coded_under_reform() {
+    fn axiom_matches_hand_coded_under_reform() {
         let mut params = Parameters::for_year(2026).unwrap();
         params.national_insurance.main_rate += 0.02;
         params.national_insurance.primary_threshold_annual = 10_000.0;
         params.national_insurance.upper_earnings_limit_annual = 60_000.0;
         params.national_insurance.class4_main_rate += 0.01;
         params.national_insurance.class4_lower_profits_limit = 11_000.0;
+        params.child_benefit.eldest_weekly += 5.0;
+        params.child_benefit.additional_weekly += 2.5;
+        params.pension_credit.standard_minimum_single += 20.0;
+        params.pension_credit.standard_minimum_couple += 30.0;
         assert_axiom_matches_hand_coded(params);
     }
 }
