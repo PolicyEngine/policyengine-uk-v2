@@ -20,6 +20,9 @@
 
 // Binary-only crate (no lib target): pull modules in by path, as the other
 // benches and tests/parameter_impact.rs do.
+#[path = "../src/axiom/mod.rs"]
+#[allow(dead_code)]
+mod axiom;
 #[path = "../src/engine/mod.rs"]
 mod engine;
 #[path = "../src/parameters/mod.rs"]

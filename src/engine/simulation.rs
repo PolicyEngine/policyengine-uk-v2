@@ -114,9 +114,10 @@ pub struct Simulation {
     pub baseline_old_sp_weekly: f64,
     /// Fiscal year (e.g. 2025 for 2025/26) — used for new/basic SP cutoff.
     pub fiscal_year: u32,
-    /// When set, National Insurance (Class 1 employee and Class 4) is
-    /// computed by the axiom rules engine from compiled statute artifacts
-    /// instead of the hand-coded formulas. Enable with [`Simulation::enable_axiom`].
+    /// National Insurance (Class 1 employee and Class 4) is computed by the
+    /// axiom rules engine from compiled statute artifacts. Compiled at
+    /// construction; set to `None` to fall back to the hand-coded formulas
+    /// (used by the equivalence tests as the verification reference).
     pub axiom: Option<crate::axiom::backend::Backend>,
 }
 
@@ -129,11 +130,10 @@ impl Simulation {
         fiscal_year: u32,
     ) -> Self {
         let baseline_old_sp_weekly = parameters.state_pension.old_basic_pension_weekly;
-        Simulation {
+        Self::new_with_baseline_sp(
             people, benunits, households, parameters,
             baseline_old_sp_weekly, fiscal_year,
-            axiom: None,
-        }
+        )
     }
 
     /// Create a simulation with explicit baseline old SP rate (for reform simulations
@@ -146,16 +146,19 @@ impl Simulation {
         baseline_old_sp_weekly: f64,
         fiscal_year: u32,
     ) -> Self {
-        Simulation {
+        let mut sim = Simulation {
             people, benunits, households, parameters,
             baseline_old_sp_weekly, fiscal_year,
             axiom: None,
-        }
+        };
+        sim.enable_axiom().expect("compile axiom NICs programs");
+        sim
     }
 
     /// Compile the axiom NICs programs with this simulation's parameters
-    /// translated onto the underlying legal parameters.
-    pub fn enable_axiom(&mut self) -> anyhow::Result<()> {
+    /// translated onto the underlying legal parameters. Called at
+    /// construction; only fails if the embedded artifacts are broken.
+    fn enable_axiom(&mut self) -> anyhow::Result<()> {
         let ni = &self.parameters.national_insurance;
         self.axiom = Some(crate::axiom::backend::Backend::new(
             &crate::axiom::backend::NicsParameters {
@@ -790,7 +793,8 @@ mod tests {
             "Disabled labour supply should not change employment income");
     }
 
-    /// The axiom backend must reproduce the hand-coded NICs exactly: the
+    /// The axiom backend (on by default) must reproduce the hand-coded NICs
+    /// (kept as the verification reference) exactly: the
     /// statute programs apply the same band arithmetic over weekly/annual
     /// periods, and the parameter translation (annual thresholds / 52) is
     /// linear, so annualised results are identical up to float rounding.
@@ -818,9 +822,9 @@ mod tests {
             .collect();
 
         let mut sim = Simulation::new(people.clone(), benunits.clone(), households.clone(), params.clone(), 2026);
-        let hand_coded = sim.run();
-        sim.enable_axiom().unwrap();
         let axiom = sim.run();
+        sim.axiom = None;
+        let hand_coded = sim.run();
 
         for (h, a) in hand_coded.person_results.iter().zip(&axiom.person_results) {
             assert!((h.ni_class1_employee - a.ni_class1_employee).abs() < 1e-6,

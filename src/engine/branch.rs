@@ -134,19 +134,14 @@ impl Simulation {
     /// the basic SP rate (mirroring the existing `new_with_baseline_sp`
     /// pattern in `main.rs`).
     pub fn branch(&self, parameters: Parameters) -> Self {
-        let mut sim = Simulation {
-            people: self.people.clone(),
-            benunits: self.benunits.clone(),
-            households: self.households.clone(),
+        Simulation::new_with_baseline_sp(
+            self.people.clone(),
+            self.benunits.clone(),
+            self.households.clone(),
             parameters,
-            baseline_old_sp_weekly: self.baseline_old_sp_weekly,
-            fiscal_year: self.fiscal_year,
-            axiom: None,
-        };
-        if self.axiom.is_some() {
-            sim.enable_axiom().expect("recompile axiom NICs programs for branch");
-        }
-        sim
+            self.baseline_old_sp_weekly,
+            self.fiscal_year,
+        )
     }
 }
 
