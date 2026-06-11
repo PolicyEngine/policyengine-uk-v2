@@ -258,7 +258,7 @@ impl Backend {
             employment_income.iter().map(|e| e / WEEKS_PER_YEAR).collect();
         let dataset = Dataset::week(week_start)
             .with_input("earnings_paid_in_tax_week_in_respect_of_employment", &weekly_earnings)?;
-        let class_1: Vec<f64> = calculate(&self.class_1, &dataset, &["primary_class_1_contribution"])?
+        let class_1: Vec<f64> = calculate(&self.class_1, dataset, &["primary_class_1_contribution"])?
             .column("primary_class_1_contribution")?
             .iter()
             .map(|v| v * WEEKS_PER_YEAR)
@@ -268,7 +268,7 @@ impl Backend {
             self_employment_income.iter().map(|p| p.max(0.0)).collect();
         let dataset = Dataset::tax_year(self.fiscal_year as i32)
             .with_input("profits_chargeable_to_class_4_contributions", &profits)?;
-        let class_4 = calculate(&self.class_4, &dataset, &["class_4_contribution_before_annual_maximum"])?
+        let class_4 = calculate(&self.class_4, dataset, &["class_4_contribution_before_annual_maximum"])?
             .column("class_4_contribution_before_annual_maximum")?
             .to_vec();
 
@@ -302,7 +302,7 @@ impl Backend {
                 "is_child_or_qualifying_young_person_for_child_benefit",
                 &vec![true; total],
             )?;
-        Ok(calculate(&self.child_benefit, &dataset, &["child_benefit_weekly_entitlement"])?
+        Ok(calculate(&self.child_benefit, dataset, &["child_benefit_weekly_entitlement"])?
             .column("child_benefit_weekly_entitlement")?
             .iter()
             .map(|v| v * WEEKS_PER_YEAR)
@@ -339,7 +339,7 @@ impl Backend {
             .with_bool_input("detained_in_custody_on_remand_pending_trial", &f)?
             .with_bool_input("required_as_condition_of_bail_to_reside_in_approved_hostel", &f)?
             .with_bool_input("detained_pending_sentence_upon_conviction", &f)?;
-        Ok(calculate(&self.pension_credit, &dataset, &["guarantee_credit"])?
+        Ok(calculate(&self.pension_credit, dataset, &["guarantee_credit"])?
             .column("guarantee_credit")?
             .iter()
             .map(|v| v * WEEKS_PER_YEAR)
@@ -363,7 +363,6 @@ impl Backend {
         let unearned_monthly: Vec<f64> =
             c.unearned_income_annual.iter().map(|u| u / MONTHS_PER_YEAR).collect();
         let has_housing: Vec<bool> = c.rent_monthly.iter().map(|r| *r > 0.0).collect();
-        let lcwra_amounts = vec![self.uc_lcwra_element; n];
 
         // Per-child element flags: only the first child_limit children carry
         // the child element (first then subsequent); disability additions are
@@ -388,7 +387,6 @@ impl Backend {
             .collect();
         let adult_falses = vec![false; n];
 
-        let zeros = vec![0.0; n];
         let falses = vec![false; n];
         let dataset = Dataset::month(self.fiscal_year as i32, 4)
             // Claim structure.
@@ -411,9 +409,9 @@ impl Backend {
             .with_bool_input("first_joint_claimant_has_limited_capability_for_work_and_work_related_activity", c.has_lcwra)?
             .with_bool_input("second_joint_claimant_has_limited_capability_for_work_and_work_related_activity", &falses)?
             .with_bool_input("single_claimant_has_limited_capability_for_work_and_work_related_activity", c.has_lcwra)?
-            .with_input("lcwra_element_amount_given_in_regulation_36_for_first_joint_claimant", &lcwra_amounts)?
-            .with_input("lcwra_element_amount_given_in_regulation_36_for_second_joint_claimant", &zeros)?
-            .with_input("lcwra_element_amount_given_in_regulation_36_for_single_claimant", &lcwra_amounts)?
+            .with_const_input("lcwra_element_amount_given_in_regulation_36_for_first_joint_claimant", self.uc_lcwra_element)?
+            .with_const_input("lcwra_element_amount_given_in_regulation_36_for_second_joint_claimant", 0.0)?
+            .with_const_input("lcwra_element_amount_given_in_regulation_36_for_single_claimant", self.uc_lcwra_element)?
             // Carer element delivered via the adult relation, never doubled.
             .with_bool_input("both_joint_claimants_qualify_for_carer_element", &falses)?
             .with_bool_input("joint_claimants_are_caring_for_the_same_severely_disabled_person", &falses)?
@@ -422,17 +420,17 @@ impl Backend {
             .with_bool_input("award_contains_housing_costs_element", &has_housing)?
             .with_input("renters_core_rent", c.rent_monthly)?
             .with_input("renters_cap_rent", c.rent_cap_monthly)?
-            .with_input("housing_cost_contribution_count_required_under_paragraph_13_in_renters_case", &zeros)?
-            .with_input("amount_resulting_from_all_other_steps_in_parts_4_and_5_calculation", &zeros)?
+            .with_const_input("housing_cost_contribution_count_required_under_paragraph_13_in_renters_case", 0.0)?
+            .with_const_input("amount_resulting_from_all_other_steps_in_parts_4_and_5_calculation", 0.0)?
             // No childcare element in the model.
-            .with_input("charges_paid_for_relevant_childcare_attributable_to_assessment_period", &zeros)?
-            .with_input("amount_considered_excessive_having_regard_to_paid_work_extent", &zeros)?
-            .with_input("amount_met_or_reimbursed_by_employer_or_some_other_person", &zeros)?
-            .with_input("amount_from_funds_provided_by_secretary_of_state_or_scottish_or_welsh_ministers_for_work_related_activity_or_training", &zeros)?
-            .with_input("secretary_of_state_work_transition_childcare_payment_amount", &zeros)?
+            .with_const_input("charges_paid_for_relevant_childcare_attributable_to_assessment_period", 0.0)?
+            .with_const_input("amount_considered_excessive_having_regard_to_paid_work_extent", 0.0)?
+            .with_const_input("amount_met_or_reimbursed_by_employer_or_some_other_person", 0.0)?
+            .with_const_input("amount_from_funds_provided_by_secretary_of_state_or_scottish_or_welsh_ministers_for_work_related_activity_or_training", 0.0)?
+            .with_const_input("secretary_of_state_work_transition_childcare_payment_amount", 0.0)?
             .with_bool_input("secretary_of_state_work_transition_childcare_payment_meets_non_other_relevant_support_conditions", &falses)?
-            .with_input("maximum_amount_specified_in_table_in_regulation_36", &zeros)?
-            .with_input("childcare_costs_element_child_count", &zeros)?
+            .with_const_input("maximum_amount_specified_in_table_in_regulation_36", 0.0)?
+            .with_const_input("childcare_costs_element_child_count", 0.0)?
             // Children of each benefit unit.
             .with_relation("child_of_benefit_unit", c.num_children)?
             .with_relation_bool_input("child_of_benefit_unit", "claimant_responsible_for_child_or_qualifying_young_person", &child_trues)?
@@ -468,7 +466,7 @@ impl Backend {
 
         let outputs = calculate(
             &self.universal_credit,
-            &dataset,
+            dataset,
             &["universal_credit_award_amount", "universal_credit_maximum_amount"],
         )?;
         let award: Vec<f64> = outputs

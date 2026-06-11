@@ -54,7 +54,7 @@ fn main() -> anyhow::Result<()> {
     let build_ms = t.elapsed().as_secs_f64() * 1e3;
 
     let t = Instant::now();
-    let base = calculate(&baseline, &dataset, &[AWARD])?;
+    let base = calculate(&baseline, dataset.clone(), &[AWARD])?;
     let baseline_ms = t.elapsed().as_secs_f64() * 1e3;
 
     let t = Instant::now();
@@ -63,7 +63,7 @@ fn main() -> anyhow::Result<()> {
     let recompile_ms = t.elapsed().as_secs_f64() * 1e3;
 
     let t = Instant::now();
-    let reform = calculate(&reform_policy, &dataset, &[AWARD])?;
+    let reform = calculate(&reform_policy, dataset, &[AWARD])?;
     let reform_ms = t.elapsed().as_secs_f64() * 1e3;
 
     let base_award = base.column(AWARD)?;

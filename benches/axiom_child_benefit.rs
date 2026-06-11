@@ -66,7 +66,7 @@ fn main() -> anyhow::Result<()> {
     let baseline = Policy::from_artifact_json(ARTIFACT, "Family")?;
 
     let t = Instant::now();
-    let base = calculate(&baseline, &dataset, &[OUTPUT])?;
+    let base = calculate(&baseline, dataset.clone(), &[OUTPUT])?;
     let baseline_ms = t.elapsed().as_secs_f64() * 1e3;
 
     // Reform: enhanced (eldest child) weekly rate 27.05 -> 30.00.
@@ -79,7 +79,7 @@ fn main() -> anyhow::Result<()> {
     let recompile_ms = t.elapsed().as_secs_f64() * 1e3;
 
     let t = Instant::now();
-    let reform = calculate(&reform_policy, &dataset, &[OUTPUT])?;
+    let reform = calculate(&reform_policy, dataset, &[OUTPUT])?;
     let reform_ms = t.elapsed().as_secs_f64() * 1e3;
 
     let base_col = base.column(OUTPUT)?;

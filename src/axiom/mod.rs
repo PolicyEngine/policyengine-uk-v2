@@ -119,6 +119,7 @@ impl Policy {
 
 /// Input columns for one period, with one row per root entity (person,
 /// family, ...).
+#[derive(Clone)]
 pub struct Dataset {
     columns: HashMap<String, DenseColumn>,
     relations: HashMap<String, RelationData>,
@@ -126,6 +127,7 @@ pub struct Dataset {
     period: Period,
 }
 
+#[derive(Clone)]
 struct RelationData {
     offsets: Vec<usize>,
     inputs: HashMap<String, DenseColumn>,
@@ -177,6 +179,17 @@ impl Dataset {
     pub fn with_bool_input(mut self, name: &str, values: &[bool]) -> Result<Self> {
         self.check_row_count(name, values.len())?;
         self.columns.insert(name.to_string(), DenseColumn::Bool(values.to_vec()));
+        Ok(self)
+    }
+
+    /// Add a numeric input column with the same value in every row,
+    /// converting to decimal once instead of per element. The row count must
+    /// already be established by an earlier column.
+    pub fn with_const_input(mut self, name: &str, value: f64) -> Result<Self> {
+        let n = self.n.ok_or_else(|| anyhow!("add a per-row column before constant columns"))?;
+        let value =
+            Decimal::from_f64(value).ok_or_else(|| anyhow!("non-finite value in column {name}"))?;
+        self.columns.insert(name.to_string(), DenseColumn::Decimal(vec![value; n]));
         Ok(self)
     }
 
@@ -252,8 +265,10 @@ impl Dataset {
 }
 
 fn decimal_column(name: &str, values: &[f64]) -> Result<DenseColumn> {
+    use rayon::prelude::*;
     let column = values
-        .iter()
+        .par_iter()
+        .with_min_len(8192)
         .map(|v| Decimal::from_f64(*v).ok_or_else(|| anyhow!("non-finite value in column {name}")))
         .collect::<Result<Vec<Decimal>>>()?;
     Ok(DenseColumn::Decimal(column))
@@ -274,29 +289,30 @@ impl Outputs {
 }
 
 /// Evaluate `outputs` (bare rule names) for every person in the dataset.
-pub fn calculate(policy: &Policy, dataset: &Dataset, outputs: &[&str]) -> Result<Outputs> {
+/// Consumes the dataset, which is built fresh per call, so columns move into
+/// the batch without cloning.
+pub fn calculate(policy: &Policy, mut dataset: Dataset, outputs: &[&str]) -> Result<Outputs> {
     // The dense program keys relations by full legal id (e.g.
     // `uk:statutes/ukpga/2007/3/23#relation.income_component_of_taxpayer`);
     // the dataset declares them by bare name, so match on the suffix.
     let mut relations = HashMap::new();
     for schema in policy.dense.relations() {
         let key = &schema.key;
-        let data = dataset
+        let name = dataset
             .relations
-            .iter()
-            .find(|(name, _)| {
-                key.name == **name || key.name.ends_with(&format!("#relation.{name}"))
-            })
-            .map(|(_, data)| data)
+            .keys()
+            .find(|name| key.name == **name || key.name.ends_with(&format!("#relation.{name}")))
+            .cloned()
             .ok_or_else(|| anyhow!("dataset is missing relation {}", key.name))?;
+        let data = dataset.relations.remove(&name).expect("key found above");
         relations.insert(
             key.clone(),
-            DenseRelationBatchSpec { offsets: data.offsets.clone(), inputs: data.inputs.clone() },
+            DenseRelationBatchSpec { offsets: data.offsets, inputs: data.inputs },
         );
     }
     let batch = DenseBatchSpec {
         row_count: dataset.len(),
-        inputs: dataset.columns.clone(),
+        inputs: std::mem::take(&mut dataset.columns),
         relations,
     };
     let output_names: Vec<String> = outputs.iter().map(|s| s.to_string()).collect();

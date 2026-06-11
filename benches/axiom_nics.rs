@@ -72,7 +72,7 @@ fn run_reform(
     n: usize,
 ) -> anyhow::Result<()> {
     let t = Instant::now();
-    let base = calculate(baseline, dataset, &[output])?;
+    let base = calculate(baseline, dataset.clone(), &[output])?;
     let baseline_ms = t.elapsed().as_secs_f64() * 1e3;
 
     let t = Instant::now();
@@ -81,7 +81,7 @@ fn run_reform(
     let recompile_ms = t.elapsed().as_secs_f64() * 1e3;
 
     let t = Instant::now();
-    let reform = calculate(&reform_policy, dataset, &[output])?;
+    let reform = calculate(&reform_policy, dataset.clone(), &[output])?;
     let reform_ms = t.elapsed().as_secs_f64() * 1e3;
 
     let base_col = base.column(output)?;
