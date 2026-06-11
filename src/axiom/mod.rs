@@ -43,14 +43,17 @@ pub struct Policy {
 }
 
 impl Policy {
-    pub fn from_artifact_json(json: &str) -> Result<Self> {
+    /// `entity` is the program's root entity, i.e. what one dataset row
+    /// represents: `"Person"` for income tax, `"Family"` for Universal
+    /// Credit.
+    pub fn from_artifact_json(json: &str, entity: &str) -> Result<Self> {
         let artifact = CompiledProgramArtifact::from_json_str(json)
             .map_err(|e| anyhow!("failed to load axiom artifact: {e}"))?;
-        Self::from_artifact(artifact)
+        Self::from_artifact(artifact, entity)
     }
 
-    fn from_artifact(artifact: CompiledProgramArtifact) -> Result<Self> {
-        let dense = DenseCompiledProgram::from_artifact(&artifact, Some("Person"))
+    fn from_artifact(artifact: CompiledProgramArtifact, entity: &str) -> Result<Self> {
+        let dense = DenseCompiledProgram::from_artifact(&artifact, Some(entity))
             .map_err(|e| anyhow!("dense compile failed: {e}"))?;
         Ok(Policy { artifact, dense })
     }
@@ -87,7 +90,7 @@ impl Policy {
         parameter.versions.sort_by_key(|v| v.effective_from);
         let artifact = CompiledProgramArtifact::compile(program)
             .map_err(|e| anyhow!("recompile after parameter override failed: {e}"))?;
-        Self::from_artifact(artifact)
+        Self::from_artifact(artifact, &self.dense.root_entity().to_string())
     }
 
     /// Bare names of the person-level inputs the rules require.
@@ -110,7 +113,8 @@ impl Policy {
     }
 }
 
-/// Per-person input columns for one UK tax year (6 April to 6 April).
+/// Input columns for one period, with one row per root entity (person,
+/// family, ...).
 pub struct Dataset {
     columns: HashMap<String, DenseColumn>,
     relations: HashMap<String, RelationData>,
@@ -124,33 +128,52 @@ struct RelationData {
 }
 
 impl Dataset {
-    /// `fiscal_year` is the starting calendar year, e.g. 2026 for 2026-27.
+    /// One UK tax year (6 April to 6 April); `fiscal_year` is the starting
+    /// calendar year, e.g. 2026 for 2026-27.
     pub fn tax_year(fiscal_year: i32) -> Self {
         let start = NaiveDate::from_ymd_opt(fiscal_year, 4, 6).expect("valid tax year start");
         let end = NaiveDate::from_ymd_opt(fiscal_year + 1, 4, 6).expect("valid tax year end");
-        Dataset {
-            columns: HashMap::new(),
-            relations: HashMap::new(),
-            n: None,
-            period: Period { kind: PeriodKind::TaxYear, start, end },
-        }
+        Self::for_period(Period { kind: PeriodKind::TaxYear, start, end })
     }
 
-    /// Add a person-level input column by bare name, e.g.
-    /// `adjusted_net_income`. All columns must have one value per person.
+    /// One calendar month, e.g. a Universal Credit assessment period.
+    pub fn month(year: i32, month: u32) -> Self {
+        let start = NaiveDate::from_ymd_opt(year, month, 1).expect("valid month start");
+        let end = match month {
+            12 => NaiveDate::from_ymd_opt(year + 1, 1, 1),
+            _ => NaiveDate::from_ymd_opt(year, month + 1, 1),
+        }
+        .expect("valid month end");
+        Self::for_period(Period { kind: PeriodKind::Month, start, end })
+    }
+
+    fn for_period(period: Period) -> Self {
+        Dataset { columns: HashMap::new(), relations: HashMap::new(), n: None, period }
+    }
+
+    /// Add a numeric input column by bare name, e.g. `adjusted_net_income`.
+    /// All columns must have one value per row.
     pub fn with_input(mut self, name: &str, values: &[f64]) -> Result<Self> {
-        self.check_person_count(name, values.len())?;
+        self.check_row_count(name, values.len())?;
         let column = decimal_column(name, values)?;
         self.columns.insert(name.to_string(), column);
         Ok(self)
     }
 
+    /// Add a boolean input column by bare name, e.g.
+    /// `claim_is_for_joint_claimants`.
+    pub fn with_bool_input(mut self, name: &str, values: &[bool]) -> Result<Self> {
+        self.check_row_count(name, values.len())?;
+        self.columns.insert(name.to_string(), DenseColumn::Bool(values.to_vec()));
+        Ok(self)
+    }
+
     /// Declare a one-to-many relation by bare name (e.g.
     /// `income_component_of_taxpayer`) with the number of related rows per
-    /// person. Related input columns are then added flat, in person order,
+    /// root row. Related input columns are then added flat, in row order,
     /// via [`Dataset::with_relation_input`].
     pub fn with_relation(mut self, name: &str, counts: &[usize]) -> Result<Self> {
-        self.check_person_count(name, counts.len())?;
+        self.check_row_count(name, counts.len())?;
         let mut offsets = Vec::with_capacity(counts.len() + 1);
         let mut total = 0;
         offsets.push(0);
@@ -162,21 +185,22 @@ impl Dataset {
         Ok(self)
     }
 
-    /// Add a related-row input column for a declared relation, flat across
-    /// all people (length must equal the sum of the relation's counts).
+    /// Add a numeric related-row input column for a declared relation, flat
+    /// across all rows (length must equal the sum of the relation's counts).
     pub fn with_relation_input(mut self, relation: &str, name: &str, values: &[f64]) -> Result<Self> {
         let column = decimal_column(name, values)?;
-        let data = self.relations.get_mut(relation).ok_or_else(|| {
-            anyhow!("unknown relation {relation}; declare it with with_relation first")
-        })?;
-        let expected = *data.offsets.last().expect("offsets are never empty");
-        if values.len() != expected {
-            bail!(
-                "relation input {relation}.{name} has {} values, expected {expected}",
-                values.len()
-            );
-        }
-        data.inputs.insert(name.to_string(), column);
+        self.add_relation_column(relation, name, column, values.len())?;
+        Ok(self)
+    }
+
+    /// Add a boolean related-row input column for a declared relation.
+    pub fn with_relation_bool_input(
+        mut self,
+        relation: &str,
+        name: &str,
+        values: &[bool],
+    ) -> Result<Self> {
+        self.add_relation_column(relation, name, DenseColumn::Bool(values.to_vec()), values.len())?;
         Ok(self)
     }
 
@@ -184,12 +208,30 @@ impl Dataset {
         self.n.unwrap_or(0)
     }
 
-    fn check_person_count(&mut self, name: &str, len: usize) -> Result<()> {
+    fn check_row_count(&mut self, name: &str, len: usize) -> Result<()> {
         match self.n {
             None => self.n = Some(len),
             Some(n) if n != len => bail!("column {name} has {len} values, expected {n}"),
             Some(_) => {}
         }
+        Ok(())
+    }
+
+    fn add_relation_column(
+        &mut self,
+        relation: &str,
+        name: &str,
+        column: DenseColumn,
+        len: usize,
+    ) -> Result<()> {
+        let data = self.relations.get_mut(relation).ok_or_else(|| {
+            anyhow!("unknown relation {relation}; declare it with with_relation first")
+        })?;
+        let expected = *data.offsets.last().expect("offsets are never empty");
+        if len != expected {
+            bail!("relation input {relation}.{name} has {len} values, expected {expected}");
+        }
+        data.inputs.insert(name.to_string(), column);
         Ok(())
     }
 }

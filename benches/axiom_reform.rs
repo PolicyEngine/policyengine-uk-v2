@@ -37,7 +37,7 @@ fn main() -> anyhow::Result<()> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(100_000);
 
-    let baseline = Policy::from_artifact_json(ARTIFACT)?;
+    let baseline = Policy::from_artifact_json(ARTIFACT, "Person")?;
 
     // Incomes spread across the basic / higher / additional rate bands,
     // supplied as one income component per person through the s.23 Step 1
