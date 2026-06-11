@@ -22,6 +22,8 @@
 //! within the composed program (e.g. `income_tax_liability`,
 //! `income_component_of_taxpayer`), which axiom-compose keeps unique.
 
+pub mod backend;
+
 use std::collections::{BTreeMap, HashMap};
 
 use anyhow::{anyhow, bail, Result};
@@ -94,11 +96,13 @@ impl Policy {
     }
 
     /// Bare names of the person-level inputs the rules require.
+    #[allow(dead_code)]
     pub fn inputs(&self) -> &[String] {
         self.dense.root_inputs()
     }
 
     /// Bare names of every rule the policy can calculate.
+    #[allow(dead_code)]
     pub fn outputs(&self) -> Vec<String> {
         self.dense.output_names()
     }
@@ -143,6 +147,7 @@ impl Dataset {
     }
 
     /// One calendar month, e.g. a Universal Credit assessment period.
+    #[allow(dead_code)]
     pub fn month(year: i32, month: u32) -> Self {
         let start = NaiveDate::from_ymd_opt(year, month, 1).expect("valid month start");
         let end = match month {
@@ -168,6 +173,7 @@ impl Dataset {
 
     /// Add a boolean input column by bare name, e.g.
     /// `claim_is_for_joint_claimants`.
+    #[allow(dead_code)]
     pub fn with_bool_input(mut self, name: &str, values: &[bool]) -> Result<Self> {
         self.check_row_count(name, values.len())?;
         self.columns.insert(name.to_string(), DenseColumn::Bool(values.to_vec()));
@@ -178,6 +184,7 @@ impl Dataset {
     /// `income_component_of_taxpayer`) with the number of related rows per
     /// root row. Related input columns are then added flat, in row order,
     /// via [`Dataset::with_relation_input`].
+    #[allow(dead_code)]
     pub fn with_relation(mut self, name: &str, counts: &[usize]) -> Result<Self> {
         self.check_row_count(name, counts.len())?;
         let mut offsets = Vec::with_capacity(counts.len() + 1);
@@ -193,6 +200,7 @@ impl Dataset {
 
     /// Add a numeric related-row input column for a declared relation, flat
     /// across all rows (length must equal the sum of the relation's counts).
+    #[allow(dead_code)]
     pub fn with_relation_input(mut self, relation: &str, name: &str, values: &[f64]) -> Result<Self> {
         let column = decimal_column(name, values)?;
         self.add_relation_column(relation, name, column, values.len())?;
@@ -200,6 +208,7 @@ impl Dataset {
     }
 
     /// Add a boolean related-row input column for a declared relation.
+    #[allow(dead_code)]
     pub fn with_relation_bool_input(
         mut self,
         relation: &str,

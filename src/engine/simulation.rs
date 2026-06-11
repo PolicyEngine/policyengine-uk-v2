@@ -114,6 +114,10 @@ pub struct Simulation {
     pub baseline_old_sp_weekly: f64,
     /// Fiscal year (e.g. 2025 for 2025/26) — used for new/basic SP cutoff.
     pub fiscal_year: u32,
+    /// When set, National Insurance (Class 1 employee and Class 4) is
+    /// computed by the axiom rules engine from compiled statute artifacts
+    /// instead of the hand-coded formulas. Enable with [`Simulation::enable_axiom`].
+    pub axiom: Option<crate::axiom::backend::Backend>,
 }
 
 impl Simulation {
@@ -128,6 +132,7 @@ impl Simulation {
         Simulation {
             people, benunits, households, parameters,
             baseline_old_sp_weekly, fiscal_year,
+            axiom: None,
         }
     }
 
@@ -144,7 +149,28 @@ impl Simulation {
         Simulation {
             people, benunits, households, parameters,
             baseline_old_sp_weekly, fiscal_year,
+            axiom: None,
         }
+    }
+
+    /// Compile the axiom NICs programs with this simulation's parameters
+    /// translated onto the underlying legal parameters.
+    pub fn enable_axiom(&mut self) -> anyhow::Result<()> {
+        let ni = &self.parameters.national_insurance;
+        self.axiom = Some(crate::axiom::backend::Backend::new(
+            &crate::axiom::backend::NicsParameters {
+                main_rate: ni.main_rate,
+                additional_rate: ni.additional_rate,
+                primary_threshold_annual: ni.primary_threshold_annual,
+                upper_earnings_limit_annual: ni.upper_earnings_limit_annual,
+                class4_main_rate: ni.class4_main_rate,
+                class4_additional_rate: ni.class4_additional_rate,
+                class4_lower_profits_limit: ni.class4_lower_profits_limit,
+                class4_upper_profits_limit: ni.class4_upper_profits_limit,
+            },
+            self.fiscal_year,
+        )?);
+        Ok(())
     }
 
     /// Run the full simulation. Calculates all tax-benefit variables for every entity.
@@ -170,6 +196,22 @@ impl Simulation {
             variables::income_tax::calculate(person, &self.parameters, person_sp[i])
         }).collect();
         person_results = pr;
+
+        // Axiom backend: replace hand-coded NICs with statute-derived results
+        // before anything downstream reads national_insurance.
+        if let Some(backend) = &self.axiom {
+            let employment: Vec<f64> = self.people.iter().map(|p| p.employment_income).collect();
+            let self_employment: Vec<f64> =
+                self.people.iter().map(|p| p.self_employment_income).collect();
+            let (class_1, class_4) = backend
+                .national_insurance(&employment, &self_employment)
+                .expect("axiom NICs evaluation failed");
+            for (i, r) in person_results.iter_mut().enumerate() {
+                r.ni_class1_employee = class_1[i];
+                r.ni_class4 = class_4[i];
+                r.national_insurance = r.ni_class1_employee + r.ni_class2 + r.ni_class4;
+            }
+        }
 
         // Phase 1c: Marriage allowance (benunit-level adjustment to person tax)
         // Cannot be parallelised as it mutates person_results across benunits
@@ -746,5 +788,63 @@ mod tests {
         );
         assert_eq!(adjusted_static[0].employment_income, people[0].employment_income,
             "Disabled labour supply should not change employment income");
+    }
+
+    /// The axiom backend must reproduce the hand-coded NICs exactly: the
+    /// statute programs apply the same band arithmetic over weekly/annual
+    /// periods, and the parameter translation (annual thresholds / 52) is
+    /// linear, so annualised results are identical up to float rounding.
+    fn assert_axiom_matches_hand_coded(params: Parameters) {
+        let people: Vec<Person> = (0..200)
+            .map(|i| {
+                let mut p = Person::default();
+                p.id = i;
+                p.age = 35.0;
+                p.employment_income = (i % 40) as f64 * 5_000.0;
+                p.self_employment_income = ((i / 40) % 5) as f64 * 15_000.0 - 10_000.0;
+                p
+            })
+            .collect();
+        let benunits: Vec<BenUnit> = people
+            .iter()
+            .map(|p| BenUnit { id: p.id, household_id: p.id, person_ids: vec![p.id], ..BenUnit::default() })
+            .collect();
+        let households: Vec<Household> = people
+            .iter()
+            .map(|p| Household {
+                id: p.id, person_ids: vec![p.id], benunit_ids: vec![p.id],
+                weight: 1.0, ..Household::default()
+            })
+            .collect();
+
+        let mut sim = Simulation::new(people.clone(), benunits.clone(), households.clone(), params.clone(), 2026);
+        let hand_coded = sim.run();
+        sim.enable_axiom().unwrap();
+        let axiom = sim.run();
+
+        for (h, a) in hand_coded.person_results.iter().zip(&axiom.person_results) {
+            assert!((h.ni_class1_employee - a.ni_class1_employee).abs() < 1e-6,
+                "class 1 mismatch: hand-coded {} vs axiom {}", h.ni_class1_employee, a.ni_class1_employee);
+            assert!((h.ni_class4 - a.ni_class4).abs() < 1e-6,
+                "class 4 mismatch: hand-coded {} vs axiom {}", h.ni_class4, a.ni_class4);
+            assert!((h.national_insurance - a.national_insurance).abs() < 1e-6,
+                "total NI mismatch: hand-coded {} vs axiom {}", h.national_insurance, a.national_insurance);
+        }
+    }
+
+    #[test]
+    fn axiom_nics_matches_hand_coded_baseline() {
+        assert_axiom_matches_hand_coded(Parameters::for_year(2026).unwrap());
+    }
+
+    #[test]
+    fn axiom_nics_matches_hand_coded_under_reform() {
+        let mut params = Parameters::for_year(2026).unwrap();
+        params.national_insurance.main_rate += 0.02;
+        params.national_insurance.primary_threshold_annual = 10_000.0;
+        params.national_insurance.upper_earnings_limit_annual = 60_000.0;
+        params.national_insurance.class4_main_rate += 0.01;
+        params.national_insurance.class4_lower_profits_limit = 11_000.0;
+        assert_axiom_matches_hand_coded(params);
     }
 }

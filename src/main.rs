@@ -1,3 +1,4 @@
+mod axiom;
 mod engine;
 mod parameters;
 mod variables;
@@ -152,6 +153,11 @@ struct Cli {
     /// household calculations. Suitable for SPI and other datasets without household structure.
     #[arg(long)]
     persons_only: bool,
+
+    /// Compute National Insurance with the axiom rules engine (compiled
+    /// statute artifacts) instead of the hand-coded formulas.
+    #[arg(long)]
+    axiom: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -538,13 +544,16 @@ fn main() -> anyhow::Result<()> {
     };
 
     // Run baseline simulation
-    let baseline_sim = Simulation::new(
+    let mut baseline_sim = Simulation::new(
         dataset.people.clone(),
         dataset.benunits.clone(),
         dataset.households.clone(),
         baseline_params.clone(),
         cli.year,
     );
+    if cli.axiom {
+        baseline_sim.enable_axiom()?;
+    }
     let baseline = baseline_sim.run();
 
     // Apply OBR labour supply responses if enabled in the policy parameters.
@@ -567,7 +576,7 @@ fn main() -> anyhow::Result<()> {
     };
 
     // Run policy simulation (pass baseline old SP rate so reported amounts scale correctly)
-    let policy_sim = Simulation::new_with_baseline_sp(
+    let mut policy_sim = Simulation::new_with_baseline_sp(
         policy_people,
         dataset.benunits.clone(),
         dataset.households.clone(),
@@ -575,6 +584,9 @@ fn main() -> anyhow::Result<()> {
         baseline_params.state_pension.old_basic_pension_weekly,
         cli.year,
     );
+    if cli.axiom {
+        policy_sim.enable_axiom()?;
+    }
     let mut reformed = policy_sim.run();
     // Neutralisation runs after the reform simulation completes, so baseline
     // results are unaffected. No-op when the reform has an empty `neutralise`.
