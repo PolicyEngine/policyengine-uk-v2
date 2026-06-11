@@ -1,8 +1,10 @@
 //! Axiom backend reform demo: how long does a rule-change impact take?
 //!
-//! Loads the compiled income tax artifact (ITA 2007 s.10 + s.35, FA 2026 s.2
-//! rates, composed from rulespec-uk), builds a synthetic population, then:
-//!   1. evaluates baseline income tax for every person,
+//! Loads the compiled income tax artifact (the ITA 2007 s.23 liability
+//! calculation over s.10 + s.35 with FA 2026 s.2 rates, composed from
+//! rulespec-uk), builds a synthetic population with income components
+//! supplied through the s.23 Step 1 Payment -> Person relation, then:
+//!   1. evaluates baseline income tax liability for every person,
 //!   2. builds a reform policy (basic rate +1p) by patching the parameter and
 //!      recompiling in memory,
 //!   3. evaluates the reform and reports the per-person and aggregate impact.
@@ -13,8 +15,10 @@
 //! Run: `cargo bench --bench axiom_reform`
 
 // The crate is binary-only (no lib target), so pull the module in by path,
-// exactly as `benches/speedtest.rs` does.
+// exactly as `benches/speedtest.rs` does. The demo only exercises part of
+// the module's API, so silence dead-code warnings at the include site.
 #[path = "../src/axiom/mod.rs"]
+#[allow(dead_code)]
 mod axiom;
 
 use std::time::Instant;
@@ -23,7 +27,8 @@ use axiom::{calculate, Dataset, Policy};
 use chrono::NaiveDate;
 
 const ARTIFACT: &str = include_str!("../src/axiom/artifacts/uk-income-tax-fy2026.json");
-const INCOME_TAX: &str = "income_tax_on_section_10_income";
+const INCOME_TAX: &str = "income_tax_liability";
+const INCOME_COMPONENTS: &str = "income_component_of_taxpayer";
 const BASIC_RATE: &str = "uk:statutes/ukpga/2026/11/2#basic_rate";
 
 fn main() -> anyhow::Result<()> {
@@ -34,13 +39,18 @@ fn main() -> anyhow::Result<()> {
 
     let baseline = Policy::from_artifact_json(ARTIFACT)?;
 
-    // Incomes spread across the basic / higher / additional rate bands.
+    // Incomes spread across the basic / higher / additional rate bands,
+    // supplied as one income component per person through the s.23 Step 1
+    // relation (a real population would have several per person).
     let incomes: Vec<f64> = (0..n).map(|i| 10_000.0 + (i % 40) as f64 * 5_000.0).collect();
+    let reliefs = vec![0.0; n];
+    let counts = vec![1usize; n];
 
     let t = Instant::now();
     let dataset = Dataset::tax_year(2026)
-        .with_input("income_charged_under_section_10", &incomes)?
-        .with_input("adjusted_net_income", &incomes)?;
+        .with_relation(INCOME_COMPONENTS, &counts)?
+        .with_relation_input(INCOME_COMPONENTS, "amount_charged_to_income_tax", &incomes)?
+        .with_relation_input(INCOME_COMPONENTS, "relief_deducted_under_section_24", &reliefs)?;
     let build_ms = t.elapsed().as_secs_f64() * 1e3;
 
     let t = Instant::now();

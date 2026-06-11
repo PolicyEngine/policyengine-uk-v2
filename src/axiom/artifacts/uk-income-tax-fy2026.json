@@ -4,7 +4,7 @@
   "program": {
     "extends": null,
     "module": {
-      "summary": "Deterministic composition for uk/income-tax at 2026-04. Outputs: income_tax_on_section_10_income, tax_on_income_charged_at_basic_rate, tax_on_income_charged_at_higher_rate, tax_on_income_charged_at_additional_rate, income_charged_at_basic_rate, income_charged_at_higher_rate, income_charged_at_additional_rate, personal_allowance, basic_rate_limit, higher_rate_limit. Corpus: unversioned corpus."
+      "summary": "Deterministic composition for uk/income-tax at 2026-04. Outputs: income_tax_liability, total_income, net_income, income_remaining_after_allowances, income_tax_on_section_10_income, tax_on_income_charged_at_basic_rate, tax_on_income_charged_at_higher_rate, tax_on_income_charged_at_additional_rate, income_charged_at_basic_rate, income_charged_at_higher_rate, income_charged_at_additional_rate, personal_allowance, basic_rate_limit, higher_rate_limit. Corpus: unversioned corpus."
     },
     "units": [
       {
@@ -40,7 +40,12 @@
         "label": "judgment"
       }
     ],
-    "relations": [],
+    "relations": [
+      {
+        "name": "uk:statutes/ukpga/2007/3/23#relation.income_component_of_taxpayer",
+        "arity": 2
+      }
+    ],
     "parameters": [
       {
         "id": "uk:statutes/ukpga/2007/3/35#personal_allowance_base_amount",
@@ -88,6 +93,23 @@
               "0": {
                 "kind": "integer",
                 "value": 1
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "uk:statutes/ukpga/2007/3/23#net_income_zero_amount",
+        "name": "net_income_zero_amount",
+        "unit": "GBP",
+        "indexed_by": null,
+        "versions": [
+          {
+            "effective_from": "2024-04-06",
+            "values": {
+              "0": {
+                "kind": "integer",
+                "value": 0
               }
             }
           }
@@ -279,7 +301,7 @@
                             {
                               "kind": "sub",
                               "left": {
-                                "kind": "input",
+                                "kind": "derived",
                                 "name": "adjusted_net_income"
                               },
                               "right": {
@@ -332,6 +354,186 @@
               "value": "0"
             }
           }
+        }
+      },
+      {
+        "id": "uk:statutes/ukpga/2007/3/23#total_income",
+        "name": "total_income",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "GBP",
+        "period": "Year",
+        "source": "Income Tax Act 2007 s.23 Step 1",
+        "source_url": null,
+        "semantics": "scalar",
+        "expr": {
+          "kind": "sum_related",
+          "relation": "uk:statutes/ukpga/2007/3/23#relation.income_component_of_taxpayer",
+          "current_slot": 1,
+          "related_slot": 0,
+          "value": {
+            "kind": "input",
+            "name": "amount_charged_to_income_tax"
+          },
+          "where": null
+        }
+      },
+      {
+        "id": "uk:statutes/ukpga/2007/3/23#net_income",
+        "name": "net_income",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "GBP",
+        "period": "Year",
+        "source": "Income Tax Act 2007 s.23 Step 2",
+        "source_url": null,
+        "semantics": "scalar",
+        "expr": {
+          "kind": "if",
+          "condition": {
+            "kind": "derived",
+            "name": "net_income_taken_as_zero_under_section_24b"
+          },
+          "then_expr": {
+            "kind": "parameter_lookup",
+            "parameter": "net_income_zero_amount",
+            "index": {
+              "kind": "literal",
+              "value": {
+                "kind": "integer",
+                "value": 0
+              }
+            }
+          },
+          "else_expr": {
+            "kind": "max",
+            "items": [
+              {
+                "kind": "literal",
+                "value": {
+                  "kind": "decimal",
+                  "value": "0"
+                }
+              },
+              {
+                "kind": "sub",
+                "left": {
+                  "kind": "derived",
+                  "name": "total_income"
+                },
+                "right": {
+                  "kind": "sum_related",
+                  "relation": "uk:statutes/ukpga/2007/3/23#relation.income_component_of_taxpayer",
+                  "current_slot": 1,
+                  "related_slot": 0,
+                  "value": {
+                    "kind": "input",
+                    "name": "relief_deducted_under_section_24"
+                  },
+                  "where": null
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "uk:statutes/ukpga/2007/3/23#income_remaining_after_allowances",
+        "name": "income_remaining_after_allowances",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "GBP",
+        "period": "Year",
+        "source": "Income Tax Act 2007 s.23 Step 3",
+        "source_url": null,
+        "semantics": "scalar",
+        "expr": {
+          "kind": "max",
+          "items": [
+            {
+              "kind": "literal",
+              "value": {
+                "kind": "decimal",
+                "value": "0"
+              }
+            },
+            {
+              "kind": "sub",
+              "left": {
+                "kind": "sub",
+                "left": {
+                  "kind": "derived",
+                  "name": "net_income"
+                },
+                "right": {
+                  "kind": "derived",
+                  "name": "personal_allowance"
+                }
+              },
+              "right": {
+                "kind": "derived",
+                "name": "other_allowances_under_chapter_2_part_3"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "uk:statutes/ukpga/2007/3/23#tax_left_after_reductions",
+        "name": "tax_left_after_reductions",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "GBP",
+        "period": "Year",
+        "source": "Income Tax Act 2007 s.23 Steps 4 to 6",
+        "source_url": null,
+        "semantics": "scalar",
+        "expr": {
+          "kind": "max",
+          "items": [
+            {
+              "kind": "literal",
+              "value": {
+                "kind": "decimal",
+                "value": "0"
+              }
+            },
+            {
+              "kind": "sub",
+              "left": {
+                "kind": "derived",
+                "name": "tax_calculated_at_applicable_rates_on_income_remaining_after_allowances"
+              },
+              "right": {
+                "kind": "derived",
+                "name": "tax_reductions_listed_in_section_26"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "uk:statutes/ukpga/2007/3/23#income_tax_liability",
+        "name": "income_tax_liability",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "GBP",
+        "period": "Year",
+        "source": "Income Tax Act 2007 s.23 Step 7",
+        "source_url": null,
+        "semantics": "scalar",
+        "expr": {
+          "kind": "add",
+          "items": [
+            {
+              "kind": "derived",
+              "name": "tax_left_after_reductions"
+            },
+            {
+              "kind": "derived",
+              "name": "additional_tax_amounts_listed_in_section_30"
+            }
+          ]
         }
       },
       {
@@ -396,7 +598,7 @@
           "kind": "min",
           "items": [
             {
-              "kind": "input",
+              "kind": "derived",
               "name": "income_charged_under_section_10"
             },
             {
@@ -439,7 +641,7 @@
                 "kind": "min",
                 "items": [
                   {
-                    "kind": "input",
+                    "kind": "derived",
                     "name": "income_charged_under_section_10"
                   },
                   {
@@ -486,7 +688,7 @@
             {
               "kind": "sub",
               "left": {
-                "kind": "input",
+                "kind": "derived",
                 "name": "income_charged_under_section_10"
               },
               "right": {
@@ -620,54 +822,209 @@
       {
         "name": "individual_makes_claim",
         "entity": "Person",
-        "dtype": "bool",
+        "dtype": "judgment",
         "unit": null,
         "period": "Year",
         "source": "axiom-programs/uk/income-tax bridge, claim assumed made for simulated population",
         "source_url": null,
-        "semantics": "scalar",
+        "semantics": "judgment",
         "expr": {
-          "kind": "literal",
-          "value": {
-            "kind": "bool",
-            "value": true
+          "kind": "comparison",
+          "left": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": true
+            }
+          },
+          "op": "eq",
+          "right": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": true
+            }
           }
         }
       },
       {
         "name": "individual_meets_requirements_under_section_56",
         "entity": "Person",
-        "dtype": "bool",
+        "dtype": "judgment",
         "unit": null,
         "period": "Year",
         "source": "axiom-programs/uk/income-tax bridge, s.56 residence requirements assumed met",
+        "source_url": null,
+        "semantics": "judgment",
+        "expr": {
+          "kind": "comparison",
+          "left": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": true
+            }
+          },
+          "op": "eq",
+          "right": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": true
+            }
+          }
+        }
+      },
+      {
+        "name": "net_income_taken_as_zero_under_section_24b",
+        "entity": "Person",
+        "dtype": "judgment",
+        "unit": null,
+        "period": "Year",
+        "source": "axiom-programs/uk/income-tax bridge, s.24B nil-income cases out of scope",
+        "source_url": null,
+        "semantics": "judgment",
+        "expr": {
+          "kind": "comparison",
+          "left": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": false
+            }
+          },
+          "op": "eq",
+          "right": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": true
+            }
+          }
+        }
+      },
+      {
+        "name": "other_allowances_under_chapter_2_part_3",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "GBP",
+        "period": "Year",
+        "source": "axiom-programs/uk/income-tax bridge, only the personal allowance modelled at s.23 Step 3",
         "source_url": null,
         "semantics": "scalar",
         "expr": {
           "kind": "literal",
           "value": {
-            "kind": "bool",
-            "value": true
+            "kind": "decimal",
+            "value": "0"
           }
+        }
+      },
+      {
+        "name": "tax_reductions_listed_in_section_26",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "GBP",
+        "period": "Year",
+        "source": "axiom-programs/uk/income-tax bridge, s.26 reductions out of scope",
+        "source_url": null,
+        "semantics": "scalar",
+        "expr": {
+          "kind": "literal",
+          "value": {
+            "kind": "decimal",
+            "value": "0"
+          }
+        }
+      },
+      {
+        "name": "additional_tax_amounts_listed_in_section_30",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "GBP",
+        "period": "Year",
+        "source": "axiom-programs/uk/income-tax bridge, s.30 additions out of scope",
+        "source_url": null,
+        "semantics": "scalar",
+        "expr": {
+          "kind": "literal",
+          "value": {
+            "kind": "decimal",
+            "value": "0"
+          }
+        }
+      },
+      {
+        "name": "tax_calculated_at_applicable_rates_on_income_remaining_after_allowances",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "GBP",
+        "period": "Year",
+        "source": "axiom-programs/uk/income-tax bridge from s.23 Step 4 to the s.10 main rates, all income treated as non-savings non-dividend",
+        "source_url": null,
+        "semantics": "scalar",
+        "expr": {
+          "kind": "derived",
+          "name": "income_tax_on_section_10_income"
+        }
+      },
+      {
+        "name": "income_charged_under_section_10",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "GBP",
+        "period": "Year",
+        "source": "axiom-programs/uk/income-tax bridge, s.23 Step 3 income all charged under s.10",
+        "source_url": null,
+        "semantics": "scalar",
+        "expr": {
+          "kind": "derived",
+          "name": "income_remaining_after_allowances"
+        }
+      },
+      {
+        "name": "adjusted_net_income",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "GBP",
+        "period": "Year",
+        "source": "axiom-programs/uk/income-tax bridge, s.58 adjustments (pension and gift aid) out of scope",
+        "source_url": null,
+        "semantics": "scalar",
+        "expr": {
+          "kind": "derived",
+          "name": "net_income"
         }
       }
     ]
   },
   "metadata": {
     "evaluation_order": [
+      "additional_tax_amounts_listed_in_section_30",
       "excess_income_reduction_fraction",
       "higher_rate_limit",
-      "income_charged_at_additional_rate",
-      "income_charged_at_basic_rate",
-      "income_charged_at_higher_rate",
       "individual_makes_claim",
       "individual_meets_requirements_under_section_56",
       "individual_entitled_to_personal_allowance",
+      "net_income_taken_as_zero_under_section_24b",
+      "other_allowances_under_chapter_2_part_3",
+      "tax_reductions_listed_in_section_26",
+      "total_income",
+      "net_income",
+      "adjusted_net_income",
       "personal_allowance",
+      "income_remaining_after_allowances",
+      "income_charged_under_section_10",
+      "income_charged_at_additional_rate",
+      "income_charged_at_basic_rate",
+      "income_charged_at_higher_rate",
       "tax_on_income_charged_at_additional_rate",
       "tax_on_income_charged_at_basic_rate",
       "tax_on_income_charged_at_higher_rate",
-      "income_tax_on_section_10_income"
+      "income_tax_on_section_10_income",
+      "tax_calculated_at_applicable_rates_on_income_remaining_after_allowances",
+      "tax_left_after_reductions",
+      "income_tax_liability"
     ],
     "fast_path": {
       "strategy": "generic_bulk",

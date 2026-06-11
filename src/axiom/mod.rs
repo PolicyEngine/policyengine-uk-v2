@@ -13,19 +13,21 @@
 //!     [`Policy::with_parameter`] — clone the program, patch the versioned
 //!     parameter table, recompile in memory (sub-millisecond). Future-dated
 //!     overrides model projected uprating.
-//!   * [`Dataset`] holds per-person input columns for one tax year.
+//!   * [`Dataset`] holds per-person input columns for one tax year, plus
+//!     one-to-many relations (e.g. income components per person) declared
+//!     with per-person counts and flat related-row columns.
 //!   * [`calculate`] evaluates output columns aligned to person order.
 //!
-//! Rules and inputs are referred to by their bare RuleSpec names within the
-//! composed program (e.g. `income_tax_on_section_10_income`), which
-//! axiom-compose keeps unique.
+//! Rules, inputs, and relations are referred to by their bare RuleSpec names
+//! within the composed program (e.g. `income_tax_liability`,
+//! `income_component_of_taxpayer`), which axiom-compose keeps unique.
 
 use std::collections::{BTreeMap, HashMap};
 
 use anyhow::{anyhow, bail, Result};
 use axiom_rules_engine::compile::CompiledProgramArtifact;
 use axiom_rules_engine::dense::{
-    DenseBatchSpec, DenseColumn, DenseCompiledProgram, DenseOutputValue,
+    DenseBatchSpec, DenseColumn, DenseCompiledProgram, DenseOutputValue, DenseRelationBatchSpec,
 };
 use axiom_rules_engine::model::{Period, PeriodKind};
 use axiom_rules_engine::spec::{ParameterVersionSpec, ScalarValueSpec};
@@ -111,8 +113,14 @@ impl Policy {
 /// Per-person input columns for one UK tax year (6 April to 6 April).
 pub struct Dataset {
     columns: HashMap<String, DenseColumn>,
+    relations: HashMap<String, RelationData>,
     n: Option<usize>,
     period: Period,
+}
+
+struct RelationData {
+    offsets: Vec<usize>,
+    inputs: HashMap<String, DenseColumn>,
 }
 
 impl Dataset {
@@ -122,6 +130,7 @@ impl Dataset {
         let end = NaiveDate::from_ymd_opt(fiscal_year + 1, 4, 6).expect("valid tax year end");
         Dataset {
             columns: HashMap::new(),
+            relations: HashMap::new(),
             n: None,
             period: Period { kind: PeriodKind::TaxYear, start, end },
         }
@@ -130,26 +139,67 @@ impl Dataset {
     /// Add a person-level input column by bare name, e.g.
     /// `adjusted_net_income`. All columns must have one value per person.
     pub fn with_input(mut self, name: &str, values: &[f64]) -> Result<Self> {
-        match self.n {
-            None => self.n = Some(values.len()),
-            Some(n) if n != values.len() => {
-                bail!("input column {name} has {} values, expected {n}", values.len())
-            }
-            Some(_) => {}
+        self.check_person_count(name, values.len())?;
+        let column = decimal_column(name, values)?;
+        self.columns.insert(name.to_string(), column);
+        Ok(self)
+    }
+
+    /// Declare a one-to-many relation by bare name (e.g.
+    /// `income_component_of_taxpayer`) with the number of related rows per
+    /// person. Related input columns are then added flat, in person order,
+    /// via [`Dataset::with_relation_input`].
+    pub fn with_relation(mut self, name: &str, counts: &[usize]) -> Result<Self> {
+        self.check_person_count(name, counts.len())?;
+        let mut offsets = Vec::with_capacity(counts.len() + 1);
+        let mut total = 0;
+        offsets.push(0);
+        for count in counts {
+            total += count;
+            offsets.push(total);
         }
-        let column = values
-            .iter()
-            .map(|v| {
-                Decimal::from_f64(*v).ok_or_else(|| anyhow!("non-finite value in column {name}"))
-            })
-            .collect::<Result<Vec<Decimal>>>()?;
-        self.columns.insert(name.to_string(), DenseColumn::Decimal(column));
+        self.relations.insert(name.to_string(), RelationData { offsets, inputs: HashMap::new() });
+        Ok(self)
+    }
+
+    /// Add a related-row input column for a declared relation, flat across
+    /// all people (length must equal the sum of the relation's counts).
+    pub fn with_relation_input(mut self, relation: &str, name: &str, values: &[f64]) -> Result<Self> {
+        let column = decimal_column(name, values)?;
+        let data = self.relations.get_mut(relation).ok_or_else(|| {
+            anyhow!("unknown relation {relation}; declare it with with_relation first")
+        })?;
+        let expected = *data.offsets.last().expect("offsets are never empty");
+        if values.len() != expected {
+            bail!(
+                "relation input {relation}.{name} has {} values, expected {expected}",
+                values.len()
+            );
+        }
+        data.inputs.insert(name.to_string(), column);
         Ok(self)
     }
 
     pub fn len(&self) -> usize {
         self.n.unwrap_or(0)
     }
+
+    fn check_person_count(&mut self, name: &str, len: usize) -> Result<()> {
+        match self.n {
+            None => self.n = Some(len),
+            Some(n) if n != len => bail!("column {name} has {len} values, expected {n}"),
+            Some(_) => {}
+        }
+        Ok(())
+    }
+}
+
+fn decimal_column(name: &str, values: &[f64]) -> Result<DenseColumn> {
+    let column = values
+        .iter()
+        .map(|v| Decimal::from_f64(*v).ok_or_else(|| anyhow!("non-finite value in column {name}")))
+        .collect::<Result<Vec<Decimal>>>()?;
+    Ok(DenseColumn::Decimal(column))
 }
 
 /// Output columns aligned to person order, keyed by bare rule name.
@@ -168,10 +218,29 @@ impl Outputs {
 
 /// Evaluate `outputs` (bare rule names) for every person in the dataset.
 pub fn calculate(policy: &Policy, dataset: &Dataset, outputs: &[&str]) -> Result<Outputs> {
+    // The dense program keys relations by full legal id (e.g.
+    // `uk:statutes/ukpga/2007/3/23#relation.income_component_of_taxpayer`);
+    // the dataset declares them by bare name, so match on the suffix.
+    let mut relations = HashMap::new();
+    for schema in policy.dense.relations() {
+        let key = &schema.key;
+        let data = dataset
+            .relations
+            .iter()
+            .find(|(name, _)| {
+                key.name == **name || key.name.ends_with(&format!("#relation.{name}"))
+            })
+            .map(|(_, data)| data)
+            .ok_or_else(|| anyhow!("dataset is missing relation {}", key.name))?;
+        relations.insert(
+            key.clone(),
+            DenseRelationBatchSpec { offsets: data.offsets.clone(), inputs: data.inputs.clone() },
+        );
+    }
     let batch = DenseBatchSpec {
         row_count: dataset.len(),
         inputs: dataset.columns.clone(),
-        relations: HashMap::new(),
+        relations,
     };
     let output_names: Vec<String> = outputs.iter().map(|s| s.to_string()).collect();
     let result = policy
