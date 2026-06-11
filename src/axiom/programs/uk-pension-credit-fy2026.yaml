@@ -1,0 +1,67 @@
+# UK pension credit, guarantee credit -- 2026-27
+#
+# SPCA 2002 s.2: the guarantee credit tops claimant income up to the
+# appropriate minimum guarantee, being the SPC Regs 2002 reg 6 standard
+# minimum guarantee (single or couple weekly rate) plus the reg 6
+# severe-disability and carer additional amounts. Entitlement is bridged
+# to the s.2(1) income condition (the s.1 qualifying-age and presence
+# conditions are assumed for the simulated pensioner population), and
+# the reg 6(2) prisoner and religious-order cases are assumed not to
+# apply. Claimant income, partner status, and the severe-disability and
+# carer qualifying conditions are runtime facts. The s.3 savings credit
+# is not yet composed.
+#
+# Regenerate ../artifacts/ as documented in uk-income-tax-fy2026.yaml.
+
+program: uk/pension-credit
+period: 2026-04
+
+outputs:
+  - guarantee_credit
+  - appropriate_minimum_guarantee
+  - guarantee_credit_condition_satisfied
+
+scope:
+  uk:
+    - statutes/ukpga/2002/16/2
+    - regulations/uksi/2002/1792/6
+
+transformations:
+  - pattern: derived_formula
+    name: claimant_is_entitled_to_guarantee_credit
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Judgment
+    period: Year
+    formula: |-
+      guarantee_credit_condition_satisfied
+    source: policyengine-uk-rust bridge, s.1 qualifying age and presence assumed for simulated pensioners
+
+  - pattern: derived_formula
+    name: prescribed_additional_amounts_applicable
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    formula: |-
+      severe_disability_additional_amount + carer_additional_amount
+    source: policyengine-uk-rust bridge from SPCA 2002 s.2(3)(b) to SPC Regs 2002 reg 6(4)-(8)
+
+  - pattern: derived_formula
+    name: claimant_is_prisoner
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Judgment
+    period: Week
+    formula: 'false'
+    source: policyengine-uk-rust bridge, prisoners not simulated
+
+  - pattern: derived_formula
+    name: member_of_religious_order_fully_maintained_by_order
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Judgment
+    period: Week
+    formula: 'false'
+    source: policyengine-uk-rust bridge, fully maintained members of religious orders not simulated

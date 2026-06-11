@@ -60,6 +60,10 @@ harness = false
 name = "axiom_child_benefit"
 harness = false
 
+[[bench]]
+name = "axiom_pension_credit"
+harness = false
+
 [profile.release]
 opt-level = 3
 lto = true
