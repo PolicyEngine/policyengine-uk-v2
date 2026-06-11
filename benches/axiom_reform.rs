@@ -23,7 +23,7 @@ use axiom::{calculate, Dataset, Policy};
 use chrono::NaiveDate;
 
 const ARTIFACT: &str = include_str!("../src/axiom/artifacts/uk-income-tax-fy2026.json");
-const INCOME_TAX: &str = "uk:statutes/ukpga/2007/3/10#income_tax_on_section_10_income";
+const INCOME_TAX: &str = "income_tax_on_section_10_income";
 const BASIC_RATE: &str = "uk:statutes/ukpga/2026/11/2#basic_rate";
 
 fn main() -> anyhow::Result<()> {
@@ -39,11 +39,8 @@ fn main() -> anyhow::Result<()> {
 
     let t = Instant::now();
     let dataset = Dataset::tax_year(2026)
-        .with_input(
-            "uk:statutes/ukpga/2007/3/10#input.income_charged_under_section_10",
-            &incomes,
-        )?
-        .with_input("uk:statutes/ukpga/2007/3/35#input.adjusted_net_income", &incomes)?;
+        .with_input("income_charged_under_section_10", &incomes)?
+        .with_input("adjusted_net_income", &incomes)?;
     let build_ms = t.elapsed().as_secs_f64() * 1e3;
 
     let t = Instant::now();
