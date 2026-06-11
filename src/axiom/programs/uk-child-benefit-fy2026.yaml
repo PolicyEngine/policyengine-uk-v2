@@ -1,0 +1,70 @@
+# UK child benefit -- 2026-27
+#
+# SSCBA 1992 s.141: weekly child benefit summed over the children or
+# qualifying young persons for whom the person is responsible, at the
+# SI 2006/965 reg 2 weekly rates (enhanced rate for the only/eldest
+# child, other rate otherwise). The reg 2 spousal/polygamy coordination,
+# voluntary-organisation and resides-with-parent exceptions, and the
+# specified-benefit enhancement are assumed not to bite for the
+# simulated population; whether each child is the only/eldest child is
+# a runtime fact.
+#
+# Regenerate ../artifacts/ as documented in uk-income-tax-fy2026.yaml.
+
+program: uk/child-benefit
+period: 2026-04
+
+outputs:
+  - child_benefit_weekly_entitlement
+  - entitled_to_child_benefit_for_week
+
+scope:
+  uk:
+    - statutes/ukpga/1992/4/141
+    - regulations/uksi/2006/965/2
+
+transformations:
+  - pattern: derived_formula
+    name: paragraph_2_relationship_coordination_applies
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Judgment
+    period: Week
+    formula: 'false'
+    source: policyengine-uk-rust bridge, reg 2 spousal coordination assumed not to apply
+
+  - pattern: derived_formula
+    name: payee_is_voluntary_organisation
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Judgment
+    period: Week
+    formula: 'false'
+    source: policyengine-uk-rust bridge, voluntary-organisation payees not simulated
+
+  - pattern: derived_formula
+    name: payee_resides_with_parent_otherwise_than_paragraph_2_a
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Judgment
+    period: Week
+    formula: 'false'
+    source: policyengine-uk-rust bridge, reg 2(4) residence exception assumed not to apply
+
+  - pattern: derived_formula
+    name: specified_benefit_allowance_or_increase_paid_for_week_to_person
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Judgment
+    period: Week
+    formula: 'false'
+    source: policyengine-uk-rust bridge, reg 2(5) specified benefits not simulated
+
+  - pattern: derived_formula
+    name: specified_benefit_is_in_respect_of_only_elder_or_eldest_child_for_child_benefit_entitlement
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Judgment
+    period: Week
+    formula: 'false'
+    source: policyengine-uk-rust bridge, reg 2(5) specified benefits not simulated
