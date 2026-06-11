@@ -162,6 +162,7 @@ impl Simulation {
         let ni = &self.parameters.national_insurance;
         let cb = &self.parameters.child_benefit;
         let pc = &self.parameters.pension_credit;
+        let uc = &self.parameters.universal_credit;
         self.axiom = Some(crate::axiom::backend::Backend::new(
             &crate::axiom::backend::NicsParameters {
                 main_rate: ni.main_rate,
@@ -180,6 +181,22 @@ impl Simulation {
             &crate::axiom::backend::PensionCreditParameters {
                 minimum_guarantee_single_weekly: pc.standard_minimum_single,
                 minimum_guarantee_couple_weekly: pc.standard_minimum_couple,
+            },
+            &crate::axiom::backend::UniversalCreditParameters {
+                standard_allowance_single_under25: uc.standard_allowance_single_under25,
+                standard_allowance_single_over25: uc.standard_allowance_single_over25,
+                standard_allowance_couple_under25: uc.standard_allowance_couple_under25,
+                standard_allowance_couple_over25: uc.standard_allowance_couple_over25,
+                child_element_first: uc.child_element_first,
+                child_element_subsequent: uc.child_element_subsequent,
+                disabled_child_lower: uc.disabled_child_lower,
+                disabled_child_higher: uc.disabled_child_higher,
+                lcwra_element: uc.lcwra_element,
+                carer_element: uc.carer_element,
+                taper_rate: uc.taper_rate,
+                work_allowance_higher: uc.work_allowance_higher,
+                work_allowance_lower: uc.work_allowance_lower,
+                child_limit: uc.child_limit,
             },
             self.fiscal_year,
         )?);
@@ -234,41 +251,97 @@ impl Simulation {
             );
         }
 
-        // Axiom backend: statute-derived child benefit and pension credit
-        // guarantee credit per benefit unit, injected into the benefit phase
-        // so caps and aggregates flow from the axiom values.
-        let axiom_benefits: Option<(Vec<f64>, Vec<f64>)> = self.axiom.as_ref().map(|backend| {
-            let num_children: Vec<usize> =
-                self.benunits.iter().map(|bu| bu.num_children(&self.people)).collect();
-            let child_benefit = backend
-                .child_benefit(&num_children)
-                .expect("axiom child benefit evaluation failed");
-            // Income for PC purposes — must match calculate_pension_credit.
-            let pc_income: Vec<f64> = self.benunits.iter().map(|bu| {
-                bu.person_ids.iter().map(|&pid| {
-                    let p = &self.people[pid];
-                    p.state_pension
-                        + p.pension_income
-                        + p.employment_income
-                        + p.self_employment_income
-                        + p.savings_interest_income
-                }).sum()
-            }).collect();
-            let is_couple: Vec<bool> =
-                self.benunits.iter().map(|bu| bu.is_couple(&self.people)).collect();
-            let guarantee_credit = backend
-                .guarantee_credit(&pc_income, &is_couple)
-                .expect("axiom guarantee credit evaluation failed");
-            (child_benefit, guarantee_credit)
-        });
+        // Axiom backend: statute-derived child benefit, pension credit
+        // guarantee credit, and universal credit per benefit unit, injected
+        // into the benefit phase so caps and aggregates flow from the axiom
+        // values.
+        let axiom_benefits: Option<(Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>)> =
+            self.axiom.as_ref().map(|backend| {
+                let num_children: Vec<usize> =
+                    self.benunits.iter().map(|bu| bu.num_children(&self.people)).collect();
+                let child_benefit = backend
+                    .child_benefit(&num_children)
+                    .expect("axiom child benefit evaluation failed");
+                // Income for PC purposes — must match calculate_pension_credit.
+                let pc_income: Vec<f64> = self.benunits.iter().map(|bu| {
+                    bu.person_ids.iter().map(|&pid| {
+                        let p = &self.people[pid];
+                        p.state_pension
+                            + p.pension_income
+                            + p.employment_income
+                            + p.self_employment_income
+                            + p.savings_interest_income
+                    }).sum()
+                }).collect();
+                let is_couple: Vec<bool> =
+                    self.benunits.iter().map(|bu| bu.is_couple(&self.people)).collect();
+                let guarantee_credit = backend
+                    .guarantee_credit(&pc_income, &is_couple)
+                    .expect("axiom guarantee credit evaluation failed");
+
+                // UC inputs — must match the hand-coded uc_* helpers.
+                use crate::variables::benefits as bn;
+                let eldest_25: Vec<bool> = self.benunits.iter()
+                    .map(|bu| bu.eldest_adult_age(&self.people) >= 25.0)
+                    .collect();
+                let earned: Vec<f64> = self.benunits.iter()
+                    .map(|bu| bn::uc_net_earned_income(bu, &self.people, &person_results))
+                    .collect();
+                let unearned: Vec<f64> = self.benunits.iter()
+                    .map(|bu| bn::uc_unearned_income(bu, &self.people))
+                    .collect();
+                let has_lcwra: Vec<bool> = self.benunits.iter()
+                    .map(|bu| bn::uc_has_lcwra(bu, &self.people))
+                    .collect();
+                let has_carer: Vec<bool> = self.benunits.iter()
+                    .map(|bu| bu.person_ids.iter()
+                        .filter(|&&pid| self.people[pid].is_adult())
+                        .any(|&pid| self.people[pid].is_carer))
+                    .collect();
+                let rent: Vec<f64> =
+                    self.benunits.iter().map(|bu| bu.rent_monthly).collect();
+                let rent_cap: Vec<f64> = self.benunits.iter().map(|bu| {
+                    let hh = &self.households[bu.household_id];
+                    bn::lha_monthly_cap(bu, &self.people, hh, &self.parameters)
+                        .unwrap_or(bu.rent_monthly)
+                }).collect();
+                let mut child_disabled_higher = Vec::new();
+                let mut child_disabled_lower = Vec::new();
+                for bu in &self.benunits {
+                    for &pid in &bu.person_ids {
+                        let p = &self.people[pid];
+                        if !p.is_child() { continue; }
+                        let higher = p.is_severely_disabled || p.is_enhanced_disabled;
+                        child_disabled_higher.push(higher);
+                        child_disabled_lower.push(!higher && p.is_disabled);
+                    }
+                }
+                let (uc_award, uc_max) = backend
+                    .universal_credit(&crate::axiom::backend::UcCaseload {
+                        joint: &is_couple,
+                        eldest_adult_25_or_over: &eldest_25,
+                        net_earned_income_annual: &earned,
+                        unearned_income_annual: &unearned,
+                        has_lcwra: &has_lcwra,
+                        has_carer: &has_carer,
+                        rent_monthly: &rent,
+                        rent_cap_monthly: &rent_cap,
+                        num_children: &num_children,
+                        child_disabled_higher: &child_disabled_higher,
+                        child_disabled_lower: &child_disabled_lower,
+                    })
+                    .expect("axiom universal credit evaluation failed");
+                (child_benefit, guarantee_credit, uc_award, uc_max)
+            });
 
         // Phase 2: BenUnit-level calculations (parallelised)
         let br: Vec<BenUnitResult> = self.benunits.par_iter().map(|bu| {
             let hh = &self.households[bu.household_id];
-            let axiom = axiom_benefits.as_ref().map(|(cb, gc)| {
+            let axiom = axiom_benefits.as_ref().map(|(cb, gc, uc_award, uc_max)| {
                 variables::benefits::AxiomBenefits {
                     child_benefit: cb[bu.id],
                     guarantee_credit: gc[bu.id],
+                    universal_credit: (uc_award[bu.id], uc_max[bu.id]),
                 }
             });
             variables::benefits::calculate_benunit_with_axiom(
@@ -842,13 +915,17 @@ mod tests {
     /// programs apply the same arithmetic over weekly/annual periods, and
     /// the parameter translation (annual thresholds / 52, weekly rates
     /// as-is) is linear, so annualised results are identical up to float
-    /// rounding. Covers NICs (per person), child benefit and pension credit
-    /// (per benunit), and the downstream household aggregates.
+    /// rounding. Covers NICs (per person), child benefit, pension credit,
+    /// and universal credit (per benunit), and the downstream household
+    /// aggregates.
     fn assert_axiom_matches_hand_coded(params: Parameters) {
         // 200 benunits: adults spanning the NI bands, every third benunit
-        // with 1-2 children (child benefit), every fifth headed by a
-        // pensioner with pension income around the minimum guarantee
-        // (pension credit guarantee credit).
+        // with 1-3 children (child benefit, UC child elements and two-child
+        // limit), every fifth headed by a pensioner with pension income
+        // around the minimum guarantee (pension credit guarantee credit).
+        // Working-age benunits are UC claimants spanning the standard
+        // allowance bands (single/couple, under/over 25), with varying rent,
+        // carers, LCWRA proxies, and disabled children.
         let mut people: Vec<Person> = Vec::new();
         let mut benunits: Vec<BenUnit> = Vec::new();
         let mut households: Vec<Household> = Vec::new();
@@ -858,23 +935,36 @@ mod tests {
             p.id = people.len();
             p.is_benunit_head = true;
             p.is_household_head = true;
-            if i % 5 == 0 {
+            let pensioner = i % 5 == 0;
+            if pensioner {
                 p.age = 70.0;
                 p.state_pension = 9_000.0;
                 p.pension_income = (i % 25) as f64 * 400.0;
                 p.savings_interest_income = (i % 7) as f64 * 100.0;
             } else {
-                p.age = 35.0;
+                p.age = if i % 8 >= 6 { 23.0 } else { 35.0 };
                 p.employment_income = (i % 40) as f64 * 5_000.0;
                 p.self_employment_income = ((i / 40) % 5) as f64 * 15_000.0 - 10_000.0;
+                p.is_carer = i % 7 == 1;
+                p.pip_dl_std = i % 9 == 2;
             }
             person_ids.push(p.id);
             people.push(p);
+            if !pensioner && i % 4 == 2 {
+                let mut partner = Person::default();
+                partner.id = people.len();
+                partner.age = if i % 8 == 6 { 22.0 } else { 30.0 };
+                partner.employment_income = (i % 15) as f64 * 2_000.0;
+                person_ids.push(partner.id);
+                people.push(partner);
+            }
             if i % 3 == 0 {
-                for _ in 0..(1 + (i / 3) % 2) {
+                for j in 0..(1 + (i / 3) % 3) {
                     let mut c = Person::default();
                     c.id = people.len();
                     c.age = 8.0;
+                    c.is_disabled = i % 12 == 0;
+                    c.is_severely_disabled = i % 24 == 0 && j == 0;
                     person_ids.push(c.id);
                     people.push(c);
                 }
@@ -886,6 +976,8 @@ mod tests {
             benunits.push(BenUnit {
                 id: i, household_id: i, person_ids: person_ids.clone(),
                 would_claim_cb: true, would_claim_pc: true,
+                on_uc: !pensioner, would_claim_uc: !pensioner,
+                rent_monthly: (i % 6) as f64 * 150.0,
                 ..BenUnit::default()
             });
             households.push(Household {
@@ -909,18 +1001,27 @@ mod tests {
         }
         let mut any_cb = false;
         let mut any_pc = false;
+        let mut any_uc = false;
         for (h, a) in hand_coded.benunit_results.iter().zip(&axiom.benunit_results) {
             assert!((h.child_benefit - a.child_benefit).abs() < 1e-6,
                 "child benefit mismatch: hand-coded {} vs axiom {}", h.child_benefit, a.child_benefit);
             assert!((h.pension_credit - a.pension_credit).abs() < 1e-6,
                 "pension credit mismatch: hand-coded {} vs axiom {}", h.pension_credit, a.pension_credit);
+            assert!((h.universal_credit - a.universal_credit).abs() < 1e-6,
+                "universal credit mismatch: hand-coded {} vs axiom {}", h.universal_credit, a.universal_credit);
+            assert!((h.uc_max_amount - a.uc_max_amount).abs() < 1e-6,
+                "UC max amount mismatch: hand-coded {} vs axiom {}", h.uc_max_amount, a.uc_max_amount);
+            assert!((h.uc_income_reduction - a.uc_income_reduction).abs() < 1e-6,
+                "UC income reduction mismatch: hand-coded {} vs axiom {}", h.uc_income_reduction, a.uc_income_reduction);
             assert!((h.total_benefits - a.total_benefits).abs() < 1e-6,
                 "total benefits mismatch: hand-coded {} vs axiom {}", h.total_benefits, a.total_benefits);
             any_cb |= a.child_benefit > 0.0;
             any_pc |= a.pension_credit > 0.0;
+            any_uc |= a.universal_credit > 0.0;
         }
         assert!(any_cb, "test frame should produce some child benefit");
         assert!(any_pc, "test frame should produce some pension credit");
+        assert!(any_uc, "test frame should produce some universal credit");
         for (h, a) in hand_coded.household_results.iter().zip(&axiom.household_results) {
             assert!((h.net_income - a.net_income).abs() < 1e-6,
                 "household net income mismatch: hand-coded {} vs axiom {}", h.net_income, a.net_income);
@@ -944,6 +1045,10 @@ mod tests {
         params.child_benefit.additional_weekly += 2.5;
         params.pension_credit.standard_minimum_single += 20.0;
         params.pension_credit.standard_minimum_couple += 30.0;
+        params.universal_credit.taper_rate = 0.50;
+        params.universal_credit.standard_allowance_single_over25 += 40.0;
+        params.universal_credit.work_allowance_lower += 50.0;
+        params.universal_credit.child_element_first += 25.0;
         assert_axiom_matches_hand_coded(params);
     }
 }

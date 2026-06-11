@@ -29,6 +29,8 @@ pub fn calculate_benunit(
 pub struct AxiomBenefits {
     pub child_benefit: f64,
     pub guarantee_credit: f64,
+    /// Annual UC (award, maximum amount), before eligibility and claiming gates.
+    pub universal_credit: (f64, f64),
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -70,7 +72,10 @@ pub fn calculate_benunit_with_axiom(
     let (uc, pension_credit, housing_benefit, ctc, wtc, income_support, esa_ir, jsa_ib, scp);
     if on_uc_system {
         let would_claim = bu.would_claim_uc || migrated_hb || migrated_tc || migrated_is;
-        let raw_uc = calculate_universal_credit(bu, people, person_results, household, params);
+        let raw_uc = calculate_universal_credit(
+            bu, people, person_results, household, params,
+            axiom.map(|a| a.universal_credit),
+        );
         uc = if would_claim { raw_uc } else { (0.0, raw_uc.1, raw_uc.2) };
         pension_credit = calculate_pension_credit(bu, people, params, axiom.map(|a| a.guarantee_credit));
         housing_benefit = 0.0;
@@ -204,10 +209,18 @@ fn calculate_universal_credit(
     person_results: &[PersonResult],
     household: &Household,
     params: &Parameters,
+    axiom_uc: Option<(f64, f64)>,
 ) -> (f64, f64, f64) {
     // Basic eligibility: at least one working-age adult (not SP age)
     if !uc_has_working_age_adult(bu, people) {
         return (0.0, 0.0, 0.0);
+    }
+
+    // Axiom annual (award, maximum amount): the reduction is recovered as
+    // max − award, exact because the award floors at zero only after the
+    // reduction is clamped to the maximum amount.
+    if let Some((award, max_amount)) = axiom_uc {
+        return (award, max_amount, max_amount - award);
     }
 
     // Maximum amount = sum of all elements at the per-month rate.
@@ -688,7 +701,7 @@ pub fn lha_bedroom_entitlement(bu: &BenUnit, people: &[Person], household: &Hous
 ///
 /// LHA applies only to private renters (TenureType::RentPrivately).
 /// Social renters (council / HA) and owner-occupiers are not subject to LHA caps.
-fn lha_monthly_cap(
+pub(crate) fn lha_monthly_cap(
     bu: &BenUnit,
     people: &[Person],
     household: &Household,
