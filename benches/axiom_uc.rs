@@ -80,8 +80,8 @@ fn main() -> anyhow::Result<()> {
     println!("  reform recompile: {recompile_ms:.1} ms");
     println!("  reform eval:      {reform_ms:.1} ms");
     println!("  total:            {total_ms:.1} ms");
-    println!("  baseline awards: {base_total:.2}/month across {on_uc} families on UC");
-    println!("  reform cost: {cost:.2}/month across {gainers} gainers");
+    println!("  unweighted synthetic baseline awards: {base_total:.2}/month across {on_uc} families on UC");
+    println!("  unweighted synthetic delta: {cost:.2}/month across {gainers} gainers");
     println!(
         "AXIOM_UC_JSON={{\"families\":{n},\"total_ms\":{total_ms:.2},\"baseline_eval_ms\":{baseline_ms:.2},\"reform_eval_ms\":{reform_ms:.2},\"recompile_ms\":{recompile_ms:.2}}}"
     );

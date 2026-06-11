@@ -92,7 +92,7 @@ fn main() -> anyhow::Result<()> {
     println!("  baseline eval:    {baseline_ms:.1} ms");
     println!("  reform recompile: {recompile_ms:.1} ms");
     println!("  reform eval:      {reform_ms:.1} ms");
-    println!("  baseline total: {base_total:.2}/week");
-    println!("  cost: {delta:.2}/week across {gainers} gainers");
+    println!("  unweighted synthetic baseline total: {base_total:.2}/week");
+    println!("  unweighted synthetic delta: {delta:.2}/week across {gainers} gainers");
     Ok(())
 }

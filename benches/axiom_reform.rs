@@ -78,7 +78,7 @@ fn main() -> anyhow::Result<()> {
     println!("  reform recompile: {recompile_ms:.1} ms");
     println!("  reform eval:      {reform_ms:.1} ms");
     println!("  total:            {total_ms:.1} ms");
-    println!("  revenue delta: {revenue_delta:.0} across {losers} losers");
+    println!("  unweighted synthetic delta: {revenue_delta:.0} across {losers} losers");
     println!(
         "AXIOM_REFORM_JSON={{\"people\":{n},\"total_ms\":{total_ms:.2},\"baseline_eval_ms\":{baseline_ms:.2},\"reform_eval_ms\":{reform_ms:.2},\"recompile_ms\":{recompile_ms:.2}}}"
     );

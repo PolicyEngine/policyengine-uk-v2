@@ -94,7 +94,7 @@ fn run_reform(
     println!("  baseline eval:    {baseline_ms:.1} ms");
     println!("  reform recompile: {recompile_ms:.1} ms");
     println!("  reform eval:      {reform_ms:.1} ms");
-    println!("  baseline total: {base_total:.2}");
-    println!("  revenue delta: {delta:.2} across {losers} losers");
+    println!("  unweighted synthetic baseline total: {base_total:.2}");
+    println!("  unweighted synthetic delta: {delta:.2} across {losers} losers");
     Ok(())
 }
