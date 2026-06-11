@@ -1,0 +1,73 @@
+# UK National Insurance, primary Class 1 contributions -- 2026-27
+#
+# SSCBA 1992 s.8: main and additional primary percentages applied to weekly
+# earnings between the primary threshold and the upper earnings limit, and
+# above it, per tax week. The "current ... or prescribed equivalent"
+# references are bridged to the SSCR 2001 reg 10 weekly amounts, and the
+# s.6/ss.116-120 displacement predicates are assumed not to bite for the
+# simulated population.
+#
+# Regenerate ../artifacts/ as documented in uk-income-tax-fy2026.yaml.
+
+program: uk/nics-class-1
+period: 2026-04
+
+outputs:
+  - primary_class_1_contribution
+  - main_primary_class_1_contribution
+  - additional_primary_class_1_contribution
+
+scope:
+  uk:
+    - statutes/ukpga/1992/4/8
+    - regulations/uksi/2001/1004/10
+
+transformations:
+  - pattern: derived_formula
+    name: primary_class_1_contribution_payable_as_mentioned_in_section_6_1_a
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Judgment
+    period: Week
+    formula: 'true'
+    source: policyengine-uk-rust bridge, s.6(1)(a) liability assumed for simulated employees
+
+  - pattern: derived_formula
+    name: regulations_under_section_6_6_do_not_displace_calculation
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Judgment
+    period: Week
+    formula: 'true'
+    source: policyengine-uk-rust bridge, s.6(6) regulations assumed not to displace
+
+  - pattern: derived_formula
+    name: regulations_under_sections_116_to_120_do_not_displace_calculation
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Judgment
+    period: Week
+    formula: 'true'
+    source: policyengine-uk-rust bridge, ss.116-120 regulations assumed not to displace
+
+  - pattern: derived_formula
+    name: current_upper_earnings_limit_or_prescribed_equivalent
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    formula: |-
+      upper_earnings_limit
+    source: policyengine-uk-rust bridge from SSCBA 1992 s.8 to SSCR 2001 reg 10
+
+  - pattern: derived_formula
+    name: current_primary_threshold_or_prescribed_equivalent
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    formula: |-
+      primary_threshold
+    source: policyengine-uk-rust bridge from SSCBA 1992 s.8 to SSCR 2001 reg 10

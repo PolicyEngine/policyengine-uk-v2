@@ -1,0 +1,31 @@
+# UK National Insurance, Class 4 contributions -- 2026-27
+#
+# SSCBA 1992 s.15: main and additional Class 4 percentages applied to annual
+# profits between the lower and upper profits limits, and above it. Profits
+# chargeable to Class 4 contributions are a runtime fact; s.15 liability is
+# assumed for the simulated self-employed population. The SSCR 2001 reg 100
+# annual maximum is not yet applied.
+#
+# Regenerate ../artifacts/ as documented in uk-income-tax-fy2026.yaml.
+
+program: uk/nics-class-4
+period: 2026-04
+
+outputs:
+  - class_4_contribution_before_annual_maximum
+  - main_class_4_contribution
+  - additional_class_4_contribution
+
+scope:
+  uk:
+    - statutes/ukpga/1992/4/15
+
+transformations:
+  - pattern: derived_formula
+    name: class_4_contributions_payable_under_section_15
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Judgment
+    period: Year
+    formula: 'true'
+    source: policyengine-uk-rust bridge, s.15 liability assumed for simulated self-employed

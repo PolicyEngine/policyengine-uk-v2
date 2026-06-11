@@ -136,6 +136,12 @@ impl Dataset {
         Self::for_period(Period { kind: PeriodKind::TaxYear, start, end })
     }
 
+    /// One week starting on `start`, e.g. a NICs tax week.
+    pub fn week(start: NaiveDate) -> Self {
+        let end = start + chrono::Duration::days(7);
+        Self::for_period(Period { kind: PeriodKind::BenefitWeek, start, end })
+    }
+
     /// One calendar month, e.g. a Universal Credit assessment period.
     pub fn month(year: i32, month: u32) -> Self {
         let start = NaiveDate::from_ymd_opt(year, month, 1).expect("valid month start");

@@ -52,6 +52,10 @@ harness = false
 name = "axiom_uc"
 harness = false
 
+[[bench]]
+name = "axiom_nics"
+harness = false
+
 [profile.release]
 opt-level = 3
 lto = true
