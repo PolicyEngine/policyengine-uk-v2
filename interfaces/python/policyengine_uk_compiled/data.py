@@ -179,6 +179,20 @@ def ensure_frs(year: int, clean_frs_base: str | None = None) -> str:
     if all((year_dir / f).exists() for f in expected):
         return str(local_base)
 
+    # Exact year missing locally — fall back to the nearest earlier local
+    # year (the engine uprates forward at runtime), matching the bucket
+    # fallback behaviour.
+    if local_base.is_dir():
+        local_years = sorted(
+            (int(p.name) for p in local_base.iterdir() if p.name.isdigit()),
+            reverse=True,
+        )
+        for y in local_years:
+            if y <= year and all(
+                (local_base / str(y) / f).exists() for f in expected
+            ):
+                return str(local_base)
+
     if not os.environ.get(ENV_TOKEN):
         raise FileNotFoundError(
             f"No FRS data found for {year}. Either pass clean_frs_base= pointing to "

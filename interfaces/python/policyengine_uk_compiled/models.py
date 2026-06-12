@@ -70,7 +70,6 @@ class ChildBenefitParams(BaseModel):
 
 class StatePensionParams(BaseModel):
     new_state_pension_weekly: Optional[float] = None
-    old_basic_pension_weekly: Optional[float] = None
 
 
 class PensionCreditParams(BaseModel):

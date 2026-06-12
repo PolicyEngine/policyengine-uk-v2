@@ -64,7 +64,6 @@ child_benefit:
 state_pension:
   # Triple lock: 2.5% > CPI 2.0% > earnings 2.3%, so 2.5% floor used
   new_state_pension_weekly: 261.02  # £254.65 × 1.025
-  old_basic_pension_weekly: 200.04
 
 pension_credit:
   standard_minimum_single: 252.18

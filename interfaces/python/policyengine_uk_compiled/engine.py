@@ -8,11 +8,12 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Union
 
+# Native in-process engine (PyO3 extension). Falls back to the subprocess
+# binary when the extension is not bundled.
 try:
-    import pandas as pd
-    HAS_PANDAS = True
+    from policyengine_uk_compiled import _native
 except ImportError:
-    HAS_PANDAS = False
+    _native = None
 
 from policyengine_uk_compiled.models import MicrodataResult, Parameters, SimulationResult, HbaiIncomes, PovertyHeadcounts
 from policyengine_uk_compiled.structural import StructuralReform, aggregate_microdata
@@ -117,6 +118,7 @@ def _parse_stdin_payload(payload: str):
 
 def _parse_microdata_stdout(raw: str) -> MicrodataResult:
     """Parse the concatenated CSV protocol output into a MicrodataResult."""
+    import pandas as pd
     sections = {}
     current_name = None
     current_lines = []
@@ -392,6 +394,8 @@ class Simulation:
         self._frs_raw = frs_raw
         self._dataset = dataset
         self._persons_only = dataset in ("spi",)
+        # Lazily-constructed in-process engine (loads the dataset once)
+        self._native_sim = None
         # Store DataFrames when passed directly so pre-hooks can use them
         self._persons_df = None
         self._benunits_df = None
@@ -399,7 +403,7 @@ class Simulation:
 
         if persons is not None and benunits is not None and households is not None:
             # DataFrame or CSV string mode
-            if HAS_PANDAS and hasattr(persons, "to_csv"):
+            if hasattr(persons, "to_csv"):
                 self._persons_df = persons
                 self._benunits_df = benunits
                 self._households_df = households
@@ -430,10 +434,6 @@ class Simulation:
         if structural is None or structural.pre is None:
             return self._stdin_payload  # unchanged
 
-        if not HAS_PANDAS:
-            raise ImportError("pandas is required for structural pre-hooks")
-
-        import io
         import pandas as pd
 
         # Obtain DataFrames — either already stored or loaded from files
@@ -545,6 +545,29 @@ class Simulation:
                 microdata.persons, microdata.benunits, microdata.households, self.year
             )
 
+        # In-process fast path: file-based data, no structural reform.
+        # The native engine keeps the dataset and baseline results loaded, so
+        # repeated runs only pay the reform-dependent work.
+        if (
+            _native is not None
+            and structural is None
+            and self._stdin_payload is None
+            and self._frs_raw is None
+            and not self._persons_only
+        ):
+            if self._native_sim is None:
+                params_dir = str(Path(_find_cwd(self.binary_path)) / "parameters")
+                self._native_sim = _native.Simulation(
+                    self._resolve_data_path(), params_dir, self.year
+                )
+            policy_json = None
+            if policy:
+                overlay = policy.model_dump(exclude_none=True)
+                if overlay:
+                    policy_json = json.dumps(overlay)
+            data = json.loads(self._native_sim.run(policy_json))
+            return SimulationResult(**data)
+
         stdin_payload = self._apply_pre_hook(structural)
         cmd = self._build_cmd(policy, extra_args=["--output", "json"], stdin_override=stdin_payload is not None)
         cwd = _find_cwd(self.binary_path)
@@ -576,8 +599,6 @@ class Simulation:
         If a structural post-hook is provided it is applied to the DataFrames
         after the binary produces its output.
         """
-        if not HAS_PANDAS:
-            raise ImportError("pandas is required for run_microdata")
         stdin_payload = self._apply_pre_hook(structural)
         cmd = self._build_cmd(policy, extra_args=["--output-microdata-stdout"], stdin_override=stdin_payload is not None)
         cwd = _find_cwd(self.binary_path)
@@ -632,8 +653,7 @@ class Simulation:
 
         Returns (persons_df, benunits_df, households_df) tuple.
         """
-        if not HAS_PANDAS:
-            raise ImportError("pandas is required for DataFrame construction")
+        import pandas as pd
         person = {
             **PERSON_DEFAULTS,
             "age": age,
@@ -669,8 +689,7 @@ class Simulation:
 
         Returns (persons_df, benunits_df, households_df) tuple.
         """
-        if not HAS_PANDAS:
-            raise ImportError("pandas is required for DataFrame construction")
+        import pandas as pd
 
         if child_ages is None:
             child_ages = [10.0] * children

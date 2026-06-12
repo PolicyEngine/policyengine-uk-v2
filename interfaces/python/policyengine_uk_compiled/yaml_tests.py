@@ -39,13 +39,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+import pandas as pd
+
 from policyengine_uk_compiled.engine import (
     BENUNIT_DEFAULTS,
-    HAS_PANDAS,
     HOUSEHOLD_DEFAULTS,
     PERSON_DEFAULTS,
     Simulation,
-    pd,
 )
 
 
@@ -106,9 +106,6 @@ def _situation_to_dataframes(situation: dict, year: int):
     Supports the ``people`` / ``benunits`` / ``households`` dict shape, with
     period-keyed or scalar field values.
     """
-    if not HAS_PANDAS:
-        raise ImportError("pandas is required for the YAML test harness")
-
     people = situation.get("people") or {}
     benunits = situation.get("benunits") or {}
     households = situation.get("households") or {}

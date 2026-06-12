@@ -110,8 +110,6 @@ pub struct Simulation {
     pub benunits: Vec<BenUnit>,
     pub households: Vec<Household>,
     pub parameters: Parameters,
-    /// Baseline old basic SP weekly rate for scaling reported amounts under reforms.
-    pub baseline_old_sp_weekly: f64,
     /// Fiscal year (e.g. 2025 for 2025/26) — used for new/basic SP cutoff.
     pub fiscal_year: u32,
 }
@@ -124,26 +122,9 @@ impl Simulation {
         parameters: Parameters,
         fiscal_year: u32,
     ) -> Self {
-        let baseline_old_sp_weekly = parameters.state_pension.old_basic_pension_weekly;
         Simulation {
             people, benunits, households, parameters,
-            baseline_old_sp_weekly, fiscal_year,
-        }
-    }
-
-    /// Create a simulation with explicit baseline old SP rate (for reform simulations
-    /// where the baseline rate differs from the reform parameters).
-    pub fn new_with_baseline_sp(
-        people: Vec<Person>,
-        benunits: Vec<BenUnit>,
-        households: Vec<Household>,
-        parameters: Parameters,
-        baseline_old_sp_weekly: f64,
-        fiscal_year: u32,
-    ) -> Self {
-        Simulation {
-            people, benunits, households, parameters,
-            baseline_old_sp_weekly, fiscal_year,
+            fiscal_year,
         }
     }
 
@@ -156,12 +137,9 @@ impl Simulation {
 
         // Phase 1a: Calculate each person's state pension under the current policy.
         // State pension is taxable income so must be computed before income tax.
-        let baseline_old_sp = self.baseline_old_sp_weekly;
         let fiscal_year = self.fiscal_year;
         let person_sp: Vec<f64> = self.people.par_iter().map(|p| {
-            variables::benefits::person_state_pension(
-                p, &self.parameters, baseline_old_sp, fiscal_year,
-            )
+            variables::benefits::person_state_pension(p, &self.parameters, fiscal_year)
         }).collect();
 
         // Phase 1b: Person-level tax calculations (parallelised).
@@ -184,7 +162,7 @@ impl Simulation {
             let hh = &self.households[bu.household_id];
             variables::benefits::calculate_benunit(
                 bu, &self.people, &person_results, hh, &self.parameters,
-                baseline_old_sp, fiscal_year,
+                fiscal_year,
             )
         }).collect();
         benunit_results = br;
@@ -714,11 +692,9 @@ mod tests {
         );
         let delta_e = adjusted_people[0].employment_income - people[0].employment_income;
 
-        let dynamic_sim = Simulation::new_with_baseline_sp(
+        let dynamic_sim = Simulation::new(
             adjusted_people, benunits.clone(), households.clone(),
-            policy_params.clone(),
-            baseline_params.state_pension.old_basic_pension_weekly,
-            2025,
+            policy_params.clone(), 2025,
         );
         let dynamic_results = dynamic_sim.run();
         let dynamic_net = dynamic_results.household_results[0].net_income;

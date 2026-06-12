@@ -102,7 +102,6 @@ state_pension:
   new_state_pension_weekly: 230.25
   # Old basic state pension: SSCBA 1992 Sch.4 Part I
   # SI 2025/295 art.4(2): £176.45/week (full rate Cat A with 30 qualifying years)
-  old_basic_pension_weekly: 176.45
 
 pension_credit:
   # State Pension Credit Regs 2002 (SI 2002/1792) reg.6

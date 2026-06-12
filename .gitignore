@@ -6,9 +6,10 @@ dist/
 *.egg-info/
 **/*.egg-info/
 
-# Bundled binary + parameters (built by build_package.sh, not committed)
+# Bundled binary + parameters + native extension (built by build_package.sh, not committed)
 interfaces/python/policyengine_uk_compiled/bin/
 interfaces/python/policyengine_uk_compiled/parameters/
+interfaces/python/policyengine_uk_compiled/_native.so
 
 # Node/Next.js
 interfaces/web/app/node_modules/
