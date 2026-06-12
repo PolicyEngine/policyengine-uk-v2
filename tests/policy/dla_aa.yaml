@@ -5,11 +5,13 @@
 #   DLA mobility: low £29.20  / high £77.05
 #   Attendance Allowance: low £73.90 / high £110.40
 #
-# `would_claim_*: false` on the benunit suppresses modelled means-tested
-# benefits so `baseline_total_benefits` isolates DLA/AA passthrough.
+# `full_take_up: false` suppresses modelled means-tested benefits (nothing is
+# claimed without reported receipt) so `baseline_total_benefits` isolates
+# DLA/AA passthrough.
 
 - name: DLA care high + mobility high (child)
   period: 2025
+  full_take_up: false
   absolute_error_margin: 1
   input:
     people:
@@ -17,15 +19,6 @@
     benunits:
       b:
         members: [c]
-        would_claim_uc: false
-        would_claim_cb: false
-        would_claim_hb: false
-        would_claim_pc: false
-        would_claim_is: false
-        would_claim_ctc: false
-        would_claim_wtc: false
-        would_claim_esa: false
-        would_claim_jsa: false
     households:
       h: { members: [c], region: London }
   output:
@@ -34,6 +27,7 @@
 
 - name: DLA care low alone
   period: 2025
+  full_take_up: false
   absolute_error_margin: 1
   input:
     people:
@@ -41,15 +35,6 @@
     benunits:
       b:
         members: [c]
-        would_claim_uc: false
-        would_claim_cb: false
-        would_claim_hb: false
-        would_claim_pc: false
-        would_claim_is: false
-        would_claim_ctc: false
-        would_claim_wtc: false
-        would_claim_esa: false
-        would_claim_jsa: false
     households:
       h: { members: [c], region: London }
   output:
@@ -58,6 +43,7 @@
 
 - name: Attendance Allowance high (post-SP-age, new SP cohort)
   period: 2025
+  full_take_up: false
   absolute_error_margin: 1
   input:
     people:
@@ -66,15 +52,6 @@
     benunits:
       b:
         members: [p]
-        would_claim_uc: false
-        would_claim_cb: false
-        would_claim_hb: false
-        would_claim_pc: false
-        would_claim_is: false
-        would_claim_ctc: false
-        would_claim_wtc: false
-        would_claim_esa: false
-        would_claim_jsa: false
     households:
       h: { members: [p], region: London }
   output:
@@ -85,6 +62,7 @@
 
 - name: AA low alone (pre-SP age)
   period: 2025
+  full_take_up: false
   absolute_error_margin: 1
   input:
     people:
@@ -92,15 +70,6 @@
     benunits:
       b:
         members: [p]
-        would_claim_uc: false
-        would_claim_cb: false
-        would_claim_hb: false
-        would_claim_pc: false
-        would_claim_is: false
-        would_claim_ctc: false
-        would_claim_wtc: false
-        would_claim_esa: false
-        would_claim_jsa: false
     households:
       h: { members: [p], region: London }
   output:

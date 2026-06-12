@@ -125,12 +125,6 @@ universal_credit:
   work_allowance_lower: 192.0    # Reduced from £423
   child_limit: 99
 
-uc_migration:
-  housing_benefit: 0.01
-  tax_credits: 0.02
-  income_support: 0.01
-
-
 vat:
   standard_rate: 0.20
   reduced_rate: 0.05

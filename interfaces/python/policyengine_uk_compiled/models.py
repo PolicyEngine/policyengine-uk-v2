@@ -141,12 +141,6 @@ class IncomeRelatedBenefitParams(BaseModel):
     ca_care_recipient_min_age: Optional[float] = None
 
 
-class UcMigrationRates(BaseModel):
-    housing_benefit: Optional[float] = None
-    tax_credits: Optional[float] = None
-    income_support: Optional[float] = None
-
-
 class CouncilTaxParams(BaseModel):
     """Council tax parameters.
 
@@ -272,7 +266,6 @@ class Parameters(BaseModel):
     housing_benefit: Optional[HousingBenefitParams] = None
     tax_credits: Optional[TaxCreditsParams] = None
     scottish_child_payment: Optional[ScottishChildPaymentParams] = None
-    uc_migration: Optional[UcMigrationRates] = None
     disability_premiums: Optional[DisabilityPremiumParams] = None
     income_related_benefits: Optional[IncomeRelatedBenefitParams] = None
     council_tax: Optional[CouncilTaxParams] = None

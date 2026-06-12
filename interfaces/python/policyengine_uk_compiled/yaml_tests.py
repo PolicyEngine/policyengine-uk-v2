@@ -261,6 +261,9 @@ class YamlTestCase:
     absolute_error_margin: float = 1.0
     relative_error_margin: Optional[float] = None
     file: Optional[str] = None
+    # Hypothetical households default to full benefit take-up; set false to
+    # suppress modelled means-tested benefits (e.g. to isolate passthroughs).
+    full_take_up: bool = True
 
     @classmethod
     def from_dict(cls, raw: dict, file: Optional[str] = None) -> "YamlTestCase":
@@ -281,6 +284,7 @@ class YamlTestCase:
                 if "relative_error_margin" in raw else None
             ),
             file=file,
+            full_take_up=bool(raw.get("full_take_up", True)),
         )
 
 
@@ -302,14 +306,9 @@ def _flat_input_to_situation(flat: dict) -> dict:
 
     Treats every key as a person-level field except ``region`` (household-level)
     and a few benunit-only flags (``is_lone_parent``, ``rent_monthly``,
-    ``would_claim_*``, ``on_uc``, ``on_legacy``).
+    ``on_uc``).
     """
-    benunit_keys = {
-        "is_lone_parent", "rent_monthly", "on_uc", "on_legacy",
-        "would_claim_uc", "would_claim_cb", "would_claim_hb",
-        "would_claim_pc", "would_claim_ctc", "would_claim_wtc",
-        "would_claim_is", "would_claim_esa", "would_claim_jsa",
-    }
+    benunit_keys = {"is_lone_parent", "rent_monthly", "on_uc"}
     household_keys = {"region", "rent_annual", "council_tax_annual", "weight"}
 
     person_fields: dict = {}
@@ -341,7 +340,10 @@ def _run_case(case: YamlTestCase) -> YamlTestResult:
 
     # Pre-build the DataFrames (validates the situation early).
     persons, benunits, households = _situation_to_dataframes(situation, case.period)
-    sim = Simulation(year=case.period, persons=persons, benunits=benunits, households=households)
+    sim = Simulation(
+        year=case.period, persons=persons, benunits=benunits,
+        households=households, full_take_up=case.full_take_up,
+    )
     micro = sim.run_microdata()
     tables = {"persons": micro.persons, "benunits": micro.benunits, "households": micro.households}
 

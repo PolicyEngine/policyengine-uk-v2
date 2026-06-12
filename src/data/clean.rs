@@ -8,7 +8,7 @@ use crate::data::Dataset;
 ///
 /// Produces three files in `output_dir`:
 ///   - persons.csv: one row per person, annual values
-///   - benunits.csv: one row per benefit unit (includes would_claim flags)
+///   - benunits.csv: one row per benefit unit
 ///   - households.csv: one row per household
 pub fn write_clean_csvs(dataset: &mut Dataset, output_dir: &Path) -> anyhow::Result<()> {
     std::fs::create_dir_all(output_dir)?;
@@ -62,8 +62,6 @@ fn write_persons(dataset: &Dataset, output_dir: &Path) -> anyhow::Result<()> {
         "other_benefits",
         "adp_daily_living", "adp_mobility",
         "cdp_care", "cdp_mobility",
-        // Flags
-        "would_claim_marriage_allowance",
     ])?;
 
     for p in &dataset.people {
@@ -134,7 +132,6 @@ fn write_persons(dataset: &Dataset, output_dir: &Path) -> anyhow::Result<()> {
             format!("{:.2}", p.adp_mobility),
             format!("{:.2}", p.cdp_care),
             format!("{:.2}", p.cdp_mobility),
-            p.would_claim_marriage_allowance.to_string(),
         ])?;
     }
 
@@ -149,12 +146,8 @@ fn write_benunits(dataset: &Dataset, output_dir: &Path) -> anyhow::Result<()> {
     wtr.write_record(&[
         "benunit_id", "household_id",
         "person_ids",
-        "migration_seed", "on_uc", "on_legacy",
+        "on_uc",
         "rent_monthly", "is_lone_parent",
-        // Would-claim flags (set from reported receipt in FRS)
-        "would_claim_uc", "would_claim_cb", "would_claim_hb",
-        "would_claim_pc", "would_claim_ctc", "would_claim_wtc",
-        "would_claim_is", "would_claim_esa", "would_claim_jsa",
     ])?;
 
     for bu in &dataset.benunits {
@@ -167,20 +160,9 @@ fn write_benunits(dataset: &Dataset, output_dir: &Path) -> anyhow::Result<()> {
             bu.id.to_string(),
             bu.household_id.to_string(),
             ids,
-            format!("{:.6}", bu.migration_seed),
             bu.on_uc.to_string(),
-            bu.on_legacy.to_string(),
             format!("{:.2}", bu.rent_monthly),
             bu.is_lone_parent.to_string(),
-            bu.would_claim_uc.to_string(),
-            bu.would_claim_cb.to_string(),
-            bu.would_claim_hb.to_string(),
-            bu.would_claim_pc.to_string(),
-            bu.would_claim_ctc.to_string(),
-            bu.would_claim_wtc.to_string(),
-            bu.would_claim_is.to_string(),
-            bu.would_claim_esa.to_string(),
-            bu.would_claim_jsa.to_string(),
         ])?;
     }
 
@@ -454,7 +436,7 @@ fn write_microdata_csv_benunits<W: std::io::Write>(
         // IDs
         "benunit_id", "household_id", "person_ids",
         // Inputs
-        "on_uc", "on_legacy", "rent_monthly", "is_lone_parent",
+        "on_uc", "rent_monthly", "is_lone_parent",
         // ── Baseline outputs ──
         "baseline_universal_credit", "baseline_child_benefit",
         "baseline_state_pension", "baseline_pension_credit",
@@ -490,7 +472,6 @@ fn write_microdata_csv_benunits<W: std::io::Write>(
             bu.household_id.to_string(),
             ids,
             bu.on_uc.to_string(),
-            bu.on_legacy.to_string(),
             format!("{:.2}", bu.rent_monthly),
             bu.is_lone_parent.to_string(),
             // Baseline
@@ -656,16 +637,6 @@ pub fn load_clean_dataset(data_dir: &Path, year: u32) -> anyhow::Result<Dataset>
     // Remap sparse IDs to contiguous 0..N for Vec indexing
     remap_entity_ids(&mut people, &mut benunits, &mut households);
 
-    // Derive would_claim_esa/jsa from person data if not set (old CSV format)
-    for bu in &mut benunits {
-        if !bu.would_claim_esa {
-            bu.would_claim_esa = bu.person_ids.iter().any(|&pid| people.get(pid).map_or(false, |p| p.esa_income > 0.0));
-        }
-        if !bu.would_claim_jsa {
-            bu.would_claim_jsa = bu.person_ids.iter().any(|&pid| people.get(pid).map_or(false, |p| p.jsa_income > 0.0));
-        }
-    }
-
     Ok(Dataset {
         people,
         benunits,
@@ -685,15 +656,6 @@ pub fn assemble_dataset(
     // Remap sparse IDs to contiguous 0..N for Vec indexing
     remap_entity_ids(&mut people, &mut benunits, &mut households);
 
-    // Derive would_claim_esa/jsa from person data if not set
-    for bu in &mut benunits {
-        if !bu.would_claim_esa {
-            bu.would_claim_esa = bu.person_ids.iter().any(|&pid| people.get(pid).map_or(false, |p| p.esa_income > 0.0));
-        }
-        if !bu.would_claim_jsa {
-            bu.would_claim_jsa = bu.person_ids.iter().any(|&pid| people.get(pid).map_or(false, |p| p.jsa_income > 0.0));
-        }
-    }
     // Auto-derive is_in_scotland from household region
     for p in &mut people {
         if let Some(hh) = households.get(p.household_id) {
@@ -800,13 +762,6 @@ impl HeaderIndex {
         self.idx(name).map(|i| parse_bool(r.get(i).unwrap_or(""))).unwrap_or(false)
     }
 
-    fn get_bool_default(&self, r: &csv::StringRecord, name: &str, default: bool) -> bool {
-        match self.idx(name) {
-            Some(i) => parse_bool(r.get(i).unwrap_or("")),
-            None => default,
-        }
-    }
-
     fn get_f64(&self, r: &csv::StringRecord, name: &str) -> f64 {
         self.idx(name).map(|i| parse_f64(r.get(i).unwrap_or(""))).unwrap_or(0.0)
     }
@@ -907,7 +862,6 @@ pub fn parse_persons_csv<R: std::io::Read>(reader: R) -> anyhow::Result<Vec<Pers
             adp_mobility: h.get_f64(&r, "adp_mobility"),
             cdp_care: h.get_f64(&r, "cdp_care"),
             cdp_mobility: h.get_f64(&r, "cdp_mobility"),
-            would_claim_marriage_allowance: h.get_bool(&r, "would_claim_marriage_allowance"),
         });
     }
 
@@ -919,52 +873,16 @@ pub fn parse_benunits_csv<R: std::io::Read>(reader: R) -> anyhow::Result<Vec<Ben
     let mut rdr = csv::Reader::from_reader(reader);
     let h = HeaderIndex::new(rdr.headers()?.clone());
 
-    // Detect old format (reported_cb) vs new format (would_claim_cb)
-    let old_format = h.idx("reported_cb").is_some();
-
     let mut benunits = Vec::new();
     for result in rdr.records() {
         let r = result?;
-
-        let seed = if old_format { h.get_f64(&r, "take_up_seed") } else { h.get_f64(&r, "migration_seed") };
-
-        let (wc_uc, wc_cb, wc_hb, wc_pc, wc_ctc, wc_wtc, wc_is, wc_esa, wc_jsa);
-        if old_format {
-            wc_uc  = h.get_bool(&r, "reported_uc");
-            wc_cb  = h.get_bool(&r, "reported_cb");
-            wc_hb  = h.get_bool(&r, "reported_hb");
-            wc_pc  = h.get_bool(&r, "reported_pc");
-            wc_ctc = h.get_bool(&r, "reported_ctc");
-            wc_wtc = h.get_bool(&r, "reported_wtc");
-            wc_is  = h.get_bool(&r, "reported_is");
-            wc_esa = false;
-            wc_jsa = false;
-        } else {
-            wc_uc  = h.get_bool_default(&r, "would_claim_uc", true);
-            wc_cb  = h.get_bool_default(&r, "would_claim_cb", true);
-            wc_hb  = h.get_bool_default(&r, "would_claim_hb", true);
-            wc_pc  = h.get_bool_default(&r, "would_claim_pc", true);
-            wc_ctc = h.get_bool_default(&r, "would_claim_ctc", true);
-            wc_wtc = h.get_bool_default(&r, "would_claim_wtc", true);
-            wc_is  = h.get_bool_default(&r, "would_claim_is", true);
-            wc_esa = h.get_bool_default(&r, "would_claim_esa", true);
-            wc_jsa = h.get_bool_default(&r, "would_claim_jsa", true);
-        }
-
         benunits.push(BenUnit {
             id: h.get_usize(&r, "benunit_id"),
             household_id: h.get_usize(&r, "household_id"),
             person_ids: parse_id_list(&h.get_str(&r, "person_ids")),
-            migration_seed: seed,
             on_uc: h.get_bool(&r, "on_uc"),
-            on_legacy: h.get_bool(&r, "on_legacy"),
             rent_monthly: h.get_f64(&r, "rent_monthly"),
             is_lone_parent: h.get_bool(&r, "is_lone_parent"),
-            would_claim_uc: wc_uc, would_claim_cb: wc_cb,
-            would_claim_hb: wc_hb, would_claim_pc: wc_pc,
-            would_claim_ctc: wc_ctc, would_claim_wtc: wc_wtc,
-            would_claim_is: wc_is, would_claim_esa: wc_esa,
-            would_claim_jsa: wc_jsa,
             ..BenUnit::default()
         });
     }

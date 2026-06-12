@@ -939,15 +939,11 @@ fn assemble_dataset(
         if let Some(&hh_idx) = hh_map.get(&bu.sernum) {
             let bu_idx = benunits.len();
             bu_map.insert((bu.sernum, bu.benunit), bu_idx);
-            // Deterministic migration seed from benunit index (for UC migration routing)
-            let seed = (((bu_idx as u64).wrapping_mul(2654435761)) & 0xFFFF) as f64 / 65536.0;
             benunits.push(BenUnit {
                 id: bu_idx,
                 household_id: hh_idx,
                 person_ids: Vec::new(),
-                migration_seed: seed,
                 on_uc: bu.claims_uc,
-                on_legacy: false,  // Derived below from person reported amounts
                 rent_monthly: bu.rent_weekly * WEEKS_IN_YEAR / 12.0,
                 is_lone_parent: false,
                 free_school_meals: bu.free_school_meals_weekly * WEEKS_IN_YEAR,
@@ -1041,7 +1037,6 @@ fn assemble_dataset(
                     adp_mobility: pr.adp_mobility_weekly * WEEKS_IN_YEAR,
                     cdp_care: pr.cdp_care_weekly * WEEKS_IN_YEAR,
                     cdp_mobility: pr.cdp_mobility_weekly * WEEKS_IN_YEAR,
-                    would_claim_marriage_allowance: true,
                 });
 
                 benunits[bu_idx].person_ids.push(pid);
@@ -1050,23 +1045,15 @@ fn assemble_dataset(
         }
     }
 
-    // Derive flags and lone parent status from person-level reported benefits
+    // Derive lone parent status and UC receipt from person-level reported benefits.
+    // All other take-up is derived at runtime from reported amounts (BenUnit::claims).
     for bu in &mut benunits {
         let num_adults = bu.person_ids.iter().filter(|&&pid| people[pid].is_adult()).count();
         let num_children = bu.person_ids.iter().filter(|&&pid| people[pid].is_child()).count();
         bu.is_lone_parent = num_adults == 1 && num_children > 0;
 
-        for &pid in &bu.person_ids {
-            let p = &people[pid];
-            if p.universal_credit > 0.0    { bu.on_uc = true; bu.would_claim_uc = true; }
-            if p.housing_benefit > 0.0     { bu.on_legacy = true; bu.would_claim_hb = true; }
-            if p.child_tax_credit > 0.0    { bu.on_legacy = true; bu.would_claim_ctc = true; }
-            if p.working_tax_credit > 0.0  { bu.on_legacy = true; bu.would_claim_wtc = true; }
-            if p.income_support > 0.0      { bu.on_legacy = true; bu.would_claim_is = true; }
-            if p.child_benefit > 0.0       { bu.would_claim_cb = true; }
-            if p.pension_credit > 0.0      { bu.would_claim_pc = true; }
-            if p.esa_income > 0.0          { bu.would_claim_esa = true; }
-            if p.jsa_income > 0.0          { bu.would_claim_jsa = true; }
+        if bu.person_ids.iter().any(|&pid| people[pid].universal_credit > 0.0) {
+            bu.on_uc = true;
         }
     }
 

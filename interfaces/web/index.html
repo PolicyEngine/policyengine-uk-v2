@@ -409,7 +409,7 @@
       <tr><td>National Insurance (Class 1, 2, 4)</td><td>Employee, employer, self-employed</td></tr>
       <tr><td>Universal Credit</td><td>Standard allowance, work allowance, taper, housing element, childcare</td></tr>
       <tr><td>Child Benefit</td><td>High-income charge included</td></tr>
-      <tr><td>Working Tax Credit / Child Tax Credit</td><td>Legacy system for non-migrated claimants</td></tr>
+      <tr><td>Working Tax Credit / Child Tax Credit</td><td>Legacy system for claimants with reported receipt</td></tr>
       <tr><td>Housing Benefit</td><td>Legacy claimants only</td></tr>
       <tr><td>Pension Credit</td><td>Guarantee and savings credit</td></tr>
       <tr><td>Benefit cap</td><td>Household-level application</td></tr>
@@ -743,9 +743,9 @@ print(params["universal_credit"]["taper_rate"])   # → 0.55</code></pre>
     <tbody>
       <tr><td><code>income_tax</code></td><td>Personal allowance, UK and Scottish rate bands, dividend allowance, savings rate</td></tr>
       <tr><td><code>national_insurance</code></td><td>Primary/secondary thresholds and rates, Class 2 and 4 self-employed rates</td></tr>
-      <tr><td><code>universal_credit</code></td><td>Standard allowances by household type, taper rate, work allowances, childcare element, migration rates</td></tr>
+      <tr><td><code>universal_credit</code></td><td>Standard allowances by household type, taper rate, work allowances, childcare element</td></tr>
       <tr><td><code>child_benefit</code></td><td>Rates and high-income charge threshold/taper</td></tr>
-      <tr><td><code>working_tax_credit</code></td><td>Legacy WTC parameters (kept for non-migrated claimants)</td></tr>
+      <tr><td><code>working_tax_credit</code></td><td>Legacy WTC parameters (kept for claimants with reported receipt)</td></tr>
       <tr><td><code>child_tax_credit</code></td><td>Legacy CTC parameters</td></tr>
       <tr><td><code>benefit_cap</code></td><td>Cap amounts by household type and London/outside London</td></tr>
       <tr><td><code>stamp_duty</code></td><td>SDLT thresholds and rates (EFRS only)</td></tr>
@@ -768,12 +768,10 @@ print(params["universal_credit"]["taper_rate"])   # → 0.55</code></pre>
   <h2>Limitations</h2>
   <p>These are structural model constraints, not implementation bugs. They affect how results should be interpreted and compared with official estimates.</p>
 
-  <h3>UC caseload undercount (~60%)</h3>
-  <p>The FRS under-reports UC receipt. The model simulates ~3.85 million UC households; the actual caseload is ~6.4 million. UC is only awarded to <code>on_uc_system</code> benefit units: those who reported UC in the FRS (<code>on_uc=True</code>), or legacy benefit claimants who migrate probabilistically (<code>on_legacy=True</code> and <code>migration_seed &lt; migration_rate</code>).</p>
+  <h3>UC caseload undercount</h3>
+  <p>The FRS under-reports UC receipt. UC is only awarded to benefit units that reported UC in the FRS (<code>on_uc=True</code>) or under full take-up (<code>--full-take-up</code>); benefit units with reported legacy benefit receipt stay on the legacy system.</p>
 
-  <p><strong>Practical effect:</strong> UC reform costings from this model will be ~60% of OBR/DWP estimates. As an example, a taper 55%→50% reform produces ~£0.87bn/yr on FRS 2023; scaled to the real caseload this implies ~£1.45–1.6bn, against OBR-style estimates of ~£2bn+.</p>
-
-  <p>Migration rates (<code>uc_migration.*</code> parameters: HB 70%, TC 95%, IS 65%) add ~685k households but do not close the gap.</p>
+  <p><strong>Practical effect:</strong> UC reform costings from this model will undercount relative to OBR/DWP estimates, in proportion to the FRS under-reporting of the UC caseload.</p>
 
   <h3>No realised capital gains data</h3>
   <p>No UK household survey records realised capital gains, so <code>capital_gains</code> defaults to zero on all datasets. CGT reform modelling requires manually populating this field via <code>--stdin-data</code> or a bespoke dataset.</p>
@@ -784,8 +782,8 @@ print(params["universal_credit"]["taper_rate"])   # → 0.55</code></pre>
   <h3>SPI — no household structure</h3>
   <p>The SPI is a person-level dataset with no household or benefit unit structure. Benefit and decile outputs are therefore not produced. Always use <code>--persons-only</code> when simulating on SPI.</p>
 
-  <h3>Benefit cap and migration timing</h3>
-  <p>The model applies the benefit cap deterministically and treats legacy-to-UC migration as a one-period probabilistic assignment. In practice, migration is phased and capped household incomes interact with transitional protection — neither of which is modelled.</p>
+  <h3>Benefit cap and UC migration</h3>
+  <p>The model applies the benefit cap deterministically and routes benefit units to UC or legacy purely from reported receipt. In practice, legacy-to-UC managed migration is phased and capped household incomes interact with transitional protection — neither of which is modelled.</p>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════ -->

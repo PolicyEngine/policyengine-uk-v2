@@ -105,9 +105,6 @@ pub struct Person {
     /// Scottish child disability (CDP replaces DLA for Scottish children)
     pub cdp_care: f64,
     pub cdp_mobility: f64,
-
-    // Take-up flags
-    pub would_claim_marriage_allowance: bool,
 }
 
 impl Default for Person {
@@ -177,7 +174,6 @@ impl Default for Person {
             adp_mobility: 0.0,
             cdp_care: 0.0,
             cdp_mobility: 0.0,
-            would_claim_marriage_allowance: false,
         }
     }
 }
@@ -223,25 +219,13 @@ pub struct BenUnit {
     pub id: usize,
     pub household_id: usize,
     pub person_ids: Vec<usize>,
-    /// Random seed [0, 1) for UC migration routing — deterministic per benunit.
-    pub migration_seed: f64,
     /// Whether this benunit reported UC receipt in the FRS.
     pub on_uc: bool,
-    /// Whether this benunit reported any legacy means-tested benefit (HB/CTC/WTC/IS) in the FRS.
-    pub on_legacy: bool,
     pub rent_monthly: f64,
     pub is_lone_parent: bool,
-
-    // Would-claim flags: in microdata, set from reported receipt in the FRS.
-    pub would_claim_uc: bool,
-    pub would_claim_cb: bool,
-    pub would_claim_hb: bool,
-    pub would_claim_pc: bool,
-    pub would_claim_ctc: bool,
-    pub would_claim_wtc: bool,
-    pub would_claim_is: bool,
-    pub would_claim_esa: bool,
-    pub would_claim_jsa: bool,
+    /// Assume every benefit is claimed regardless of reported receipt.
+    /// Set at load time for hypothetical households (--full-take-up); never persisted.
+    pub full_take_up: bool,
 
     // In-kind benefits (annual, from FRS DVs — included in HBAI net income)
     pub free_school_meals: f64,      // FSMBU
@@ -252,6 +236,12 @@ pub struct BenUnit {
 }
 
 impl BenUnit {
+    /// Whether the benunit claims a benefit: full take-up, or any member
+    /// reported receipt of it in the survey.
+    pub fn claims(&self, people: &[Person], reported: impl Fn(&Person) -> f64) -> bool {
+        self.full_take_up || self.person_ids.iter().any(|&pid| reported(&people[pid]) > 0.0)
+    }
+
     pub fn num_adults(&self, people: &[Person]) -> usize {
         self.person_ids.iter()
             .filter(|&&pid| people[pid].is_adult())

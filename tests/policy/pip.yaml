@@ -6,11 +6,12 @@
 #   Mobility standard:     £29.20  → £1,518.40/yr
 #   Mobility enhanced:     £77.05  → £4,006.60/yr
 #
-# These cases set `would_claim_*: false` on the benunit to suppress modelled
-# means-tested benefits (UC/HB/PC), isolating PIP in `baseline_total_benefits`.
+# These cases set `full_take_up: false` to suppress modelled means-tested
+# benefits (UC/HB/PC), isolating PIP in `baseline_total_benefits`.
 
 - name: PIP DL enhanced + mobility standard from flags
   period: 2025
+  full_take_up: false
   absolute_error_margin: 1
   input:
     people:
@@ -18,14 +19,6 @@
     benunits:
       b:
         members: [p]
-        would_claim_uc: false
-        would_claim_hb: false
-        would_claim_pc: false
-        would_claim_is: false
-        would_claim_ctc: false
-        would_claim_wtc: false
-        would_claim_esa: false
-        would_claim_jsa: false
     households:
       h: { members: [p], region: London }
   output:
@@ -34,6 +27,7 @@
 
 - name: PIP DL standard alone
   period: 2025
+  full_take_up: false
   absolute_error_margin: 1
   input:
     people:
@@ -41,14 +35,6 @@
     benunits:
       b:
         members: [p]
-        would_claim_uc: false
-        would_claim_hb: false
-        would_claim_pc: false
-        would_claim_is: false
-        would_claim_ctc: false
-        would_claim_wtc: false
-        would_claim_esa: false
-        would_claim_jsa: false
     households:
       h: { members: [p], region: London }
   output:
@@ -56,6 +42,7 @@
 
 - name: PIP mobility enhanced alone
   period: 2025
+  full_take_up: false
   absolute_error_margin: 1
   input:
     people:
@@ -63,14 +50,6 @@
     benunits:
       b:
         members: [p]
-        would_claim_uc: false
-        would_claim_hb: false
-        would_claim_pc: false
-        would_claim_is: false
-        would_claim_ctc: false
-        would_claim_wtc: false
-        would_claim_esa: false
-        would_claim_jsa: false
     households:
       h: { members: [p], region: London }
   output:
@@ -78,6 +57,7 @@
 
 - name: No PIP flags — no benefits when claiming disabled
   period: 2025
+  full_take_up: false
   absolute_error_margin: 0
   input:
     people:
@@ -85,14 +65,6 @@
     benunits:
       b:
         members: [p]
-        would_claim_uc: false
-        would_claim_hb: false
-        would_claim_pc: false
-        would_claim_is: false
-        would_claim_ctc: false
-        would_claim_wtc: false
-        would_claim_esa: false
-        would_claim_jsa: false
     households:
       h: { members: [p], region: London }
   output:
