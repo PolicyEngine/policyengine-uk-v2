@@ -1,5 +1,6 @@
 /target
-/data
+/data/raw/
+/data/clean/
 *.zip
 dist/
 *.egg-info/
