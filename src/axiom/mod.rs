@@ -34,8 +34,7 @@ use axiom_rules_engine::dense::{
 use axiom_rules_engine::model::{Period, PeriodKind};
 use axiom_rules_engine::spec::{ParameterVersionSpec, ScalarValueSpec};
 use chrono::NaiveDate;
-use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
-use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 
 /// A compiled rule system: baseline law, or baseline plus parameter overrides.
 #[derive(Clone)]
@@ -168,7 +167,7 @@ impl Dataset {
     /// All columns must have one value per row.
     pub fn with_input(mut self, name: &str, values: &[f64]) -> Result<Self> {
         self.check_row_count(name, values.len())?;
-        let column = decimal_column(name, values)?;
+        let column = float_column(name, values)?;
         self.columns.insert(name.to_string(), column);
         Ok(self)
     }
@@ -182,14 +181,11 @@ impl Dataset {
         Ok(self)
     }
 
-    /// Add a numeric input column with the same value in every row,
-    /// converting to decimal once instead of per element. The row count must
-    /// already be established by an earlier column.
+    /// Add a numeric input column with the same value in every row. The row
+    /// count must already be established by an earlier column.
     pub fn with_const_input(mut self, name: &str, value: f64) -> Result<Self> {
         let n = self.n.ok_or_else(|| anyhow!("add a per-row column before constant columns"))?;
-        let value =
-            Decimal::from_f64(value).ok_or_else(|| anyhow!("non-finite value in column {name}"))?;
-        self.columns.insert(name.to_string(), DenseColumn::Decimal(vec![value; n]));
+        self.columns.insert(name.to_string(), DenseColumn::Float(vec![value; n]));
         Ok(self)
     }
 
@@ -215,7 +211,7 @@ impl Dataset {
     /// across all rows (length must equal the sum of the relation's counts).
     #[allow(dead_code)]
     pub fn with_relation_input(mut self, relation: &str, name: &str, values: &[f64]) -> Result<Self> {
-        let column = decimal_column(name, values)?;
+        let column = float_column(name, values)?;
         self.add_relation_column(relation, name, column, values.len())?;
         Ok(self)
     }
@@ -264,14 +260,8 @@ impl Dataset {
     }
 }
 
-fn decimal_column(name: &str, values: &[f64]) -> Result<DenseColumn> {
-    use rayon::prelude::*;
-    let column = values
-        .par_iter()
-        .with_min_len(8192)
-        .map(|v| Decimal::from_f64(*v).ok_or_else(|| anyhow!("non-finite value in column {name}")))
-        .collect::<Result<Vec<Decimal>>>()?;
-    Ok(DenseColumn::Decimal(column))
+fn float_column(_name: &str, values: &[f64]) -> Result<DenseColumn> {
+    Ok(DenseColumn::Float(values.to_vec()))
 }
 
 /// Output columns aligned to person order, keyed by bare rule name.
@@ -288,53 +278,106 @@ impl Outputs {
     }
 }
 
+/// Rows per parallel execution chunk. The dense executor is single-threaded,
+/// so large populations are split row-wise and evaluated across the rayon
+/// pool; relations stay intact because chunk boundaries fall between root
+/// rows and relation offsets are rebased per chunk.
+const CHUNK_ROWS: usize = 4096;
+
 /// Evaluate `outputs` (bare rule names) for every person in the dataset.
-/// Consumes the dataset, which is built fresh per call, so columns move into
-/// the batch without cloning.
-pub fn calculate(policy: &Policy, mut dataset: Dataset, outputs: &[&str]) -> Result<Outputs> {
+pub fn calculate(policy: &Policy, dataset: Dataset, outputs: &[&str]) -> Result<Outputs> {
+    use rayon::prelude::*;
+
+    let n = dataset.len();
+    let output_names: Vec<String> = outputs.iter().map(|s| s.to_string()).collect();
+
     // The dense program keys relations by full legal id (e.g.
     // `uk:statutes/ukpga/2007/3/23#relation.income_component_of_taxpayer`);
     // the dataset declares them by bare name, so match on the suffix.
-    let mut relations = HashMap::new();
+    let mut relations: Vec<(&axiom_rules_engine::dense::DenseRelationKey, &RelationData)> =
+        Vec::new();
     for schema in policy.dense.relations() {
         let key = &schema.key;
         let name = dataset
             .relations
             .keys()
             .find(|name| key.name == **name || key.name.ends_with(&format!("#relation.{name}")))
-            .cloned()
             .ok_or_else(|| anyhow!("dataset is missing relation {}", key.name))?;
-        let data = dataset.relations.remove(&name).expect("key found above");
-        relations.insert(
-            key.clone(),
-            DenseRelationBatchSpec { offsets: data.offsets, inputs: data.inputs },
-        );
+        relations.push((key, &dataset.relations[name]));
     }
-    let batch = DenseBatchSpec {
-        row_count: dataset.len(),
-        inputs: std::mem::take(&mut dataset.columns),
-        relations,
+
+    let bounds: Vec<(usize, usize)> = if n == 0 {
+        vec![(0, 0)]
+    } else {
+        (0..n).step_by(CHUNK_ROWS).map(|a| (a, (a + CHUNK_ROWS).min(n))).collect()
     };
-    let output_names: Vec<String> = outputs.iter().map(|s| s.to_string()).collect();
-    let result = policy
-        .dense
-        .execute(&dataset.period, batch, &output_names)
-        .map_err(|e| anyhow!("axiom dense execution failed: {e}"))?;
+
+    let chunk_columns = bounds
+        .par_iter()
+        .map(|&(a, b)| -> Result<Vec<Vec<f64>>> {
+            let inputs = dataset
+                .columns
+                .iter()
+                .map(|(name, column)| (name.clone(), slice_column(column, a, b)))
+                .collect::<HashMap<_, _>>();
+            let mut chunk_relations = HashMap::new();
+            for (key, data) in &relations {
+                let base = data.offsets[a];
+                let end = data.offsets[b];
+                let offsets = data.offsets[a..=b].iter().map(|o| o - base).collect();
+                let inputs = data
+                    .inputs
+                    .iter()
+                    .map(|(name, column)| (name.clone(), slice_column(column, base, end)))
+                    .collect::<HashMap<_, _>>();
+                chunk_relations
+                    .insert((*key).clone(), DenseRelationBatchSpec { offsets, inputs });
+            }
+            let batch =
+                DenseBatchSpec { row_count: b - a, inputs, relations: chunk_relations };
+            let result = policy
+                .dense
+                .execute_f64(&dataset.period, batch, &output_names)
+                .map_err(|e| anyhow!("axiom dense execution failed: {e}"))?;
+            output_names
+                .iter()
+                .map(|name| {
+                    let value = result
+                        .outputs
+                        .get(name)
+                        .ok_or_else(|| anyhow!("missing output {name} in dense result"))?;
+                    output_to_f64_column(value)
+                })
+                .collect()
+        })
+        .collect::<Result<Vec<Vec<Vec<f64>>>>>()?;
 
     let mut columns = BTreeMap::new();
-    for name in output_names {
-        let value = result
-            .outputs
-            .get(&name)
-            .ok_or_else(|| anyhow!("missing output {name} in dense result"))?;
-        columns.insert(name, output_to_f64_column(value)?);
+    for (index, name) in output_names.iter().enumerate() {
+        let mut full = Vec::with_capacity(n);
+        for chunk in &chunk_columns {
+            full.extend_from_slice(&chunk[index]);
+        }
+        columns.insert(name.clone(), full);
     }
     Ok(Outputs { columns })
+}
+
+fn slice_column(column: &DenseColumn, a: usize, b: usize) -> DenseColumn {
+    match column {
+        DenseColumn::Bool(values) => DenseColumn::Bool(values[a..b].to_vec()),
+        DenseColumn::Integer(values) => DenseColumn::Integer(values[a..b].to_vec()),
+        DenseColumn::Decimal(values) => DenseColumn::Decimal(values[a..b].to_vec()),
+        DenseColumn::Float(values) => DenseColumn::Float(values[a..b].to_vec()),
+        DenseColumn::Text(values) => DenseColumn::Text(values[a..b].to_vec()),
+        DenseColumn::Date(values) => DenseColumn::Date(values[a..b].to_vec()),
+    }
 }
 
 fn output_to_f64_column(value: &DenseOutputValue) -> Result<Vec<f64>> {
     match value {
         DenseOutputValue::Scalar(column) => match column {
+            DenseColumn::Float(values) => Ok(values.clone()),
             DenseColumn::Decimal(values) => values
                 .iter()
                 .map(|v| v.to_f64().ok_or_else(|| anyhow!("decimal {v} not representable as f64")))
