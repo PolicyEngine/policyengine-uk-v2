@@ -2,7 +2,6 @@
 //! pipeline in [`run`]. The CLI binary (`main.rs`) and the python bindings
 //! (`python`, behind the `python` feature) are thin layers over this.
 
-pub mod axiom;
 pub mod data;
 pub mod engine;
 pub mod parameters;

@@ -115,20 +115,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
-name = "axiom-rules-engine"
-version = "0.1.0"
-source = "git+https://github.com/TheAxiomFoundation/axiom-rules-engine?rev=4a25a10943ff76956dc7cf18306764bbd8eb53a9#4a25a10943ff76956dc7cf18306764bbd8eb53a9"
-dependencies = [
- "chrono",
- "rust_decimal",
- "rust_decimal_macros",
- "serde",
- "serde_json",
- "serde_yaml",
- "thiserror",
-]
-
-[[package]]
 name = "bitflags"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -241,7 +227,6 @@ dependencies = [
  "iana-time-zone",
  "js-sys",
  "num-traits",
- "serde",
  "wasm-bindgen",
  "windows-link",
 ]
@@ -882,7 +867,6 @@ name = "policyengine-uk-rust"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "axiom-rules-engine",
  "chrono",
  "clap",
  "colored",
@@ -1176,16 +1160,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rust_decimal_macros"
-version = "1.40.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74a5a6f027e892c7a035c6fddb50435a1fbf5a734ffc0c2a9fed4d0221440519"
-dependencies = [
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
 name = "rustix"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1358,26 +1332,6 @@ name = "target-lexicon"
 version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
-
-[[package]]
-name = "thiserror"
-version = "2.0.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4288b5bcbc7920c07a1149a35cf9590a2aa808e0bc1eafaade0b80947865fbc4"
-dependencies = [
- "thiserror-impl",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "2.0.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebc4ee7f67670e9b64d05fa4253e753e016c6c95ff35b89b7941d6b856dec1d5"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
 
 [[package]]
 name = "tinytemplate"

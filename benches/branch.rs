@@ -29,9 +29,6 @@
 
 // The crate is binary-only (no lib target), so pull the engine modules in by
 // path, exactly as `tests/parameter_impact.rs` does.
-#[path = "../src/axiom/mod.rs"]
-#[allow(dead_code)]
-mod axiom;
 #[path = "../src/engine/mod.rs"]
 mod engine;
 #[path = "../src/parameters/mod.rs"]

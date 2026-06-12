@@ -13,7 +13,6 @@ python = ["dep:pyo3"]
 
 [dependencies]
 pyo3 = { version = "0.24", features = ["extension-module", "abi3-py39"], optional = true }
-axiom-rules-engine = { git = "https://github.com/TheAxiomFoundation/axiom-rules-engine", rev = "4a25a10943ff76956dc7cf18306764bbd8eb53a9" }
 chrono = "0.4"
 rust_decimal = "1.39"
 rayon = "1.10"
@@ -53,26 +52,6 @@ harness = false
 
 [[bench]]
 name = "speedtest"
-harness = false
-
-[[bench]]
-name = "axiom_reform"
-harness = false
-
-[[bench]]
-name = "axiom_uc"
-harness = false
-
-[[bench]]
-name = "axiom_nics"
-harness = false
-
-[[bench]]
-name = "axiom_child_benefit"
-harness = false
-
-[[bench]]
-name = "axiom_pension_credit"
 harness = false
 
 [profile.release]

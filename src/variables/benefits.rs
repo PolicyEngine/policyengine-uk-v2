@@ -8,7 +8,6 @@ use crate::parameters::Parameters;
 /// A benunit is on either UC or legacy, not both.
 /// Whether a benunit receives a benefit is gated by would_claim_X flags, which in
 /// microdata are set from reported receipt in the FRS.
-#[allow(dead_code)]
 pub fn calculate_benunit(
     bu: &BenUnit,
     people: &[Person],
@@ -17,36 +16,8 @@ pub fn calculate_benunit(
     params: &Parameters,
     fiscal_year: u32,
 ) -> BenUnitResult {
-    calculate_benunit_with_axiom(
-        bu, people, person_results, household, params,
-        fiscal_year, None,
-    )
-}
-
-/// Pre-cap annual benefit amounts computed by the axiom backend for one
-/// benefit unit. Claiming behaviour and eligibility gates still apply.
-pub struct AxiomBenefits {
-    pub child_benefit: f64,
-    pub guarantee_credit: f64,
-    /// Annual UC (award, maximum amount), before eligibility and claiming gates.
-    pub universal_credit: (f64, f64),
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn calculate_benunit_with_axiom(
-    bu: &BenUnit,
-    people: &[Person],
-    person_results: &[PersonResult],
-    household: &Household,
-    params: &Parameters,
-    fiscal_year: u32,
-    axiom: Option<&AxiomBenefits>,
-) -> BenUnitResult {
     // Non-means-tested / universal benefits (available regardless of UC/legacy)
-    let child_benefit = calculate_child_benefit(
-        bu, people, person_results, params,
-        axiom.map(|a| a.child_benefit),
-    );
+    let child_benefit = calculate_child_benefit(bu, people, person_results, params);
     let state_pension = calculate_state_pension(bu, people, params, fiscal_year);
     // Carers Allowance: non-means-tested flat rate for informal carers.
     // Paid to individual, regardless of UC/legacy system.
@@ -70,10 +41,9 @@ pub fn calculate_benunit_with_axiom(
         let would_claim = bu.would_claim_uc || migrated_hb || migrated_tc || migrated_is;
         let raw_uc = calculate_universal_credit(
             bu, people, person_results, household, params,
-            axiom.map(|a| a.universal_credit),
         );
         uc = if would_claim { raw_uc } else { (0.0, raw_uc.1, raw_uc.2) };
-        pension_credit = calculate_pension_credit(bu, people, params, axiom.map(|a| a.guarantee_credit));
+        pension_credit = calculate_pension_credit(bu, people, params);
         housing_benefit = 0.0;
         ctc = 0.0;
         wtc = 0.0;
@@ -84,7 +54,7 @@ pub fn calculate_benunit_with_axiom(
     } else if bu.on_legacy {
         // Not yet migrated: still on legacy system
         uc = (0.0, 0.0, 0.0);
-        pension_credit = calculate_pension_credit(bu, people, params, axiom.map(|a| a.guarantee_credit));
+        pension_credit = calculate_pension_credit(bu, people, params);
         let raw_hb = calculate_housing_benefit(bu, people, person_results, household, params);
         housing_benefit = if raw_hb > 0.0 && bu.would_claim_hb { raw_hb } else { 0.0 };
         let tc = calculate_tax_credits(bu, people, person_results, params);
@@ -104,7 +74,7 @@ pub fn calculate_benunit_with_axiom(
     } else {
         // Not on any means-tested system
         uc = (0.0, 0.0, 0.0);
-        pension_credit = calculate_pension_credit(bu, people, params, axiom.map(|a| a.guarantee_credit));
+        pension_credit = calculate_pension_credit(bu, people, params);
         housing_benefit = 0.0;
         ctc = 0.0;
         wtc = 0.0;
@@ -172,21 +142,15 @@ fn calculate_child_benefit(
     people: &[Person],
     _person_results: &[PersonResult],
     params: &Parameters,
-    axiom_annual: Option<f64>,
 ) -> f64 {
     let num_children = bu.num_children(people);
     if num_children == 0 {
         return 0.0;
     }
 
-    let annual = match axiom_annual {
-        Some(a) => a,
-        None => {
-            let weekly = params.child_benefit.eldest_weekly
-                + params.child_benefit.additional_weekly * (num_children as f64 - 1.0).max(0.0);
-            weekly * 52.0
-        }
-    };
+    let weekly = params.child_benefit.eldest_weekly
+        + params.child_benefit.additional_weekly * (num_children as f64 - 1.0).max(0.0);
+    let annual = weekly * 52.0;
 
     if annual > 0.0 && !bu.would_claim_cb { return 0.0; }
     annual
@@ -205,18 +169,10 @@ fn calculate_universal_credit(
     person_results: &[PersonResult],
     household: &Household,
     params: &Parameters,
-    axiom_uc: Option<(f64, f64)>,
 ) -> (f64, f64, f64) {
     // Basic eligibility: at least one working-age adult (not SP age)
     if !uc_has_working_age_adult(bu, people) {
         return (0.0, 0.0, 0.0);
-    }
-
-    // Axiom annual (award, maximum amount): the reduction is recovered as
-    // max − award, exact because the award floors at zero only after the
-    // reduction is clamped to the maximum amount.
-    if let Some((award, max_amount)) = axiom_uc {
-        return (award, max_amount, max_amount - award);
     }
 
     // Maximum amount = sum of all elements at the per-month rate.
@@ -556,7 +512,6 @@ fn calculate_pension_credit(
     bu: &BenUnit,
     people: &[Person],
     params: &Parameters,
-    axiom_gc_annual: Option<f64>,
 ) -> f64 {
     let any_sp_age = bu.person_ids.iter()
         .filter(|&&pid| people[pid].is_adult())
@@ -588,10 +543,7 @@ fn calculate_pension_credit(
         .sum();
 
     // Guarantee Credit
-    let gc = match axiom_gc_annual {
-        Some(g) => g,
-        None => (min_guarantee_annual - income).max(0.0),
-    };
+    let gc = (min_guarantee_annual - income).max(0.0);
 
     // Savings Credit (for those who reached SP age before 6 Apr 2016)
     let sc_threshold = if is_couple {

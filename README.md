@@ -44,14 +44,7 @@ cargo test
 | `LEGISLATIVE_REFERENCE.md` | Statutory citations for all parameter values |
 | `interfaces/python/` | Python wrapper (`policyengine-uk-compiled`) |
 | `src/engine/` | Core simulation logic |
-| `src/axiom/` | Axiom rules-engine backend (statute-derived rules) |
 | `changelog.d/` | Towncrier-style changelog fragments |
-
-## Axiom backend
-
-NI Class 1 and 4, child benefit, the pension credit guarantee credit, and universal credit run on the [axiom rules engine](https://github.com/TheAxiomFoundation/axiom-rules-engine): every `Simulation` translates the model's parameters onto statute-derived rules compiled from [rulespec-uk](https://github.com/TheAxiomFoundation/rulespec-uk), with the hand-coded formulas retained only as the verification reference for the equivalence tests.
-
-The compiled rules live as artifact snapshots in `src/axiom/artifacts/`, each traceable to a compose spec (in `src/axiom/programs/`, or [axiom-programs](https://github.com/TheAxiomFoundation/axiom-programs) for universal credit), the rulespec-uk rules it composes, and the engine rev pinned in `Cargo.toml`. Upstream rule improvements reach this repo by regenerating the snapshots: `scripts/refresh_artifacts.sh` recomposes and recompiles all six from sibling checkouts and runs the test suite, and a weekly CI job (`artifact-drift.yml`) does the same against upstream HEAD, failing if the committed artifacts have gone stale.
 
 ## Caveats
 

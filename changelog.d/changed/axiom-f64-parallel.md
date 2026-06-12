@@ -1,1 +1,0 @@
-Axiom dense execution now runs in f64 mode with rayon-parallel 4,096-row chunks, cutting the 100k-household speedtest from 71.5 ms to 18.1 ms locally. Results match the decimal path to within 1e-9 relative on the full FRS run.
