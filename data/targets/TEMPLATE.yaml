@@ -1,0 +1,27 @@
+# Calibration targets for data/calibrate.py
+# Copy to YYYY_YY.yaml (e.g. 2025_26.yaml) and fill in OBR/DWP annual totals in £bn.
+# Omit any program you don't want to audit.
+#
+# Sources: OBR Economic and Fiscal Outlook (taxes), DWP Benefit Expenditure tables (benefits)
+
+# Taxes
+income_tax:
+employee_ni:
+employer_ni:
+vat:
+capital_gains_tax:
+stamp_duty:
+council_tax:
+
+# Benefits
+universal_credit:
+child_benefit:
+state_pension:
+pension_credit:
+housing_benefit:
+child_tax_credit:
+working_tax_credit:
+carers_allowance:
+income_support:
+esa_income_related:
+jsa_income_based:
