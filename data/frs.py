@@ -84,6 +84,9 @@ def main() -> None:
     parser.add_argument("--no-upload", action="store_true", help="Skip GCS upload")
     args = parser.parse_args()
 
+    if args.raw_dir and not args.year:
+        parser.error("--raw-dir requires --year (one raw directory maps to one year)")
+
     years = [args.year] if args.year else sorted(YEARS)
 
     table = Table(title=f"Building FRS for {len(years)} year(s)", show_header=True)
