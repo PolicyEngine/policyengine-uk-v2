@@ -130,11 +130,6 @@ pub fn apply_marriage_allowance(
     let pid_a = adult_ids[0];
     let pid_b = adult_ids[1];
 
-    // Check if either person would claim marriage allowance
-    if !people[pid_a].would_claim_marriage_allowance && !people[pid_b].would_claim_marriage_allowance {
-        return;
-    }
-
     let it = &params.income_tax;
     let max_transfer = it.personal_allowance * it.marriage_allowance_max_fraction;
 
@@ -535,19 +530,17 @@ mod tests {
         person_a.age = 35.0;
         person_a.gender = Gender::Female;
         person_a.employment_income = 5000.0;
-        person_a.would_claim_marriage_allowance = true;
 
         let mut person_b = Person::default();
         person_b.id = 1;
         person_b.age = 35.0;
         person_b.gender = Gender::Male;
         person_b.employment_income = 30000.0;
-        person_b.would_claim_marriage_allowance = true;
 
         let people = vec![person_a, person_b];
         let bu = BenUnit {
             id: 0, household_id: 0, person_ids: vec![0, 1],
-            migration_seed: 0.99, on_uc: false, on_legacy: false,
+            on_uc: false,
             rent_monthly: 0.0, is_lone_parent: false,
             ..BenUnit::default()
         };
@@ -579,18 +572,16 @@ mod tests {
         person_a.id = 0;
         person_a.age = 35.0;
         person_a.employment_income = 5000.0;
-        person_a.would_claim_marriage_allowance = true;
 
         let mut person_b = Person::default();
         person_b.id = 1;
         person_b.age = 35.0;
         person_b.employment_income = 80000.0;
-        person_b.would_claim_marriage_allowance = true;
 
         let people = vec![person_a, person_b];
         let bu = BenUnit {
             id: 0, household_id: 0, person_ids: vec![0, 1],
-            migration_seed: 0.99, on_uc: false, on_legacy: false,
+            on_uc: false,
             rent_monthly: 0.0, is_lone_parent: false,
             ..BenUnit::default()
         };
@@ -771,8 +762,8 @@ mod parameter_impact_tests {
     #[test]
     fn param_it_marriage_allowance_max_fraction() {
         let mut params = Parameters::for_year(2025).unwrap();
-        let mut pa = Person::default(); pa.age = 35.0; pa.employment_income = 5000.0; pa.would_claim_marriage_allowance = true;
-        let mut pb = Person::default(); pb.id = 1; pb.age = 35.0; pb.employment_income = 30000.0; pb.would_claim_marriage_allowance = true;
+        let mut pa = Person::default(); pa.age = 35.0; pa.employment_income = 5000.0;
+        let mut pb = Person::default(); pb.id = 1; pb.age = 35.0; pb.employment_income = 30000.0;
         let bu = crate::engine::entities::BenUnit {
             id: 0, household_id: 0, person_ids: vec![0, 1], ..Default::default()
         };
@@ -791,8 +782,8 @@ mod parameter_impact_tests {
     #[test]
     fn param_it_marriage_allowance_rounding() {
         let mut params = Parameters::for_year(2025).unwrap();
-        let mut pa = Person::default(); pa.age = 35.0; pa.employment_income = 5000.0; pa.would_claim_marriage_allowance = true;
-        let mut pb = Person::default(); pb.id = 1; pb.age = 35.0; pb.employment_income = 30000.0; pb.would_claim_marriage_allowance = true;
+        let mut pa = Person::default(); pa.age = 35.0; pa.employment_income = 5000.0;
+        let mut pb = Person::default(); pb.id = 1; pb.age = 35.0; pb.employment_income = 30000.0;
         let bu = crate::engine::entities::BenUnit {
             id: 0, household_id: 0, person_ids: vec![0, 1], ..Default::default()
         };

@@ -29,8 +29,6 @@ pub struct Parameters {
     pub tax_credits: Option<TaxCreditsParams>,
     #[serde(default)]
     pub scottish_child_payment: Option<ScottishChildPaymentParams>,
-    #[serde(default = "UcMigrationRates::default")]
-    pub uc_migration: UcMigrationRates,
     /// Disability premiums for IS/HB/ESA applicable amounts.
     /// Source: Income Support (General) Regs 1987 (SI 1987/1967) Sch.2
     #[serde(default)]
@@ -94,31 +92,6 @@ pub struct Parameters {
     pub labour_supply: LabourSupplyParams,
 }
 
-
-/// UC managed migration rates by legacy benefit type.
-/// Fraction of legacy claimants who have been migrated to UC by the modelled year.
-/// Pensioner HB is always 0 (pensioners are ineligible for UC).
-/// Source: DWP UC managed migration statistics, extrapolated to 2025/26.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UcMigrationRates {
-    /// Working-age HB claimants migrated to UC
-    pub housing_benefit: f64,
-    /// CTC/WTC claimants migrated to UC
-    pub tax_credits: f64,
-    /// Income support claimants migrated to UC
-    pub income_support: f64,
-}
-
-impl Default for UcMigrationRates {
-    fn default() -> Self {
-        // Year-specific values are set in parameters/<year>.yaml
-        UcMigrationRates {
-            housing_benefit: 0.0,
-            tax_credits: 0.0,
-            income_support: 0.0,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaxBracket {

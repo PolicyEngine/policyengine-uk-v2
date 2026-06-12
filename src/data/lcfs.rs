@@ -160,18 +160,14 @@ pub fn load_lcfs(data_dir: &Path, fiscal_year: u32) -> anyhow::Result<Dataset> {
         }
 
         // LCFS total benefit income flows through as other_benefits passthrough on the head.
-        // UC/means-tested benefit simulation is off (on_uc/on_legacy=false) to avoid overcounting.
-        // Child benefit is simulated (non-means-tested, universal).
-        let num_children_bu = hh_person_ids.iter()
-            .filter(|&&pid| people.get(pid).map_or(false, |p| p.is_child()))
-            .count();
+        // Benefit simulation stays off (no reported per-benefit receipt, so nothing
+        // is claimed) to avoid overcounting; use --full-take-up to simulate benefits.
         benunits.push(BenUnit {
             id: bu_id,
             household_id: hh_id,
             person_ids: hh_person_ids.clone(),
             rent_monthly,
             is_lone_parent,
-            would_claim_cb: num_children_bu > 0,
             ..BenUnit::default()
         });
 

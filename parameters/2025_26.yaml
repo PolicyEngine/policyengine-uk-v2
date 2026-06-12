@@ -196,14 +196,6 @@ income_related_benefits:
   ca_min_hours_caring: 35.0
   ca_care_recipient_min_age: 16.0
 
-uc_migration:
-  # DWP managed migration statistics, extrapolated
-  # Fraction of legacy claimants migrated to UC by this year
-  # Pensioner HB always 0 (ineligible for UC)
-  housing_benefit: 0.70  # working-age HB claimants migrated
-  tax_credits: 0.95      # CTC/WTC claimants migrated
-  income_support: 0.65   # IS claimants migrated
-
 vat:
   # Value Added Tax Act 1994 c.23
   # Standard rate: s.2(1), 20% since 4 Jan 2011 (SI 2010/3025)

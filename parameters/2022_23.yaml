@@ -144,13 +144,6 @@ income_related_benefits:
   ca_min_hours_caring: 35.0
   ca_care_recipient_min_age: 16.0
 
-uc_migration:
-  # Managed migration expanding but still modest coverage
-  housing_benefit: 0.18
-  tax_credits: 0.35
-  income_support: 0.18
-
-
 vat:
   standard_rate: 0.20
   reduced_rate: 0.05

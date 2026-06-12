@@ -556,7 +556,7 @@ mod tests {
 
         let bu = BenUnit {
             id: 0, household_id: 0, person_ids: vec![0, 1],
-            migration_seed: 0.0, would_claim_cb: true,
+            full_take_up: true,
             ..BenUnit::default()
         };
         let hh = Household {
