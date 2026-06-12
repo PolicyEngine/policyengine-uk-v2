@@ -1,0 +1,1 @@
+Removed the axiom rules-engine runtime backend: NICs, child benefit, pension credit and universal credit run on the hand-coded formulas again. Axiom moves to an oracle role (continuous equivalence verification outside the hot path), restoring the 100k-household speedtest to 4.68 ms median locally.

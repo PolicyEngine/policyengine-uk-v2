@@ -7,9 +7,6 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-#[path = "../src/axiom/mod.rs"]
-#[allow(dead_code)]
-mod axiom;
 #[path = "../src/engine/mod.rs"]
 mod engine;
 #[path = "../src/parameters/mod.rs"]
