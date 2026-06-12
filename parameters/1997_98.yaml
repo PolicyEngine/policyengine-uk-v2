@@ -59,7 +59,6 @@ child_benefit:
 
 state_pension:
   new_state_pension_weekly: 0.0  # Did not exist until 2016/17
-  old_basic_pension_weekly: 62.45
 
 pension_credit:  # Did not exist until 2003/04 (MIG predecessor not modelled)
   standard_minimum_single: 0.0

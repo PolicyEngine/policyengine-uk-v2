@@ -29,6 +29,9 @@
 
 // The crate is binary-only (no lib target), so pull the engine modules in by
 // path, exactly as `tests/parameter_impact.rs` does.
+#[path = "../src/axiom/mod.rs"]
+#[allow(dead_code)]
+mod axiom;
 #[path = "../src/engine/mod.rs"]
 mod engine;
 #[path = "../src/parameters/mod.rs"]
@@ -103,7 +106,6 @@ fn benches(c: &mut Criterion) {
     // A £5k personal-allowance uplift: a real reform that moves every band.
     let mut reform_params = baseline_params.clone();
     reform_params.income_tax.personal_allowance += 5_000.0;
-    let baseline_old_sp = baseline_params.state_pension.old_basic_pension_weekly;
 
     let (people, benunits, households) = make_frame(n);
     let baseline = Simulation::new(
@@ -173,7 +175,7 @@ fn benches(c: &mut Criterion) {
         });
 
         // Current main.rs sequence: two independent Simulations, each built by
-        // cloning the dataset frames; reform uses new_with_baseline_sp.
+        // cloning the dataset frames.
         g.bench_function("dance_pipeline", |b| {
             b.iter(|| {
                 let baseline_sim = Simulation::new(
@@ -184,12 +186,11 @@ fn benches(c: &mut Criterion) {
                     year,
                 );
                 let br = baseline_sim.run();
-                let reform_sim = Simulation::new_with_baseline_sp(
+                let reform_sim = Simulation::new(
                     people.clone(),
                     benunits.clone(),
                     households.clone(),
                     reform_params.clone(),
-                    baseline_old_sp,
                     year,
                 );
                 let rr = reform_sim.run();

@@ -1,0 +1,868 @@
+{
+  "artifact_format_version": 1,
+  "engine_version": "0.1.0",
+  "program": {
+    "extends": null,
+    "module": {
+      "summary": "Deterministic composition for uk/pension-credit at 2026-04. Outputs: guarantee_credit, appropriate_minimum_guarantee, guarantee_credit_condition_satisfied. Corpus: unversioned corpus."
+    },
+    "units": [
+      {
+        "name": "GBP",
+        "kind": "currency",
+        "minor_units": 2
+      },
+      {
+        "name": "USD",
+        "kind": "currency",
+        "minor_units": 2
+      },
+      {
+        "name": "EUR",
+        "kind": "currency",
+        "minor_units": 2
+      },
+      {
+        "name": "count",
+        "kind": "count"
+      },
+      {
+        "name": "person",
+        "kind": "count"
+      },
+      {
+        "name": "ratio",
+        "kind": "ratio"
+      },
+      {
+        "name": "status",
+        "kind": "custom",
+        "label": "judgment"
+      }
+    ],
+    "relations": [],
+    "parameters": [
+      {
+        "id": "uk:regulations/uksi/2002/1792/6#standard_minimum_guarantee_with_partner",
+        "name": "standard_minimum_guarantee_with_partner",
+        "unit": "GBP",
+        "indexed_by": null,
+        "versions": [
+          {
+            "effective_from": "0001-01-01",
+            "values": {
+              "0": {
+                "kind": "decimal",
+                "value": "363.25"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "uk:regulations/uksi/2002/1792/6#standard_minimum_guarantee_no_partner",
+        "name": "standard_minimum_guarantee_no_partner",
+        "unit": "GBP",
+        "indexed_by": null,
+        "versions": [
+          {
+            "effective_from": "0001-01-01",
+            "values": {
+              "0": {
+                "kind": "decimal",
+                "value": "238"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "uk:regulations/uksi/2002/1792/6#nil_amount",
+        "name": "nil_amount",
+        "unit": "GBP",
+        "indexed_by": null,
+        "versions": [
+          {
+            "effective_from": "0001-01-01",
+            "values": {
+              "0": {
+                "kind": "integer",
+                "value": 0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "uk:regulations/uksi/2002/1792/6#severe_disability_additional_amount_single",
+        "name": "severe_disability_additional_amount_single",
+        "unit": "GBP",
+        "indexed_by": null,
+        "versions": [
+          {
+            "effective_from": "0001-01-01",
+            "values": {
+              "0": {
+                "kind": "decimal",
+                "value": "86.05"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "uk:regulations/uksi/2002/1792/6#severe_disability_additional_amount_couple",
+        "name": "severe_disability_additional_amount_couple",
+        "unit": "GBP",
+        "indexed_by": null,
+        "versions": [
+          {
+            "effective_from": "0001-01-01",
+            "values": {
+              "0": {
+                "kind": "decimal",
+                "value": "172.1"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "uk:regulations/uksi/2002/1792/6#carer_additional_amount_per_partner",
+        "name": "carer_additional_amount_per_partner",
+        "unit": "GBP",
+        "indexed_by": null,
+        "versions": [
+          {
+            "effective_from": "0001-01-01",
+            "values": {
+              "0": {
+                "kind": "decimal",
+                "value": "48.15"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "uk:regulations/uksi/2002/1792/6#remand_prisoner_maximum_detention_weeks",
+        "name": "remand_prisoner_maximum_detention_weeks",
+        "unit": null,
+        "indexed_by": null,
+        "versions": [
+          {
+            "effective_from": "0001-01-01",
+            "values": {
+              "0": {
+                "kind": "integer",
+                "value": 52
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "uk:regulations/uksi/2002/1792/6#custody_pending_trial_or_sentence_threshold_weeks",
+        "name": "custody_pending_trial_or_sentence_threshold_weeks",
+        "unit": null,
+        "indexed_by": null,
+        "versions": [
+          {
+            "effective_from": "0001-01-01",
+            "values": {
+              "0": {
+                "kind": "integer",
+                "value": 52
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "derived": [
+      {
+        "id": "uk:statutes/ukpga/2002/16/2#appropriate_minimum_guarantee",
+        "name": "appropriate_minimum_guarantee",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "GBP",
+        "period": "Year",
+        "source": "State Pension Credit Act 2002 s 2(3)",
+        "source_url": null,
+        "semantics": "scalar",
+        "expr": {
+          "kind": "add",
+          "items": [
+            {
+              "kind": "derived",
+              "name": "standard_minimum_guarantee"
+            },
+            {
+              "kind": "derived",
+              "name": "prescribed_additional_amounts_applicable"
+            }
+          ]
+        }
+      },
+      {
+        "id": "uk:statutes/ukpga/2002/16/2#guarantee_credit_condition_satisfied",
+        "name": "guarantee_credit_condition_satisfied",
+        "entity": "Person",
+        "dtype": "judgment",
+        "unit": null,
+        "period": "Year",
+        "source": "State Pension Credit Act 2002 s 2(1)",
+        "source_url": null,
+        "semantics": "judgment",
+        "expr": {
+          "kind": "or",
+          "items": [
+            {
+              "kind": "comparison",
+              "left": {
+                "kind": "input",
+                "name": "claimant_income"
+              },
+              "op": "eq",
+              "right": {
+                "kind": "literal",
+                "value": {
+                  "kind": "integer",
+                  "value": 0
+                }
+              }
+            },
+            {
+              "kind": "comparison",
+              "left": {
+                "kind": "input",
+                "name": "claimant_income"
+              },
+              "op": "lte",
+              "right": {
+                "kind": "derived",
+                "name": "appropriate_minimum_guarantee"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "uk:statutes/ukpga/2002/16/2#guarantee_credit",
+        "name": "guarantee_credit",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "GBP",
+        "period": "Year",
+        "source": "State Pension Credit Act 2002 s 2(2)",
+        "source_url": null,
+        "semantics": "scalar",
+        "expr": {
+          "kind": "if",
+          "condition": {
+            "kind": "derived",
+            "name": "claimant_is_entitled_to_guarantee_credit"
+          },
+          "then_expr": {
+            "kind": "if",
+            "condition": {
+              "kind": "comparison",
+              "left": {
+                "kind": "input",
+                "name": "claimant_income"
+              },
+              "op": "eq",
+              "right": {
+                "kind": "literal",
+                "value": {
+                  "kind": "integer",
+                  "value": 0
+                }
+              }
+            },
+            "then_expr": {
+              "kind": "derived",
+              "name": "appropriate_minimum_guarantee"
+            },
+            "else_expr": {
+              "kind": "sub",
+              "left": {
+                "kind": "derived",
+                "name": "appropriate_minimum_guarantee"
+              },
+              "right": {
+                "kind": "input",
+                "name": "claimant_income"
+              }
+            }
+          },
+          "else_expr": {
+            "kind": "literal",
+            "value": {
+              "kind": "decimal",
+              "value": "0"
+            }
+          }
+        }
+      },
+      {
+        "id": "uk:regulations/uksi/2002/1792/6#paragraph_3_case_applies",
+        "name": "paragraph_3_case_applies",
+        "entity": "Person",
+        "dtype": "judgment",
+        "unit": null,
+        "period": "Week",
+        "source": "regulation 6(2)",
+        "source_url": null,
+        "semantics": "judgment",
+        "expr": {
+          "kind": "or",
+          "items": [
+            {
+              "kind": "derived",
+              "name": "claimant_is_prisoner"
+            },
+            {
+              "kind": "derived",
+              "name": "member_of_religious_order_fully_maintained_by_order"
+            }
+          ]
+        }
+      },
+      {
+        "id": "uk:regulations/uksi/2002/1792/6#standard_minimum_guarantee",
+        "name": "standard_minimum_guarantee",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "GBP",
+        "period": "Week",
+        "source": "regulation 6(1) and 6(3)(a)",
+        "source_url": null,
+        "semantics": "scalar",
+        "expr": {
+          "kind": "if",
+          "condition": {
+            "kind": "derived",
+            "name": "paragraph_3_case_applies"
+          },
+          "then_expr": {
+            "kind": "parameter_lookup",
+            "parameter": "nil_amount",
+            "index": {
+              "kind": "literal",
+              "value": {
+                "kind": "integer",
+                "value": 0
+              }
+            }
+          },
+          "else_expr": {
+            "kind": "if",
+            "condition": {
+              "kind": "comparison",
+              "left": {
+                "kind": "input",
+                "name": "claimant_has_partner"
+              },
+              "op": "eq",
+              "right": {
+                "kind": "literal",
+                "value": {
+                  "kind": "bool",
+                  "value": true
+                }
+              }
+            },
+            "then_expr": {
+              "kind": "parameter_lookup",
+              "parameter": "standard_minimum_guarantee_with_partner",
+              "index": {
+                "kind": "literal",
+                "value": {
+                  "kind": "integer",
+                  "value": 0
+                }
+              }
+            },
+            "else_expr": {
+              "kind": "parameter_lookup",
+              "parameter": "standard_minimum_guarantee_no_partner",
+              "index": {
+                "kind": "literal",
+                "value": {
+                  "kind": "integer",
+                  "value": 0
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "uk:regulations/uksi/2002/1792/6#severe_disability_additional_amount",
+        "name": "severe_disability_additional_amount",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "GBP",
+        "period": "Week",
+        "source": "regulation 6(4) and 6(5)",
+        "source_url": null,
+        "semantics": "scalar",
+        "expr": {
+          "kind": "if",
+          "condition": {
+            "kind": "derived",
+            "name": "paragraph_3_case_applies"
+          },
+          "then_expr": {
+            "kind": "literal",
+            "value": {
+              "kind": "decimal",
+              "value": "0"
+            }
+          },
+          "else_expr": {
+            "kind": "if",
+            "condition": {
+              "kind": "comparison",
+              "left": {
+                "kind": "input",
+                "name": "treated_as_severely_disabled_person_under_schedule_i_part_i_paragraph_1"
+              },
+              "op": "eq",
+              "right": {
+                "kind": "literal",
+                "value": {
+                  "kind": "bool",
+                  "value": true
+                }
+              }
+            },
+            "then_expr": {
+              "kind": "if",
+              "condition": {
+                "kind": "comparison",
+                "left": {
+                  "kind": "input",
+                  "name": "severe_disability_couple_rate_conditions_satisfied"
+                },
+                "op": "eq",
+                "right": {
+                  "kind": "literal",
+                  "value": {
+                    "kind": "bool",
+                    "value": true
+                  }
+                }
+              },
+              "then_expr": {
+                "kind": "parameter_lookup",
+                "parameter": "severe_disability_additional_amount_couple",
+                "index": {
+                  "kind": "literal",
+                  "value": {
+                    "kind": "integer",
+                    "value": 0
+                  }
+                }
+              },
+              "else_expr": {
+                "kind": "parameter_lookup",
+                "parameter": "severe_disability_additional_amount_single",
+                "index": {
+                  "kind": "literal",
+                  "value": {
+                    "kind": "integer",
+                    "value": 0
+                  }
+                }
+              }
+            },
+            "else_expr": {
+              "kind": "literal",
+              "value": {
+                "kind": "decimal",
+                "value": "0"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "uk:regulations/uksi/2002/1792/6#carer_additional_amount",
+        "name": "carer_additional_amount",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "GBP",
+        "period": "Week",
+        "source": "regulation 6(6)(a) and 6(8)",
+        "source_url": null,
+        "semantics": "scalar",
+        "expr": {
+          "kind": "if",
+          "condition": {
+            "kind": "derived",
+            "name": "paragraph_3_case_applies"
+          },
+          "then_expr": {
+            "kind": "literal",
+            "value": {
+              "kind": "decimal",
+              "value": "0"
+            }
+          },
+          "else_expr": {
+            "kind": "if",
+            "condition": {
+              "kind": "comparison",
+              "left": {
+                "kind": "input",
+                "name": "paragraph_4_of_part_ii_of_schedule_i_satisfied_for_this_partner"
+              },
+              "op": "eq",
+              "right": {
+                "kind": "literal",
+                "value": {
+                  "kind": "bool",
+                  "value": true
+                }
+              }
+            },
+            "then_expr": {
+              "kind": "parameter_lookup",
+              "parameter": "carer_additional_amount_per_partner",
+              "index": {
+                "kind": "literal",
+                "value": {
+                  "kind": "integer",
+                  "value": 0
+                }
+              }
+            },
+            "else_expr": {
+              "kind": "literal",
+              "value": {
+                "kind": "decimal",
+                "value": "0"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "uk:regulations/uksi/2002/1792/6#remand_prisoner",
+        "name": "remand_prisoner",
+        "entity": "Person",
+        "dtype": "judgment",
+        "unit": null,
+        "period": "Week",
+        "source": "regulation 6(10)",
+        "source_url": null,
+        "semantics": "judgment",
+        "expr": {
+          "kind": "and",
+          "items": [
+            {
+              "kind": "comparison",
+              "left": {
+                "kind": "input",
+                "name": "detained_for_period_not_exceeding_52_weeks"
+              },
+              "op": "eq",
+              "right": {
+                "kind": "literal",
+                "value": {
+                  "kind": "bool",
+                  "value": true
+                }
+              }
+            },
+            {
+              "kind": "or",
+              "items": [
+                {
+                  "kind": "or",
+                  "items": [
+                    {
+                      "kind": "comparison",
+                      "left": {
+                        "kind": "input",
+                        "name": "detained_in_custody_on_remand_pending_trial"
+                      },
+                      "op": "eq",
+                      "right": {
+                        "kind": "literal",
+                        "value": {
+                          "kind": "bool",
+                          "value": true
+                        }
+                      }
+                    },
+                    {
+                      "kind": "comparison",
+                      "left": {
+                        "kind": "input",
+                        "name": "required_as_condition_of_bail_to_reside_in_approved_hostel"
+                      },
+                      "op": "eq",
+                      "right": {
+                        "kind": "literal",
+                        "value": {
+                          "kind": "bool",
+                          "value": true
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "kind": "comparison",
+                  "left": {
+                    "kind": "input",
+                    "name": "detained_pending_sentence_upon_conviction"
+                  },
+                  "op": "eq",
+                  "right": {
+                    "kind": "literal",
+                    "value": {
+                      "kind": "bool",
+                      "value": true
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "uk:regulations/uksi/2002/1792/6#detained_more_than_52_weeks_pending_trial_or_sentence",
+        "name": "detained_more_than_52_weeks_pending_trial_or_sentence",
+        "entity": "Person",
+        "dtype": "judgment",
+        "unit": null,
+        "period": "Week",
+        "source": "regulation 6(7)",
+        "source_url": null,
+        "semantics": "judgment",
+        "expr": {
+          "kind": "and",
+          "items": [
+            {
+              "kind": "comparison",
+              "left": {
+                "kind": "input",
+                "name": "detained_in_custody_for_more_than_52_weeks"
+              },
+              "op": "eq",
+              "right": {
+                "kind": "literal",
+                "value": {
+                  "kind": "bool",
+                  "value": true
+                }
+              }
+            },
+            {
+              "kind": "comparison",
+              "left": {
+                "kind": "input",
+                "name": "detained_pending_trial_or_sentence_following_conviction_by_court"
+              },
+              "op": "eq",
+              "right": {
+                "kind": "literal",
+                "value": {
+                  "kind": "bool",
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "uk:regulations/uksi/2002/1792/6#schedule_iia_additional_amount_entitlement_ceases_for_tax_credit_award",
+        "name": "schedule_iia_additional_amount_entitlement_ceases_for_tax_credit_award",
+        "entity": "Person",
+        "dtype": "judgment",
+        "unit": null,
+        "period": "Week",
+        "source": "regulation 6(14) to 6(16)",
+        "source_url": null,
+        "semantics": "judgment",
+        "expr": {
+          "kind": "and",
+          "items": [
+            {
+              "kind": "comparison",
+              "left": {
+                "kind": "input",
+                "name": "awarded_tax_credit_under_tax_credits_act"
+              },
+              "op": "eq",
+              "right": {
+                "kind": "literal",
+                "value": {
+                  "kind": "bool",
+                  "value": true
+                }
+              }
+            },
+            {
+              "kind": "or",
+              "items": [
+                {
+                  "kind": "comparison",
+                  "left": {
+                    "kind": "input",
+                    "name": "tax_credit_award_circumstances_in_paragraph_15"
+                  },
+                  "op": "eq",
+                  "right": {
+                    "kind": "literal",
+                    "value": {
+                      "kind": "bool",
+                      "value": true
+                    }
+                  }
+                },
+                {
+                  "kind": "comparison",
+                  "left": {
+                    "kind": "input",
+                    "name": "tax_credit_decision_revised_in_favour_after_paragraph_16_event"
+                  },
+                  "op": "eq",
+                  "right": {
+                    "kind": "literal",
+                    "value": {
+                      "kind": "bool",
+                      "value": true
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "claimant_is_entitled_to_guarantee_credit",
+        "entity": "Person",
+        "dtype": "judgment",
+        "unit": null,
+        "period": "Year",
+        "source": "policyengine-uk-rust bridge, s.1 qualifying age and presence assumed for simulated pensioners",
+        "source_url": null,
+        "semantics": "judgment",
+        "expr": {
+          "kind": "derived",
+          "name": "guarantee_credit_condition_satisfied"
+        }
+      },
+      {
+        "name": "prescribed_additional_amounts_applicable",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "GBP",
+        "period": "Year",
+        "source": "policyengine-uk-rust bridge from SPCA 2002 s.2(3)(b) to SPC Regs 2002 reg 6(4)-(8)",
+        "source_url": null,
+        "semantics": "scalar",
+        "expr": {
+          "kind": "add",
+          "items": [
+            {
+              "kind": "derived",
+              "name": "severe_disability_additional_amount"
+            },
+            {
+              "kind": "derived",
+              "name": "carer_additional_amount"
+            }
+          ]
+        }
+      },
+      {
+        "name": "claimant_is_prisoner",
+        "entity": "Person",
+        "dtype": "judgment",
+        "unit": null,
+        "period": "Week",
+        "source": "policyengine-uk-rust bridge, prisoners not simulated",
+        "source_url": null,
+        "semantics": "judgment",
+        "expr": {
+          "kind": "comparison",
+          "left": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": false
+            }
+          },
+          "op": "eq",
+          "right": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": true
+            }
+          }
+        }
+      },
+      {
+        "name": "member_of_religious_order_fully_maintained_by_order",
+        "entity": "Person",
+        "dtype": "judgment",
+        "unit": null,
+        "period": "Week",
+        "source": "policyengine-uk-rust bridge, fully maintained members of religious orders not simulated",
+        "source_url": null,
+        "semantics": "judgment",
+        "expr": {
+          "kind": "comparison",
+          "left": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": false
+            }
+          },
+          "op": "eq",
+          "right": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": true
+            }
+          }
+        }
+      }
+    ]
+  },
+  "metadata": {
+    "evaluation_order": [
+      "claimant_is_prisoner",
+      "detained_more_than_52_weeks_pending_trial_or_sentence",
+      "member_of_religious_order_fully_maintained_by_order",
+      "paragraph_3_case_applies",
+      "carer_additional_amount",
+      "remand_prisoner",
+      "schedule_iia_additional_amount_entitlement_ceases_for_tax_credit_award",
+      "severe_disability_additional_amount",
+      "prescribed_additional_amounts_applicable",
+      "standard_minimum_guarantee",
+      "appropriate_minimum_guarantee",
+      "guarantee_credit_condition_satisfied",
+      "claimant_is_entitled_to_guarantee_credit",
+      "guarantee_credit"
+    ],
+    "fast_path": {
+      "strategy": "generic_bulk",
+      "compatible": true,
+      "blockers": []
+    }
+  }
+}

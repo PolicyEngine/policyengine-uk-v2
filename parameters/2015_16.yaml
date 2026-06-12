@@ -45,7 +45,6 @@ child_benefit:
 
 state_pension:
   new_state_pension_weekly: 0.0  # New SP starts 2016/17
-  old_basic_pension_weekly: 115.95
 
 pension_credit:
   standard_minimum_single: 151.20

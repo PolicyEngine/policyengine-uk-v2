@@ -67,7 +67,6 @@ child_benefit:
 state_pension:
   # SI 2023/234 art.6: £203.85/week
   new_state_pension_weekly: 203.85
-  old_basic_pension_weekly: 156.20
 
 pension_credit:
   standard_minimum_single: 201.05

@@ -14,10 +14,20 @@ PKG_DIR="$SCRIPT_DIR/policyengine_uk_compiled"
 echo "Building Rust binary (release)..."
 (cd "$REPO_ROOT" && cargo build --release)
 
+echo "Building native extension (release)..."
+(cd "$REPO_ROOT" && cargo build --release --features python --lib)
+
 echo "Staging binary into package..."
 mkdir -p "$PKG_DIR/bin"
 cp "$REPO_ROOT/target/release/policyengine-uk-rust" "$PKG_DIR/bin/"
 chmod +x "$PKG_DIR/bin/policyengine-uk-rust"
+
+echo "Staging native extension into package..."
+case "$(uname)" in
+    Darwin) DYLIB="libpolicyengine_uk_rust.dylib" ;;
+    *)      DYLIB="libpolicyengine_uk_rust.so" ;;
+esac
+cp "$REPO_ROOT/target/release/$DYLIB" "$PKG_DIR/_native.so"
 
 echo "Staging parameters into package..."
 rm -rf "$PKG_DIR/parameters"

@@ -30,6 +30,7 @@ policyengine_uk_compiled = [
     "bin/*",
     "parameters/*.yaml",
     "CLAUDE.md",
+    "_native.so",
 ]
 
 [tool.towncrier]

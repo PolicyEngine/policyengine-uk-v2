@@ -1,0 +1,140 @@
+# UK income tax (s.23 liability, NSND income) -- 2026-27
+#
+# Program for the ITA 2007 s.23 liability calculation over non-savings,
+# non-dividend income: total income is summed from income components supplied
+# as a Payment -> Person relation (s.23 Step 1), section 24 reliefs are
+# deducted per component, the personal allowance (s.35, tapered on adjusted
+# net income) is deducted, and tax is calculated at the s.10 rates (FA 2026
+# s.2) over the s.10(5)/(5A) rate limits.
+#
+# Bridges encode the NSND-only modelling assumptions: no s.24B nil-income
+# cases, no Chapter 2 Part 3 allowances beyond the personal allowance, no
+# s.26 reductions or s.30 additions, all income charged at the s.10 main
+# rates (savings and dividend rates are a later slice), and adjusted net
+# income taken as net income (no pension or gift aid adjustments).
+#
+# These assumptions are policyengine-uk-rust's, so the spec lives here
+# rather than in axiom-programs. Regenerate ../artifacts/ with checkouts of
+# TheAxiomFoundation/{rulespec-uk,axiom-compose,axiom-rules-engine}:
+#
+#   uv run --project <axiom-compose> python -m axiom_compose.cli \
+#     uk-income-tax-fy2026.yaml --rulespec-root <rulespec-uk> -o composed.yaml
+#   AXIOM_RULESPEC_REPO_ROOTS=<parent of rulespec-uk> axiom-rules-engine \
+#     compile --program composed.yaml --output ../artifacts/uk-income-tax-fy2026.json
+
+program: uk/income-tax
+period: 2026-04
+
+outputs:
+  - income_tax_liability
+  - total_income
+  - net_income
+  - income_remaining_after_allowances
+  - income_tax_on_section_10_income
+  - tax_on_income_charged_at_basic_rate
+  - tax_on_income_charged_at_higher_rate
+  - tax_on_income_charged_at_additional_rate
+  - income_charged_at_basic_rate
+  - income_charged_at_higher_rate
+  - income_charged_at_additional_rate
+  - personal_allowance
+  - basic_rate_limit
+  - higher_rate_limit
+
+scope:
+  uk:
+    - statutes/ukpga/2007/3/23
+    - statutes/ukpga/2007/3/10
+    - statutes/ukpga/2007/3/35
+    - statutes/ukpga/2026/11/2
+
+transformations:
+  - pattern: derived_formula
+    name: individual_makes_claim
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Judgment
+    period: Year
+    formula: 'true'
+    source: axiom-programs/uk/income-tax bridge, claim assumed made for simulated population
+
+  - pattern: derived_formula
+    name: individual_meets_requirements_under_section_56
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Judgment
+    period: Year
+    formula: 'true'
+    source: axiom-programs/uk/income-tax bridge, s.56 residence requirements assumed met
+
+  - pattern: derived_formula
+    name: net_income_taken_as_zero_under_section_24b
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Judgment
+    period: Year
+    formula: 'false'
+    source: axiom-programs/uk/income-tax bridge, s.24B nil-income cases out of scope
+
+  - pattern: derived_formula
+    name: other_allowances_under_chapter_2_part_3
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    formula: '0'
+    source: axiom-programs/uk/income-tax bridge, only the personal allowance modelled at s.23 Step 3
+
+  - pattern: derived_formula
+    name: tax_reductions_listed_in_section_26
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    formula: '0'
+    source: axiom-programs/uk/income-tax bridge, s.26 reductions out of scope
+
+  - pattern: derived_formula
+    name: additional_tax_amounts_listed_in_section_30
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    formula: '0'
+    source: axiom-programs/uk/income-tax bridge, s.30 additions out of scope
+
+  - pattern: derived_formula
+    name: tax_calculated_at_applicable_rates_on_income_remaining_after_allowances
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    formula: |-
+      income_tax_on_section_10_income
+    source: axiom-programs/uk/income-tax bridge from s.23 Step 4 to the s.10 main rates, all income treated as non-savings non-dividend
+
+  - pattern: derived_formula
+    name: income_charged_under_section_10
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    formula: |-
+      income_remaining_after_allowances
+    source: axiom-programs/uk/income-tax bridge, s.23 Step 3 income all charged under s.10
+
+  - pattern: derived_formula
+    name: adjusted_net_income
+    effective_from: '2026-04-06'
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    formula: |-
+      net_income
+    source: axiom-programs/uk/income-tax bridge, s.58 adjustments (pension and gift aid) out of scope

@@ -79,7 +79,6 @@ child_benefit:
 
 state_pension:
   new_state_pension_weekly: 185.15  # DWP 2022/23 rates
-  old_basic_pension_weekly: 141.85
 
 pension_credit:
   standard_minimum_single: 182.60   # DWP 2022/23 rates

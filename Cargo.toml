@@ -4,7 +4,18 @@ version = "0.1.0"
 edition = "2021"
 description = "A high-performance UK tax-benefit microsimulation engine in Rust"
 
+[lib]
+name = "policyengine_uk_rust"
+crate-type = ["rlib", "cdylib"]
+
+[features]
+python = ["dep:pyo3"]
+
 [dependencies]
+pyo3 = { version = "0.24", features = ["extension-module", "abi3-py39"], optional = true }
+axiom-rules-engine = { git = "https://github.com/TheAxiomFoundation/axiom-rules-engine", rev = "4a25a10943ff76956dc7cf18306764bbd8eb53a9" }
+chrono = "0.4"
+rust_decimal = "1.39"
 rayon = "1.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -17,6 +28,9 @@ colored = "2"
 anyhow = "1"
 smartcore = "0.4"
 rand = "0.8"
+
+[build-dependencies]
+pyo3-build-config = "0.24"
 
 [dev-dependencies]
 criterion = "0.5"
@@ -39,6 +53,26 @@ harness = false
 
 [[bench]]
 name = "speedtest"
+harness = false
+
+[[bench]]
+name = "axiom_reform"
+harness = false
+
+[[bench]]
+name = "axiom_uc"
+harness = false
+
+[[bench]]
+name = "axiom_nics"
+harness = false
+
+[[bench]]
+name = "axiom_child_benefit"
+harness = false
+
+[[bench]]
+name = "axiom_pension_credit"
 harness = false
 
 [profile.release]

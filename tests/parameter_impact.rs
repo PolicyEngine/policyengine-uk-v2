@@ -7,6 +7,9 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+#[path = "../src/axiom/mod.rs"]
+#[allow(dead_code)]
+mod axiom;
 #[path = "../src/engine/mod.rs"]
 mod engine;
 #[path = "../src/parameters/mod.rs"]
@@ -147,9 +150,6 @@ const SKIP_PARAMS: &[&str] = &[
     // Employer NI: calculated but does not feed into household net income (borne by employer)
     "national_insurance.employer_rate",
     "national_insurance.secondary_threshold_annual",
-    // State pension: uses reported FRS amounts; parameter is only a fallback for unreported
-    "state_pension.new_state_pension_weekly",
-    "state_pension.old_basic_pension_weekly",
     // CA hours/age thresholds: binary eligibility checks that all real carers pass
     "income_related_benefits.ca_min_hours_caring",
     "income_related_benefits.ca_care_recipient_min_age",
