@@ -36,6 +36,9 @@ TARGETS_DIR = Path(__file__).resolve().parent / "targets"
 
 console = Console()
 
+# Targets that map to a sum of engine fields rather than a single one.
+DERIVED = {"tax_credits": ("child_tax_credit", "working_tax_credit")}
+
 
 def load_targets(year: int) -> dict[str, float]:
     path = TARGETS_DIR / f"{year}_{str(year + 1)[-2:]}.yaml"
@@ -75,6 +78,8 @@ def audit(year: int, tolerance: float) -> bool:
     failures = []
     for program, target in sorted(targets.items()):
         modelled = engine.get(program)
+        if modelled is None and program in DERIVED:
+            modelled = sum(engine[k] for k in DERIVED[program])
         if modelled is None:
             console.print(f"[yellow]Warning: '{program}' not in engine output, skipping[/yellow]")
             continue
