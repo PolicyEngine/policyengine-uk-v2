@@ -571,12 +571,17 @@ pub fn analyse(
         let median_equiv_bhc = weighted_median(&mut equiv_bhc);
         let median_equiv_ahc = weighted_median(&mut equiv_ahc);
 
+        // HBAI mean equivalised income is person-weighted: each person is assigned their
+        // household's equivalised income, then averaged across all persons.
+        let total_person_weight: f64 = households.iter()
+            .map(|h| h.weight * h.person_ids.len() as f64)
+            .sum();
         let mean_equiv_bhc = households.iter()
-            .map(|h| h.weight * results.household_results[h.id].equivalised_net_income)
-            .sum::<f64>() / total_weight;
+            .map(|h| h.weight * (h.person_ids.len() as f64) * results.household_results[h.id].equivalised_net_income)
+            .sum::<f64>() / total_person_weight;
         let mean_equiv_ahc = households.iter()
-            .map(|h| h.weight * results.household_results[h.id].equivalised_net_income_ahc)
-            .sum::<f64>() / total_weight;
+            .map(|h| h.weight * (h.person_ids.len() as f64) * results.household_results[h.id].equivalised_net_income_ahc)
+            .sum::<f64>() / total_person_weight;
         let mean_bhc = households.iter()
             .map(|h| h.weight * results.household_results[h.id].net_income)
             .sum::<f64>() / total_weight;
