@@ -39,7 +39,7 @@ pub fn load_frs(data_dir: &Path, fiscal_year: u32) -> anyhow::Result<Dataset> {
     let adult_table = load_table_cols(data_dir, "adult", Some(&[
         "sernum", "benunit", "person", "sex", "age", "age80", "tothours",
         "uperson", "hrpid", "limitill", "esagrp", "empstatb", "lookwk", "carer1",
-        "inearns", "seincam2", "inpeninc", "royyr1", "dividgro",
+        "inearns", "seincam2", "inseinc", "inpeninc", "royyr1", "dividgro",
         "mntus1", "mntus2", "mntusam1", "mntusam2", "mntamt1", "mntamt2",
         "allow1", "allow2", "allow3", "allow4",
         "allpay1", "allpay2", "allpay3", "allpay4",
@@ -784,7 +784,11 @@ fn parse_adults(
             is_benunit_head: get_i64(row, "uperson") == 1,
             is_household_head: is_hrp,
             employment_income_weekly,
-            self_employment_income_weekly: get_positive_f64(row, "seincam2"),
+            // seincam2 is the standard SE income column (1996+); inseinc is the pre-1996 name.
+            self_employment_income_weekly: {
+                let v = get_positive_f64(row, "seincam2");
+                if v > 0.0 { v } else { get_positive_f64(row, "inseinc") }
+            },
             private_pension_income_weekly: pens.map_or(
                 get_positive_f64(row, "inpeninc"),
                 |p| p.private_pension_weekly,
