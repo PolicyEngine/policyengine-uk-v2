@@ -23,7 +23,7 @@ BUCKET = "gs://policyengine-uk-microdata"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # FRS fiscal year → raw GCS path under {BUCKET}/ukds/
-YEARS: dict[int, str] = {year: f"frs/{year}" for year in range(1994, 2024)}
+YEARS: dict[int, str] = {year: f"frs/{year}" for year in range(1994, 2025)}
 
 console = Console()
 

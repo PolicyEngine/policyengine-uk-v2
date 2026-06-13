@@ -6,29 +6,35 @@ Rust microsimulation engine for the UK tax-benefit system, with a Python wrapper
 
 ## Running simulations
 
-```python
-import json, subprocess
+Use the Python interface. The full usage guide (constructors, reform parameters, microdata, batching, MTR patterns) lives at:
 
-binary = './target/release/policyengine-uk-rust'
-data_dir = '~/.policyengine-uk-data/frs'   # clean FRS CSVs
-
-# Baseline
-result = json.loads(subprocess.run(
-    [binary, '--data', data_dir, '--year', '2023', '--output', 'json'],
-    capture_output=True, text=True
-).stdout)
-
-# Reform
-result = json.loads(subprocess.run(
-    [binary, '--data', data_dir, '--year', '2023', '--output', 'json',
-     '--policy-json', json.dumps({'universal_credit': {'taper_rate': 0.50}})],
-    capture_output=True, text=True
-).stdout)
+```
+interfaces/python/policyengine_uk_compiled/CLAUDE.md
 ```
 
-For microdata (per-entity DataFrames): use `--output-microdata-stdout` and parse the `===PERSONS===` / `===BENUNITS===` / `===HOUSEHOLDS===` sections.
+Quick reference:
+
+```python
+from policyengine_uk_compiled import Simulation, Parameters, UniversalCreditParams
+
+# Full population (FRS auto-downloaded via POLICYENGINE_UK_DATA_TOKEN)
+result = Simulation(year=2025).run()
+
+# Reform
+result = Simulation(year=2025).run(policy=Parameters(
+    universal_credit=UniversalCreditParams(taper_rate=0.50)
+))
+
+# Hypothetical single person
+persons, benunits, households = Simulation.single_person(employment_income=30_000)
+result = Simulation(year=2025, persons=persons, benunits=benunits, households=households).run()
+```
+
+`POLICYENGINE_UK_DATA_TOKEN` for FRS auto-download is in `~/10ds/10ds-atlas-microsim/.env`.
 
 ## Key CLI flags
+
+Prefer the Python interface over the CLI. These flags exist for advanced use or debugging.
 
 | Flag | Purpose |
 |---|---|
@@ -38,7 +44,8 @@ For microdata (per-entity DataFrames): use `--output-microdata-stdout` and parse
 | `--output json` | Machine-readable aggregate output |
 | `--output-microdata-stdout` | Per-entity CSVs to stdout |
 | `--export-params-json` | Dump baseline parameters |
-| `--uprate-to YYYY` | With `--extract`: uprate dataset to target year before writing clean CSVs |
+| `--full-take-up` | Award every modelled benefit regardless of reported receipt (for hypothetical households) |
+| `--stdin-data` | Read household JSON from stdin instead of FRS CSVs |
 
 ## Data
 
@@ -48,16 +55,15 @@ For microdata (per-entity DataFrames): use `--output-microdata-stdout` and parse
 
 ## UC simulation — key mechanics
 
-- UC is only awarded to `on_uc_system` benunits: those who reported UC in FRS (`on_uc=True`), or who migrated from legacy benefits (`on_legacy=True` and `migration_seed < migration_rate`).
+- UC is only awarded to `on_uc_system` benunits: those who reported UC in FRS (`on_uc=True`), or under `--full-take-up`. Benunits with reported legacy benefit receipt (HB, CTC, WTC, IS) stay on the legacy system. There is no probabilistic migration.
 - Taper applies to **net** earned income (gross − income tax − NI − pension contribs) above the work allowance, at `taper_rate` (baseline 55%).
-- Work allowance only applies if the benunit has children or LCWRA. Rate is higher (£684/mo) without housing costs, lower (£411/mo) with.
+- Work allowance only applies if the benunit has children or LCWRA. Rate is higher without housing costs, lower with.
 - Unearned income (savings, private pension, maintenance, property, other) reduces UC pound-for-pound.
 
 ## Known model limitations
 
-- **Caseload undercount**: FRS-reported UC receipt is ~60% of actual. Policy costings will be proportionally lower than OBR/DWP estimates. For a taper 55%→50% reform, model gives ~£0.87bn (2023 FRS); scaled to real caseload ~£1.45–1.6bn. OBR-style estimates would be ~£2bn+.
-- Migration rates (`uc_migration.*` params: HB 70%, TC 95%, IS 65%) bring some legacy claimants onto UC, adding ~685k households, but don't close the gap.
-- UC earnings cutout for a single adult with no children and no rent is ~£8,700 gross (low, by design). Higher earners with rent/children can receive UC at much higher incomes.
+- **Caseload undercount**: FRS-reported UC receipt understates the true caseload. Policy costings will be proportionally lower than OBR/DWP estimates. The undercount is structural — routing is purely from reported receipt.
+- UC earnings cutout for a single adult with no children and no rent is low by design. Higher earners with rent/children can receive UC at much higher incomes.
 
 ## Investigating a reform
 

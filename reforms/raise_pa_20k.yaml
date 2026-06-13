@@ -1,9 +1,0 @@
-# Reform: Raise Personal Allowance to £20,000
-#
-# This increases the income tax personal allowance from the baseline
-# to £20,000, reducing income tax for most taxpayers.
-#
-# Run with: cargo run --release -- --reform reforms/raise_pa_20k.yaml
-
-income_tax:
-  personal_allowance: 20000.0

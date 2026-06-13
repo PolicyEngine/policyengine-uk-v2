@@ -31,29 +31,6 @@ rand = "0.8"
 [build-dependencies]
 pyo3-build-config = "0.24"
 
-[dev-dependencies]
-criterion = "0.5"
-
-[[bench]]
-name = "branch"
-harness = false
-
-[[bench]]
-name = "parameter_tree"
-harness = false
-
-[[bench]]
-name = "reform_neutralise"
-harness = false
-
-[[bench]]
-name = "cgt_surcharge"
-harness = false
-
-[[bench]]
-name = "speedtest"
-harness = false
-
 [profile.release]
 opt-level = 3
 lto = true
