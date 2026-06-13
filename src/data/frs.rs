@@ -63,7 +63,7 @@ pub fn load_frs(data_dir: &Path, fiscal_year: u32) -> anyhow::Result<Dataset> {
         "sernum", "person", "penpay", "ptamt", "ptinc", "poamt", "poinc", "penoth",
     ])).ok();
     let penprov_table = load_table_cols(data_dir, "penprov", Some(&[
-        "sernum", "person", "stemppen", "penamt",
+        "sernum", "person", "stemppen", "stemppay", "penamt", "penamtpd",
     ])).ok();
     let oddjob_table = load_table_cols(data_dir, "oddjob", Some(&[
         "sernum", "person", "ojamt",
@@ -437,8 +437,10 @@ fn aggregate_benefits(table: &Table) -> HashMap<PersonKey, BenefitAgg> {
         let var2 = get_i64(row, "var2");
         // BENAMT is a weekly equivalent for regular benefits (benpd 1-52).
         // For benpd=0/90/95/97 (lump sums, one-offs), treat as annual and convert to weekly.
+        // benpd=-1 is used for Winter Fuel Payment (code 62) which is always an annual lump sum.
         let benamt = match benpd {
             0 | 90 | 95 | 97 => benamt_raw / 52.0,
+            -1 if benefit == 62 => benamt_raw / 52.0,
             _ => benamt_raw,
         };
 
@@ -542,14 +544,21 @@ fn aggregate_penprov(table: &Table) -> HashMap<PersonKey, PenprovAgg> {
     for row in table {
         let sernum = get_i64(row, "sernum");
         let person = get_i64(row, "person");
+        // stemppen (2006+): 5 or 6 = personal pension contribution
+        // stemppay (2001–2005): 1 = personal pension contribution
         let stemppen = get_i64(row, "stemppen");
-        let penamt = get_positive_f64(row, "penamt");
+        let stemppay = get_i64(row, "stemppay");
+        let is_personal = stemppen == 5 || stemppen == 6 || stemppay == 1;
+        if !is_personal { continue; }
 
-        // Personal pension: stemppen 5 or 6
-        if stemppen == 5 || stemppen == 6 {
-            let entry = map.entry(person_key(sernum, person)).or_default();
-            entry.personal_pension_contributions_weekly += penamt;
-        }
+        let penamt_raw = get_positive_f64(row, "penamt");
+        let penamtpd = get_i64(row, "penamtpd");
+        // penamtpd=95 is an annual lump sum; divide by 52 to get weekly equivalent.
+        // All other codes store amounts already expressed as weekly equivalents.
+        let penamt = if penamtpd == 95 { penamt_raw / 52.0 } else { penamt_raw };
+
+        let entry = map.entry(person_key(sernum, person)).or_default();
+        entry.personal_pension_contributions_weekly += penamt;
     }
     map
 }
