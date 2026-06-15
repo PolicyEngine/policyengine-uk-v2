@@ -5,7 +5,6 @@ use comfy_table::{Table, ContentArrangement, presets};
 use serde::Serialize;
 use std::path::PathBuf;
 
-use policyengine_uk_rust::engine::Simulation;
 use policyengine_uk_rust::run;
 use policyengine_uk_rust::parameters::Parameters;
 use policyengine_uk_rust::reforms::Reform;
@@ -15,8 +14,6 @@ use policyengine_uk_rust::data::lcfs::load_lcfs;
 use policyengine_uk_rust::data::was::load_was;
 use policyengine_uk_rust::data::clean::{write_clean_csvs, load_clean_dataset, write_microdata, write_microdata_to_stdout};
 use policyengine_uk_rust::data::stdin::load_dataset_from_reader;
-use policyengine_uk_rust::data::efrs;
-use policyengine_uk_rust::data::calibrate;
 
 #[derive(Parser)]
 #[command(name = "policyengine-uk")]
@@ -112,33 +109,6 @@ struct Cli {
     #[arg(long)]
     output_microdata_stdout: bool,
 
-    /// Extract Enhanced FRS (wealth + consumption imputation) to clean CSVs.
-    /// Requires a base FRS dataset plus --was-dir and --lcfs-dir.
-    #[arg(long)]
-    extract_efrs: Option<PathBuf>,
-
-    /// WAS Round 7 TAB file directory (for EFRS wealth imputation).
-    #[arg(long)]
-    was_dir: Option<PathBuf>,
-
-    /// LCFS 2021/22 TAB file directory (for EFRS consumption imputation).
-    #[arg(long)]
-    lcfs_dir: Option<PathBuf>,
-
-    // ── Calibration ──
-
-    /// Calibration targets JSON file. Runs reweighting before any simulation.
-    #[arg(long)]
-    calibrate: Option<PathBuf>,
-
-    /// Output directory for calibrated dataset CSVs.
-    #[arg(long)]
-    calibrate_output: Option<PathBuf>,
-
-    /// Number of calibration epochs (default: 512).
-    #[arg(long, default_value = "512")]
-    calibrate_epochs: usize,
-
     // ── Parameter inspection ──
 
     /// Export baseline parameters as JSON.
@@ -199,118 +169,6 @@ fn main() -> anyhow::Result<()> {
         }
         write_clean_csvs(&mut dataset, output_dir)?;
         eprintln!("Wrote clean CSVs to {}", output_dir.display());
-        return Ok(());
-    }
-
-    // Extract Enhanced FRS if requested
-    if let Some(efrs_output) = &cli.extract_efrs {
-        let was_dir = cli.was_dir.as_ref()
-            .ok_or_else(|| anyhow::anyhow!("--extract-efrs requires --was-dir <was-tab-dir>"))?;
-        let lcfs_dir = cli.lcfs_dir.as_ref()
-            .ok_or_else(|| anyhow::anyhow!("--extract-efrs requires --lcfs-dir <lcfs-tab-dir>"))?;
-
-        // Load base FRS dataset
-        let mut dataset = if let Some(frs_path) = &cli.frs {
-            eprintln!("Loading raw FRS from {}...", frs_path.display());
-            load_frs(frs_path, cli.year)?
-        } else if let Some(base) = &cli.data {
-            let year_dir = base.join(cli.year.to_string());
-            if year_dir.is_dir() {
-                eprintln!("Loading clean FRS {}/{}...", cli.year, (cli.year + 1) % 100);
-                load_clean_dataset(&year_dir, cli.year)?
-            } else {
-                let latest = (1994..=cli.year).rev()
-                    .find(|y| base.join(y.to_string()).is_dir())
-                    .ok_or_else(|| anyhow::anyhow!("No clean FRS data found in {}", base.display()))?;
-                eprintln!("Loading clean FRS {}/{} and uprating...", latest, (latest + 1) % 100);
-                let mut ds = load_clean_dataset(&base.join(latest.to_string()), latest)?;
-                ds.uprate_to(cli.year);
-                ds
-            }
-        } else {
-            anyhow::bail!("--extract-efrs requires a base FRS dataset (--frs or --data)")
-        };
-
-        eprintln!("Loaded {} households, {} people", dataset.households.len(), dataset.people.len());
-
-        // Run EFRS imputation pipeline
-        efrs::enhance_dataset(&mut dataset, was_dir, lcfs_dir)?;
-
-        // Write enhanced clean CSVs
-        std::fs::create_dir_all(efrs_output)?;
-        eprintln!("Writing enhanced CSVs...");
-        write_clean_csvs(&mut dataset, efrs_output)?;
-        eprintln!("Wrote Enhanced FRS to {}", efrs_output.display());
-        return Ok(());
-    }
-
-    // Calibrate dataset weights if requested
-    if let Some(targets_path) = &cli.calibrate {
-        let base = cli.data.as_ref()
-            .ok_or_else(|| anyhow::anyhow!("--calibrate requires --data <clean-data-base>"))?;
-        let year_dir = base.join(cli.year.to_string());
-        let mut dataset = if year_dir.is_dir() {
-            eprintln!("Loading clean data {}/{}...", cli.year, (cli.year + 1) % 100);
-            load_clean_dataset(&year_dir, cli.year)?
-        } else {
-            let latest = (1994..=cli.year).rev()
-                .find(|y| base.join(y.to_string()).is_dir())
-                .ok_or_else(|| anyhow::anyhow!("No clean data found in {}", base.display()))?;
-            eprintln!("Loading clean data {}/{} and uprating to {}/{}...",
-                latest, (latest + 1) % 100, cli.year, (cli.year + 1) % 100);
-            let mut ds = load_clean_dataset(&base.join(latest.to_string()), latest)?;
-            ds.uprate_to(cli.year);
-            ds
-        };
-        eprintln!("Loaded {} households, {} people", dataset.households.len(), dataset.people.len());
-
-        // Load and filter targets for the requested year
-        let all_targets = calibrate::load_targets(targets_path)?;
-        let targets: Vec<_> = all_targets.into_iter()
-            .filter(|t| t.year == cli.year)
-            .collect();
-        eprintln!("Loaded {} calibration targets for {}", targets.len(), cli.year);
-
-        if targets.is_empty() {
-            anyhow::bail!("No calibration targets found for year {}", cli.year);
-        }
-
-        // Run baseline simulation so calibration can use output variables
-        let params = Parameters::for_year(cli.year)
-            .unwrap_or_else(|e| panic!("Failed to load params {}/{}: {}", cli.year, cli.year + 1, e));
-        eprintln!("Running baseline simulation...");
-        let sim = Simulation::new(
-            dataset.people.clone(), dataset.benunits.clone(),
-            dataset.households.clone(), params, cli.year,
-        );
-        let sim_results = sim.run();
-
-        // Build calibration matrix using simulation outputs
-        let (matrix, target_values, training_mask) = calibrate::build_matrix(&dataset, &targets, Some(&sim_results));
-        let initial_weights: Vec<f64> = dataset.households.iter().map(|h| h.weight).collect();
-
-        // Run optimisation
-        eprintln!("Running calibration ({} epochs)...", cli.calibrate_epochs);
-        let config = calibrate::CalibrateConfig {
-            epochs: cli.calibrate_epochs,
-            ..Default::default()
-        };
-        let mut result = calibrate::calibrate(&matrix, &target_values, &training_mask, &initial_weights, &config);
-
-        // Fill in target names for reporting
-        for (j, entry) in result.per_target_error.iter_mut().enumerate() {
-            entry.0 = targets[j].name.clone();
-        }
-
-        calibrate::print_report(&targets, &result, &dataset);
-
-        // Write calibrated dataset
-        calibrate::apply_weights(&mut dataset, &result.weights);
-        let output_dir = cli.calibrate_output.as_ref()
-            .unwrap_or(&year_dir);
-        std::fs::create_dir_all(output_dir)?;
-        write_clean_csvs(&mut dataset, output_dir)?;
-        eprintln!("Wrote calibrated dataset to {}", output_dir.display());
         return Ok(());
     }
 

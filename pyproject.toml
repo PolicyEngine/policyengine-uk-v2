@@ -16,6 +16,8 @@ dependencies = [
     "pyyaml>=6.0",
     "requests>=2.33.1",
     "rich>=14.3.3",
+    "scikit-learn>=1.5",
+    "xlrd>=2.0.2",
 ]
 
 [project.urls]
@@ -61,3 +63,8 @@ showcontent = true
 directory = "fixed"
 name = "Fixed"
 showcontent = true
+
+[dependency-groups]
+dev = [
+    "matplotlib>=3.10.9",
+]

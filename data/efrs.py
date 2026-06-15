@@ -1,7 +1,8 @@
 """Build clean EFRS microdata from FRS (clean) + WAS + LCFS raw files on GCS.
 
 EFRS (Enhanced FRS) merges FRS household microdata with WAS (wealth) and LCFS
-(expenditure). The Rust binary handles the imputation; Python orchestrates.
+(expenditure). Imputation runs in Python (data/impute.py); the Rust binary is
+only used downstream for the baseline simulation during weight calibration.
 
 Usage:
     python data/efrs.py                           # build all years
@@ -12,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -22,21 +24,23 @@ from rich.table import Table
 BUCKET = "gs://policyengine-uk-microdata"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# EFRS fiscal year → (frs_year, was_gcs_ref, lcfs_gcs_ref)
-YEARS: dict[int, tuple[int, str, str]] = {
-    2023: (2023, "was/round_7", "lcfs/2021"),
+# EFRS fiscal year → (frs_year, was_gcs_ref, lcfs_gcs_ref). Every FRS year is a
+# recipient; the donor pool is the most recent available WAS + LCFS for all years.
+_WAS_DONOR = "was/round_8"
+_LCFS_DONOR = "lcfs/2022"
+_SPI_DONOR = "spi/2022"
+YEARS: dict[int, tuple[int, str, str, str]] = {
+    y: (y, _WAS_DONOR, _LCFS_DONOR, _SPI_DONOR) for y in range(2010, 2025)
 }
 
 console = Console()
 
 
-def _binary() -> Path:
-    built = REPO_ROOT / "target" / "release" / "policyengine-uk-rust"
-    if built.exists():
-        return built
-    console.print("[yellow]Binary not found at target/release/, building...[/yellow]")
-    subprocess.run(["cargo", "build", "--release"], cwd=REPO_ROOT, check=True)
-    return built
+def _has_targets(year: int) -> bool:
+    import json
+
+    targets = json.loads((REPO_ROOT / "data" / "calibration_targets.json").read_text())["targets"]
+    return any(t["year"] == year for t in targets)
 
 
 def _download(gcs_ref: str, dest: Path) -> None:
@@ -73,9 +77,9 @@ def upload_clean(year: int, clean_dir: Path) -> None:
     subprocess.run(["gcloud", "storage", "cp", *[str(f) for f in csvs], dest], check=True)
 
 
-def build(year: int, work_dir: Path, upload: bool = True) -> None:
+def build(year: int, work_dir: Path, upload: bool = True, calibrate: bool = True) -> None:
     console.rule(f"EFRS {year}")
-    frs_year, was_ref, lcfs_ref = YEARS[year]
+    frs_year, was_ref, lcfs_ref, spi_ref = YEARS[year]
 
     frs_base = work_dir / "clean" / "frs"
     _ensure_frs_clean(frs_year, work_dir)
@@ -86,20 +90,30 @@ def build(year: int, work_dir: Path, upload: bool = True) -> None:
     lcfs_raw = work_dir / "raw" / lcfs_ref
     _download(lcfs_ref, lcfs_raw)
 
+    spi_raw = work_dir / "raw" / spi_ref
+    _download(spi_ref, spi_raw)
+
     efrs_out = work_dir / "clean" / "efrs" / str(year)
     efrs_out.mkdir(parents=True, exist_ok=True)
-    console.print(f"  extracting EFRS {year} → {efrs_out}")
-    subprocess.run(
-        [
-            str(_binary()),
-            "--extract-efrs", str(efrs_out),
-            "--data", str(frs_base),
-            "--year", str(year),
-            "--was-dir", str(was_raw),
-            "--lcfs-dir", str(lcfs_raw),
-        ],
-        check=True,
-    )
+    console.print(f"  building EFRS {year} → {efrs_out}")
+
+    # Copy the clean FRS entity CSVs, then impute wealth/consumption in Python.
+    frs_clean = frs_base / str(frs_year)
+    for fname in ("persons.csv", "benunits.csv", "households.csv"):
+        shutil.copy(frs_clean / fname, efrs_out / fname)
+
+    from impute import impute
+
+    impute(efrs_out, was_raw, lcfs_raw, year=year, spi_dir=spi_raw)
+
+    if calibrate and _has_targets(year):
+        console.print(f"  calibrating weights for EFRS {year}")
+        from calibrate import CalibrateConfig
+        from calibrate import run as run_calibration
+
+        run_calibration(efrs_out, year, CalibrateConfig())
+    elif calibrate:
+        console.print(f"  [yellow]no calibration targets for {year} — leaving uprated weights[/yellow]")
 
     if upload:
         upload_clean(year, efrs_out)
@@ -110,6 +124,7 @@ def main() -> None:
     parser.add_argument("--year", type=int, choices=sorted(YEARS), help="Single year to build")
     parser.add_argument("--work-dir", type=Path, default=REPO_ROOT / "data")
     parser.add_argument("--no-upload", action="store_true")
+    parser.add_argument("--no-calibrate", action="store_true")
     args = parser.parse_args()
 
     years = [args.year] if args.year else sorted(YEARS)
@@ -119,14 +134,15 @@ def main() -> None:
     table.add_column("FRS base")
     table.add_column("WAS")
     table.add_column("LCFS")
+    table.add_column("SPI")
     for y in years:
-        frs_year, was_ref, lcfs_ref = YEARS[y]
-        table.add_row(str(y), str(frs_year), was_ref, lcfs_ref)
+        frs_year, was_ref, lcfs_ref, spi_ref = YEARS[y]
+        table.add_row(str(y), str(frs_year), was_ref, lcfs_ref, spi_ref)
     console.print(table)
 
     for year in years:
         try:
-            build(year, args.work_dir, upload=not args.no_upload)
+            build(year, args.work_dir, upload=not args.no_upload, calibrate=not args.no_calibrate)
         except subprocess.CalledProcessError as e:
             console.print(f"[red]Failed on year {year}: {e}[/red]")
             sys.exit(1)

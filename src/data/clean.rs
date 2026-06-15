@@ -326,6 +326,7 @@ fn write_microdata_csv_persons<W: std::io::Write>(
         "miscellaneous_income", "other_income",
         // Employment
         "is_in_scotland", "hours_worked_annual",
+        "is_employed", "is_unemployed",
         // Status
         "is_disabled", "is_carer",
         // Contributions
@@ -335,18 +336,18 @@ fn write_microdata_csv_persons<W: std::io::Write>(
         "child_benefit", "housing_benefit",
         "income_support", "pension_credit",
         "child_tax_credit", "working_tax_credit",
-        "universal_credit",
+        "universal_credit", "carers_allowance",
         // ── Baseline outputs ──
         "baseline_income_tax", "baseline_employee_ni", "baseline_employer_ni",
         // Per-class NI breakdown (sum of class1_employee + class2 + class4 == employee_ni)
         "baseline_ni_class1_employee", "baseline_ni_class2", "baseline_ni_class4",
         "baseline_total_income", "baseline_taxable_income",
-        "baseline_personal_allowance",
+        "baseline_personal_allowance", "baseline_capital_gains_tax",
         // ── Reform outputs ──
         "reform_income_tax", "reform_employee_ni", "reform_employer_ni",
         "reform_ni_class1_employee", "reform_ni_class2", "reform_ni_class4",
         "reform_total_income", "reform_taxable_income",
-        "reform_personal_allowance",
+        "reform_personal_allowance", "reform_capital_gains_tax",
     ])?;
 
     for p in &dataset.people {
@@ -374,6 +375,9 @@ fn write_microdata_csv_persons<W: std::io::Write>(
             format!("{:.2}", p.other_income),
             p.is_in_scotland.to_string(),
             format!("{:.1}", p.hours_worked),
+            // emp_status: 1=employed, 2=self-employed, 3=unemployed, 4=inactive
+            (if p.emp_status == 1 || p.emp_status == 2 { 1 } else { 0 }).to_string(),
+            (if p.emp_status == 3 { 1 } else { 0 }).to_string(),
             p.is_disabled.to_string(),
             p.is_carer.to_string(),
             format!("{:.2}", p.employee_pension_contributions),
@@ -386,6 +390,7 @@ fn write_microdata_csv_persons<W: std::io::Write>(
             format!("{:.2}", p.child_tax_credit),
             format!("{:.2}", p.working_tax_credit),
             format!("{:.2}", p.universal_credit),
+            format!("{:.2}", p.carers_allowance),
             // Baseline
             format!("{:.2}", bl.income_tax),
             format!("{:.2}", bl.national_insurance),
@@ -396,6 +401,7 @@ fn write_microdata_csv_persons<W: std::io::Write>(
             format!("{:.2}", bl.total_income),
             format!("{:.2}", bl.taxable_income),
             format!("{:.2}", bl.personal_allowance),
+            format!("{:.2}", bl.capital_gains_tax),
             // Reform
             format!("{:.2}", rf.income_tax),
             format!("{:.2}", rf.national_insurance),
@@ -406,6 +412,7 @@ fn write_microdata_csv_persons<W: std::io::Write>(
             format!("{:.2}", rf.total_income),
             format!("{:.2}", rf.taxable_income),
             format!("{:.2}", rf.personal_allowance),
+            format!("{:.2}", rf.capital_gains_tax),
         ])?;
     }
 
@@ -540,12 +547,14 @@ fn write_microdata_csv_households<W: std::io::Write>(
         "baseline_total_tax", "baseline_total_benefits",
         "baseline_council_tax_calculated",
         "baseline_property_transaction_tax",
+        "baseline_vat", "baseline_fuel_duty",
         "baseline_equivalisation_factor", "baseline_equivalised_net_income",
         // ── Reform outputs ──
         "reform_net_income", "reform_gross_income",
         "reform_total_tax", "reform_total_benefits",
         "reform_council_tax_calculated",
         "reform_property_transaction_tax",
+        "reform_vat", "reform_fuel_duty",
         "reform_equivalisation_factor", "reform_equivalised_net_income",
     ])?;
 
@@ -567,6 +576,8 @@ fn write_microdata_csv_households<W: std::io::Write>(
             format!("{:.2}", bl.total_benefits),
             format!("{:.2}", bl.council_tax_calculated),
             format!("{:.2}", bl.stamp_duty),
+            format!("{:.2}", bl.vat),
+            format!("{:.2}", bl.fuel_duty),
             format!("{:.4}", bl.equivalisation_factor),
             format!("{:.2}", bl.equivalised_net_income),
             // Reform
@@ -576,6 +587,8 @@ fn write_microdata_csv_households<W: std::io::Write>(
             format!("{:.2}", rf.total_benefits),
             format!("{:.2}", rf.council_tax_calculated),
             format!("{:.2}", rf.stamp_duty),
+            format!("{:.2}", rf.vat),
+            format!("{:.2}", rf.fuel_duty),
             format!("{:.4}", rf.equivalisation_factor),
             format!("{:.2}", rf.equivalised_net_income),
         ])?;
