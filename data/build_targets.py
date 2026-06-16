@@ -666,6 +666,59 @@ def build_population_targets(years: list[int]) -> list[dict]:
     return out
 
 
+# ── UC award-amount distribution targets ──────────────────────────────────────
+
+# Households on UC by Monthly Award Amount band (Stat-Xplore UC_Households,
+# V_F_UC_HOUSEHOLDS count), November snapshot each year. Index 0 = no payment;
+# 1..15 = £0.01-100 ... £1400.01-1500 per month; 16 = £1500.01+ catch-all (used
+# to Nov 2021); 17..27 = £1500.01-1600 ... £2500.01+ fine split (from Nov 2022,
+# with index 16 then zero). We collapse everything ≥£1500/mo into one band, so
+# the top band = index 16 + sum(17..27), robust to that mid-series split.
+_UC_AWARD_BAND_COUNTS = {
+    2016: [129503, 17858, 18321, 73888, 37739, 15760, 25830, 22105, 12086, 8390, 7527, 6396, 5015, 4111, 3371, 2629, 8108, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    2017: [158166, 25659, 29870, 89860, 58388, 31274, 45619, 42391, 26930, 22242, 20567, 16863, 13474, 11351, 8581, 6105, 16538, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    2018: [182935, 40293, 60361, 164478, 101211, 82030, 115629, 103657, 69159, 68587, 64331, 51867, 41439, 32368, 23491, 15958, 47424, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    2019: [169100, 66150, 99431, 287662, 166426, 146491, 225351, 201465, 136582, 146177, 149247, 121624, 101502, 82896, 68476, 44291, 130682, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    2020: [802377, 124189, 136197, 246176, 600631, 362331, 234686, 366594, 336284, 237386, 238638, 234041, 203015, 182719, 153674, 105579, 321623, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    2021: [761122, 149309, 189910, 423090, 345652, 208515, 297043, 440411, 242251, 240214, 274975, 243595, 200684, 179938, 145898, 107103, 346169, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    2022: [614296, 155013, 184636, 379951, 341840, 204799, 295290, 514875, 238277, 252998, 286350, 293905, 230732, 205770, 168462, 124252, 0, 95899, 74971, 61011, 47863, 37281, 26497, 20811, 16219, 12020, 9589, 28987],
+    2023: [575921, 142285, 182890, 383919, 383034, 190141, 261780, 415570, 451402, 240548, 260864, 314996, 302320, 239787, 203790, 168543, 0, 138022, 105428, 84402, 69173, 56655, 46039, 34263, 25894, 20748, 15902, 56892],
+}
+
+
+def build_uc_award_band_targets(years: list[int]) -> list[dict]:
+    """Count of UC benefit units by monthly award-amount band, calibrated to the
+    DWP Households-on-UC distribution. The simulation's annual UC entitlement is
+    binned into monthly £100 bands (annual edge = monthly × 12), pinning the
+    *shape* of the award distribution rather than just the total caseload. The
+    nil-award band is dropped (a £0 filter on UC alone can't distinguish non-
+    recipients) and everything ≥£1500/mo is collapsed into one top band.
+    """
+    label = "DWP Stat-Xplore UC_Households award bands (Nov snapshot)"
+    out: list[dict] = []
+    for yr in years:
+        counts = _UC_AWARD_BAND_COUNTS.get(yr)
+        if counts is None:
+            continue
+
+        def add(name, value, lo_monthly, hi_monthly):
+            flt = {"variable": "universal_credit",
+                   "min": max(lo_monthly * 12.0, 0.01),
+                   "max": None if hi_monthly is None else hi_monthly * 12.0}
+            out.append({
+                "name": f"{name}_{yr}", "variable": "universal_credit",
+                "entity": "benunit", "aggregation": "count", "filter": flt,
+                "benunit_filter": None, "value": round(float(value), 0),
+                "source": label, "year": yr, "holdout": False,
+            })
+
+        for b in range(1, 16):
+            lo, hi = (b - 1) * 100, b * 100
+            add(f"uc_award_band_{lo}_{hi}", counts[b], lo, hi)
+        add("uc_award_band_1500_plus", counts[16] + sum(counts[17:28]), 1500, None)
+    return out
+
+
 # ── Assemble targets ─────────────────────────────────────────────────────────
 
 def build_targets(years: list[int]) -> list[dict]:
@@ -782,6 +835,7 @@ def build_targets(years: list[int]) -> list[dict]:
 
     targets += build_spi_targets(spi, earnings_index, years)
     targets += build_population_targets(years)
+    targets += build_uc_award_band_targets(years)
     return targets
 
 
