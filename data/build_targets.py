@@ -25,6 +25,8 @@ import openpyxl
 import pandas as pd
 import requests
 
+from uprate import cumulative_factor
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RAW_DIR = REPO_ROOT / "data" / "raw"
 OUT_PATH = REPO_ROOT / "data" / "calibration_targets.json"
@@ -40,6 +42,11 @@ ONS_QNA_URL = (
 )
 
 TARGET_YEARS = list(range(2010, 2025))
+
+# Forecast horizon: the last year with real source data, and the OBR EFO years we
+# project onto by uprating the latest real targets (data/uprate.py indices).
+LATEST_REAL_YEAR = 2024
+FORECAST_YEARS = list(range(2025, 2030))
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────
@@ -719,6 +726,82 @@ def build_uc_award_band_targets(years: list[int]) -> list[dict]:
     return out
 
 
+# ── Forecast-year targets (uprated from the latest real year) ─────────────────
+
+# Per-source uprating index for forecast years. Each target grows at the rate of
+# the microdata variable that generates it, so forecast-year calibration stays a
+# nudge rather than fighting the uprating. Counts (population/caseloads/labour)
+# track the population index; expenditure and consumption track CPI; tax receipts
+# track the base of the tax (earnings for income tax/NI/SDLT, CPI for VAT, GDP per
+# capita for CGT). SPI distribution targets are handled separately.
+_FORECAST_INDEX = {
+    "FRS grossed population": "population",
+    "OBR EFO economy table 1.6 (labour market)": "population",
+    "DWP Stat-Xplore UC_Households award bands (Nov snapshot)": "population",
+    "Eurostat/ONS HHFCE COICOP": "cpi",
+}
+# DWP benefit expenditure carries both £ sums (CPI) and claimant counts
+# (population), distinguished by aggregation. HMRC receipts vary by tax.
+_HMRC_RECEIPT_INDEX = {
+    "income_tax": "earnings", "employee_ni": "earnings", "employer_ni": "earnings",
+    "stamp_duty": "earnings", "vat": "cpi", "capital_gains_tax": "gdp_pc",
+}
+
+
+def _forecast_index_for(t: dict) -> str:
+    src = t["source"]
+    if src == "HMRC receipts":
+        return _HMRC_RECEIPT_INDEX[t["variable"]]
+    if src == "DWP benefit expenditure":
+        return "population" if t["aggregation"] == "count_nonzero" else "cpi"
+    return _FORECAST_INDEX[src]
+
+
+def _retag_name(name: str, base_year: int, forecast_year: int) -> str:
+    suffix = f"_{base_year}"
+    return name[: -len(suffix)] + f"_{forecast_year}" if name.endswith(suffix) else name
+
+
+def build_forecast_targets(real_targets: list[dict], forecast_years: list[int]) -> list[dict]:
+    """Project the latest real year's targets onto OBR forecast years.
+
+    Non-SPI targets are scaled by the cumulative growth of their source index
+    (counts by population, expenditure/consumption by CPI, receipts by their tax
+    base). SPI distribution targets uprate their income thresholds and amounts by
+    earnings growth while holding counts fixed (the band shape is assumed stable).
+    """
+    base = LATEST_REAL_YEAR
+    spi_label = "HMRC SPI Table 3.6 (income distribution)"
+    base_targets = [t for t in real_targets if t["year"] == base]
+    out: list[dict] = []
+
+    for yr in forecast_years:
+        for t in base_targets:
+            if t["source"] == spi_label:
+                ef = cumulative_factor(base, yr, "earnings")
+                flt = t["filter"]
+                new_flt = {
+                    "variable": flt["variable"],
+                    "min": None if flt["min"] is None else round(flt["min"] * ef, 0),
+                    "max": None if flt["max"] is None else round(flt["max"] * ef, 0),
+                }
+                # Counts held fixed; amounts grow with earnings. Re-tag the band
+                # in the name to the uprated lower threshold.
+                tag = 0 if new_flt["min"] is None else int(new_flt["min"])
+                stem = t["name"].rsplit("_", 2)[0]  # spi_<key>_<count|amount>
+                value = t["value"] if t["aggregation"] == "count_nonzero" else round(t["value"] * ef, 0)
+                nt = dict(t)
+                nt.update(name=f"{stem}_{tag}_{yr}", filter=new_flt, value=value, year=yr)
+                out.append(nt)
+            else:
+                f = cumulative_factor(base, yr, _forecast_index_for(t))
+                nt = dict(t)
+                nt.update(name=_retag_name(t["name"], base, yr),
+                          value=round(t["value"] * f, 0), year=yr)
+                out.append(nt)
+    return out
+
+
 # ── Assemble targets ─────────────────────────────────────────────────────────
 
 def build_targets(years: list[int]) -> list[dict]:
@@ -811,8 +894,9 @@ def build_targets(years: list[int]) -> list[dict]:
                     "caseloads": "DWP benefit expenditure",
                     "labour": "OBR EFO economy table 1.6 (labour market)"}
 
+    real_years = [y for y in years if y <= LATEST_REAL_YEAR]
     targets = []
-    for yr in years:
+    for yr in real_years:
         for name, entity, variable, aggregation, source_key, data_key in all_specs:
             data = source_map[source_key].get(yr, {})
             raw = data.get(data_key)
@@ -833,9 +917,16 @@ def build_targets(years: list[int]) -> list[dict]:
                 "holdout": False,
             })
 
-    targets += build_spi_targets(spi, earnings_index, years)
-    targets += build_population_targets(years)
-    targets += build_uc_award_band_targets(years)
+    targets += build_spi_targets(spi, earnings_index, real_years)
+    targets += build_population_targets(real_years)
+    targets += build_uc_award_band_targets(real_years)
+
+    forecast_years = [y for y in years if y > LATEST_REAL_YEAR]
+    if forecast_years:
+        # Forecast targets project the latest real year forward; build that base
+        # even if the caller didn't request it.
+        base = targets if LATEST_REAL_YEAR in real_years else build_targets([LATEST_REAL_YEAR])
+        targets += build_forecast_targets(base, forecast_years)
     return targets
 
 
@@ -843,7 +934,7 @@ def build_targets(years: list[int]) -> list[dict]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--years", nargs="+", type=int, default=TARGET_YEARS)
+    parser.add_argument("--years", nargs="+", type=int, default=TARGET_YEARS + FORECAST_YEARS)
     args = parser.parse_args()
 
     print(f"Building calibration targets for {len(args.years)} years...")
