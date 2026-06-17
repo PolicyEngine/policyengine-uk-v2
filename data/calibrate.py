@@ -46,7 +46,7 @@ class CalibrateConfig(BaseModel):
     log_interval: int = 16
     # No household may exceed max_weight_ratio× its original weight (or fall
     # below 1/ratio×). Hard backstop applied after each step. 0 disables.
-    max_weight_ratio: float = 100.0
+    max_weight_ratio: float = 10.0
     # Weight on the log-space deviation penalty: mean_i (log w_i - log w0_i)^2.
     # 0.05 keeps mean abs log-weight drift ~0.07 (vs ~0.23 at 0.01) for ~1pp
     # more RMSRE — favouring fidelity to the survey over chasing every target.

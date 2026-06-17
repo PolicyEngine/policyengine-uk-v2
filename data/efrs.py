@@ -13,7 +13,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -29,6 +28,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 _WAS_DONOR = "was/round_8"
 _LCFS_DONOR = "lcfs/2022"
 _SPI_DONOR = "spi/2022"
+# Number of consecutive FRS years pooled per EFRS year (target + preceding).
+POOL_N_YEARS = 3
 YEARS: dict[int, tuple[int, str, str, str]] = {
     y: (y, _WAS_DONOR, _LCFS_DONOR, _SPI_DONOR) for y in range(2010, 2025)
 }
@@ -82,7 +83,12 @@ def build(year: int, work_dir: Path, upload: bool = True, calibrate: bool = True
     frs_year, was_ref, lcfs_ref, spi_ref = YEARS[year]
 
     frs_base = work_dir / "clean" / "frs"
-    _ensure_frs_clean(frs_year, work_dir)
+    # Pool the target FRS year with the two preceding years (uprated to the
+    # target's price level) to triple the sample and smooth the calibrated
+    # poverty series. The window shrinks only if earlier years are unavailable.
+    pool_years = [y for y in range(frs_year - POOL_N_YEARS + 1, frs_year + 1) if y >= 1994]
+    for y in pool_years:
+        _ensure_frs_clean(y, work_dir)
 
     was_raw = work_dir / "raw" / was_ref
     _download(was_ref, was_raw)
@@ -97,10 +103,11 @@ def build(year: int, work_dir: Path, upload: bool = True, calibrate: bool = True
     efrs_out.mkdir(parents=True, exist_ok=True)
     console.print(f"  building EFRS {year} → {efrs_out}")
 
-    # Copy the clean FRS entity CSVs, then impute wealth/consumption in Python.
-    frs_clean = frs_base / str(frs_year)
-    for fname in ("persons.csv", "benunits.csv", "households.csv"):
-        shutil.copy(frs_clean / fname, efrs_out / fname)
+    # Write the pooled, uprated, re-based clean FRS frame, then impute on it.
+    from pool import write_pooled
+
+    used = write_pooled(frs_base, frs_year, efrs_out, n_years=POOL_N_YEARS)
+    console.print(f"  pooled FRS years {used} → {efrs_out}")
 
     from impute import impute
 
