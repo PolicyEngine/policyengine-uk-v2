@@ -25,8 +25,6 @@ indicatif = "0.17"
 comfy-table = "7"
 colored = "2"
 anyhow = "1"
-smartcore = "0.4"
-rand = "0.8"
 
 [build-dependencies]
 pyo3-build-config = "0.24"

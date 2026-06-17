@@ -4,8 +4,6 @@ pub mod stdin;
 pub mod spi;
 pub mod lcfs;
 pub mod was;
-pub mod efrs;
-pub mod calibrate;
 
 use crate::engine::entities::*;
 
