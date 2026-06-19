@@ -300,6 +300,124 @@ def load_spi_distributions(spi_dir: Path) -> dict[int, list[dict]]:
     return out
 
 
+# ── SPI investment income (Table 3.7) ───────────────────────────────────────
+
+# HMRC SPI Table 3.7 by total-income band: number of individuals (thousands) and
+# amount (£m) of property, interest and dividend income — the unearned-income
+# sources Table 3.6 omits. Two layouts: compact ods (number/amount in adjacent
+# columns) and wide xlsx (a spacer column splits each source's number/amount).
+# "Other income" is deliberately skipped: it has no clean engine counterpart.
+_SPI37_SOURCES = [  # (key, person_variable)
+    ("property", "property_income"),
+    ("interest", "savings_interest"),
+    ("dividends", "dividend_income"),
+]
+_SPI37_COLS_WIDE = {"band": 0, "property": (2, 3), "interest": (6, 7), "dividends": (10, 11)}
+_SPI37_COLS_ODS = {"band": 0, "property": (1, 2), "interest": (4, 5), "dividends": (7, 8)}
+
+
+def load_spi_table_3_7(path: Path) -> list[dict]:
+    """Return banded investment-income rows from one SPI Table 3.7 file.
+
+    Each row: {lo, hi, <src>_n (count, thousands), <src>_a (£m)} for each source
+    in _SPI37_SOURCES, band [lo, hi) over total income; the top band's hi is +inf.
+    """
+    if path.suffix in (".xlsx", ".xls"):
+        engine = "openpyxl" if path.suffix == ".xlsx" else "xlrd"
+        cols = _SPI37_COLS_WIDE
+        names = pd.ExcelFile(path, engine=engine).sheet_names
+        sheet = next((s for s in names if "3.7" in s or "3_7" in s), names[0])
+    else:
+        xl = pd.ExcelFile(path, engine="odf")
+        sheet = next(s for s in ("Table_3_7", "T3_7") if s in xl.sheet_names)
+        engine, cols = "odf", _SPI37_COLS_ODS
+
+    df = pd.read_excel(path, sheet_name=sheet, header=None, engine=engine)
+
+    def num(v: object) -> float | None:
+        return float(v) if isinstance(v, (int, float)) and pd.notna(v) else None
+
+    rows: list[dict] = []
+    for i in range(len(df)):
+        lo = num(df.iloc[i, cols["band"]])
+        if lo is None or lo <= 0:
+            continue
+        rec: dict[str, float] = {"lo": lo}
+        for key, _ in _SPI37_SOURCES:
+            cc, ca = cols[key]
+            rec[f"{key}_n"] = num(df.iloc[i, cc]) or 0.0
+            rec[f"{key}_a"] = num(df.iloc[i, ca]) or 0.0
+        rows.append(rec)
+    rows = [r for r in rows if any(r[f"{k}_n"] > 0 for k, _ in _SPI37_SOURCES)]
+    for k in range(len(rows)):
+        rows[k]["hi"] = rows[k + 1]["lo"] if k + 1 < len(rows) else float("inf")
+    return rows
+
+
+def load_spi_investment(spi_dir: Path) -> dict[int, list[dict]]:
+    """Load all SPI Table 3.7 files keyed by fiscal-year start (2016 = 2016-17)."""
+    out: dict[int, list[dict]] = {}
+    for path in sorted(spi_dir.glob("Table_3_7_*")):
+        m = re.search(r"_(\d{4})\.", path.name)
+        if m:
+            out[int(m.group(1))] = load_spi_table_3_7(path)
+    return out
+
+
+def build_spi_investment_targets(
+    spi37: dict[int, list[dict]], earnings_index: dict[int, float], years: list[int]
+) -> list[dict]:
+    """Banded SPI investment-income targets (Table 3.7): per band per source, a
+    count (count_nonzero) and an amount (sum), filtered on baseline_total_income.
+
+    Mirrors build_spi_targets: years beyond the latest vintage reuse its bands
+    with counts held and amounts grown by the EFO average-earnings ratio.
+    """
+    label = "HMRC SPI Table 3.7 (investment income distribution)"
+    avail = sorted(spi37)
+    out: list[dict] = []
+    for yr in years:
+        if yr in spi37:
+            rows, amt_factor = spi37[yr], 1.0
+        elif avail and yr > avail[-1]:
+            base = avail[-1]
+            rows = spi37[base]
+            amt_factor = earnings_index[yr] / earnings_index[base]
+        else:
+            continue
+        for r in rows:
+            # Beyond the latest vintage the band edges uprate with earnings too,
+            # not just the amounts (see build_spi_targets).
+            lo = r["lo"] * amt_factor
+            hi = r["hi"] if r["hi"] == float("inf") else r["hi"] * amt_factor
+            band = {
+                "variable": "total_income",
+                "min": round(lo, 0),
+                "max": None if hi == float("inf") else round(hi, 0),
+            }
+            tag = int(round(lo))
+            for key, variable in _SPI37_SOURCES:
+                count, amount = r[f"{key}_n"], r[f"{key}_a"]
+                if count > 0:
+                    out.append({
+                        "name": f"spi37_{key}_count_{tag}_{yr}",
+                        "variable": variable, "entity": "person",
+                        "aggregation": "count_nonzero", "filter": band,
+                        "benunit_filter": None, "value": round(count * 1000.0, 0),
+                        "source": label, "year": yr, "holdout": False,
+                    })
+                if amount > 0:
+                    out.append({
+                        "name": f"spi37_{key}_amount_{tag}_{yr}",
+                        "variable": variable, "entity": "person",
+                        "aggregation": "sum", "filter": band,
+                        "benunit_filter": None,
+                        "value": round(amount * 1e6 * amt_factor, 0),
+                        "source": label, "year": yr, "holdout": False,
+                    })
+    return out
+
+
 def load_efo_earnings_index(path: Path) -> dict[int, float]:
     """Average-earnings index (2008Q1=100) by fiscal year from EFO table 1.6 col 16.
 
@@ -344,14 +462,27 @@ def build_spi_targets(
         else:
             continue
         for r in rows:
+            # Beyond the latest vintage the band edges uprate with earnings too,
+            # not just the amounts — otherwise the £-thresholds stay frozen while
+            # the amounts grow, mis-aligning the band a record's income falls in.
+            lo = r["lo"] * amt_factor
+            hi = r["hi"] if r["hi"] == float("inf") else r["hi"] * amt_factor
             band = {
                 "variable": "total_income",
-                "min": r["lo"],
-                "max": None if r["hi"] == float("inf") else r["hi"],
+                "min": round(lo, 0),
+                "max": None if hi == float("inf") else round(hi, 0),
             }
-            tag = int(r["lo"])
+            tag = int(round(lo))
             for key, variable in _SPI_SOURCES:
                 count, amount = r[f"{key}_n"], r[f"{key}_a"]
+                # The public SPI tape is disclosure-controlled in the top bands:
+                # FACT jumps ~10→~32 per record above £500k, so its grossed
+                # pension headcount (~20k in the £1m+ band) is ~10× the published
+                # count (~2k) while the amount agrees. Injected records carry the
+                # tape's many-small-pensions shape, so a count target there is
+                # unreachable — keep only the amount for pension ≥£500k bands.
+                if key in ("state_pension", "private_pension") and r["lo"] >= 500_000:
+                    count = 0
                 if count > 0:
                     out.append({
                         "name": f"spi_{key}_count_{tag}_{yr}",
@@ -771,13 +902,16 @@ def build_forecast_targets(real_targets: list[dict], forecast_years: list[int]) 
     earnings growth while holding counts fixed (the band shape is assumed stable).
     """
     base = LATEST_REAL_YEAR
-    spi_label = "HMRC SPI Table 3.6 (income distribution)"
+    spi_labels = (
+        "HMRC SPI Table 3.6 (income distribution)",
+        "HMRC SPI Table 3.7 (investment income distribution)",
+    )
     base_targets = [t for t in real_targets if t["year"] == base]
     out: list[dict] = []
 
     for yr in forecast_years:
         for t in base_targets:
-            if t["source"] == spi_label:
+            if t["source"] in spi_labels:
                 ef = cumulative_factor(base, yr, "earnings")
                 flt = t["filter"]
                 new_flt = {
@@ -823,6 +957,7 @@ def build_targets(years: list[int]) -> list[dict]:
     caseloads = load_dwp_caseloads(dwp_path)
     labour = load_efo_labour_market(RAW_DIR / "obr" / "efo_economy.xlsx")
     spi = load_spi_distributions(RAW_DIR / "hmrc" / "spi")
+    spi37 = load_spi_investment(RAW_DIR / "hmrc" / "spi")
     earnings_index = load_efo_earnings_index(RAW_DIR / "obr" / "efo_economy.xlsx")
 
     # Variable specs: (name_prefix, entity, variable, aggregation, source_key_in_dict, scale)
@@ -918,6 +1053,7 @@ def build_targets(years: list[int]) -> list[dict]:
             })
 
     targets += build_spi_targets(spi, earnings_index, real_years)
+    targets += build_spi_investment_targets(spi37, earnings_index, real_years)
     targets += build_population_targets(real_years)
     targets += build_uc_award_band_targets(real_years)
 

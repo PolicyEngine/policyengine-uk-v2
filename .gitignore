@@ -2,6 +2,7 @@
 /data/raw/
 /data/clean/
 /data/calibration_targets.json
+/data/_scripts/
 *.zip
 dist/
 *.egg-info/

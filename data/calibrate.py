@@ -51,6 +51,12 @@ class CalibrateConfig(BaseModel):
     # 0.05 keeps mean abs log-weight drift ~0.07 (vs ~0.23 at 0.01) for ~1pp
     # more RMSRE — favouring fidelity to the survey over chasing every target.
     weight_deviation_penalty: float = Field(default=5e-2, ge=0.0)
+    # Drop targets below these magnitudes from the loss. RMSRE is magnitude-blind,
+    # so a tiny target (e.g. a £11m dividend micro-band, or transitional UC in its
+    # 2013 pilot year) the survey frame can't represent dominates the metric and
+    # the gradient. Floored by unit: £ for sum targets, people for count targets.
+    min_target_value_sum: float = Field(default=5e7, ge=0.0)
+    min_target_value_count: float = Field(default=1e4, ge=0.0)
 
 
 # ── Variable resolution ──────────────────────────────────────────────────────
@@ -97,7 +103,6 @@ def build_matrix(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Build M[i][j] (household i's contribution to target j), y[j], train_mask[j]."""
     hh_ids = md_households["household_id"].to_numpy()
-    hh_index = {h: i for i, h in enumerate(hh_ids)}
     n_hh = len(hh_ids)
     n_t = len(targets)
 
@@ -105,6 +110,15 @@ def build_matrix(
     y = np.zeros(n_t, dtype=float)
 
     entity_df = {"person": md_persons, "benunit": md_benunits, "household": md_households}
+
+    # Precompute, once per entity, each row's matrix-row index (-1 if its
+    # household isn't in md_households). Replaces a per-target groupby + lambda
+    # dict-lookup hot loop with a single vectorised gather per target.
+    hh_index_obj = pd.Index(hh_ids)
+    entity_pos = {
+        name: hh_index_obj.get_indexer(edf["household_id"].to_numpy())
+        for name, edf in entity_df.items()
+    }
 
     for j, t in enumerate(targets):
         y[j] = t["value"]
@@ -137,10 +151,9 @@ def build_matrix(
                     mask &= fvals < flt["max"]
             contrib = contrib * mask
 
-        grouped = pd.Series(contrib).groupby(df["household_id"].to_numpy()).sum()
-        idx = grouped.index.map(lambda h: hh_index.get(h, -1)).to_numpy()
-        keep = idx >= 0
-        matrix[idx[keep], j] = grouped.to_numpy()[keep]
+        pos = entity_pos[t["entity"]]
+        keep = pos >= 0
+        matrix[:, j] = np.bincount(pos[keep], weights=contrib[keep], minlength=n_hh)
 
     # Drop targets with no survey representation from the loss.
     train_mask = matrix.__abs__().sum(axis=0) > 1e-10
@@ -158,8 +171,17 @@ def calibrate(
     train_mask: np.ndarray,
     initial_weights: np.ndarray,
     config: CalibrateConfig,
+    start_weights: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Adam optimisation of log-weights minimising MSRE + log-deviation penalty."""
+    """Adam optimisation of log-weights minimising MSRE + log-deviation penalty.
+
+    `initial_weights` are the survey weights: they anchor BOTH the log-deviation
+    penalty and the hard max-weight-ratio clamp, so the solution stays tethered
+    to the survey regardless of where the search begins. `start_weights` (if given)
+    only sets the optimiser's starting point — used to warm-start a forecast/later
+    year from the previous year's calibrated solution so the solver converges to a
+    nearby null-space point (stable deciles) without loosening the survey anchor.
+    """
     n_hh = matrix.shape[0]
     n_train = int(train_mask.sum())
     if n_hh == 0 or n_train == 0:
@@ -167,11 +189,16 @@ def calibrate(
 
     w0 = np.where(initial_weights > 0.0, initial_weights, 1.0)
     u0 = np.log(w0)
-    u = u0.copy()
+    if start_weights is not None:
+        ws = np.where(start_weights > 0.0, start_weights, 1.0)
+        u = np.log(ws)
+    else:
+        u = u0.copy()
 
     if config.max_weight_ratio > 0.0:
         u_max = u0 + np.log(config.max_weight_ratio)
         u_min = u0 - np.log(config.max_weight_ratio)
+        np.clip(u, u_min, u_max, out=u)
     else:
         u_max = np.full(n_hh, np.inf)
         u_min = np.full(n_hh, -np.inf)
@@ -311,9 +338,31 @@ def run(data_dir: Path, year: int, config: CalibrateConfig) -> None:
             persons[c] = input_persons[c].to_numpy()
 
     matrix, y, train_mask = build_matrix(persons, md.benunits, households, targets)
+
+    # Drop sub-threshold targets from the loss, floored by unit (£ for sum targets,
+    # people for count targets). Keeps the magnitude-blind RMSRE from being hijacked
+    # by micro-targets the survey can't represent (tiny SPI bands, transitional UC).
+    too_small = np.array([
+        abs(t["value"]) < (config.min_target_value_count
+                           if t["aggregation"] in ("count", "count_nonzero")
+                           else config.min_target_value_sum)
+        for t in targets
+    ])
+    n_dropped = int((train_mask & too_small).sum())
+    if n_dropped:
+        console.print(f"  [yellow]Dropped {n_dropped} sub-threshold targets from loss[/yellow]")
+    train_mask = train_mask & ~too_small
+
     initial_weights = households["weight"].to_numpy(dtype=float)
 
-    weights = calibrate(matrix, y, train_mask, initial_weights, config)
+    # Optional warm-start point from a prior year's calibrated weights, joined by
+    # provenance into a `start_weight` column upstream (data/efrs.warm_start_weights).
+    # The survey `weight` column remains the penalty/clamp anchor.
+    start_weights = None
+    if "start_weight" in input_hh.columns:
+        start_weights = input_hh["start_weight"].to_numpy(dtype=float)
+
+    weights = calibrate(matrix, y, train_mask, initial_weights, config, start_weights)
     print_report(targets, matrix, y, train_mask, weights, initial_weights)
 
     # Diagnostics: per-target predictions before/after reweighting, for charting.
@@ -329,9 +378,11 @@ def run(data_dir: Path, year: int, config: CalibrateConfig) -> None:
     ]
     (Path("/tmp") / f"calib_diag_{year}.json").write_text(json.dumps(diag))
 
-    # Write calibrated weights back, aligned by row position.
+    # Write calibrated weights back, aligned by row position. Drop the transient
+    # warm-start column so it doesn't persist into the saved dataset.
     hh_path = data_dir / "households.csv"
     input_hh["weight"] = np.round(weights, 4)
+    input_hh = input_hh.drop(columns=["start_weight"], errors="ignore")
     input_hh.to_csv(hh_path, index=False)
     console.print(f"[green]Wrote calibrated weights to {hh_path}[/green]")
 

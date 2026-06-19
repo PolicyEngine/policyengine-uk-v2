@@ -140,16 +140,25 @@ def build_was_training(was_dir: Path) -> tuple[np.ndarray, dict[str, np.ndarray]
 def build_frs_wealth_features(persons: pd.DataFrame, households: pd.DataFrame) -> np.ndarray:
     p = persons
     is_adult = p["age"] >= 18
-    grp = p.groupby("household_id")
+    aux = pd.DataFrame({
+        "household_id": p["household_id"].to_numpy(),
+        "is_adult": (p["age"] >= 18).astype(float).to_numpy(),
+        "is_child": (p["age"] < 18).astype(float).to_numpy(),
+        "emp_income": p["employment_income"].to_numpy(float),
+        "se_income": p["self_employment_income"].to_numpy(float),
+        "pension_income": p["private_pension_income"].to_numpy(float),
+        "capital_income": (p["savings_interest"] + p["dividend_income"]).to_numpy(float),
+        "hh_income": p[_INCOME_COLS].to_numpy(float).sum(axis=1),
+    })
+    g = aux.groupby("household_id").sum()
     agg = pd.DataFrame({
-        "num_adults": grp.apply(lambda g: (g["age"] >= 18).sum(), include_groups=False),
-        "num_children": grp.apply(lambda g: (g["age"] < 18).sum(), include_groups=False),
-        "emp_income": grp["employment_income"].sum(),
-        "se_income": grp["self_employment_income"].sum(),
-        "pension_income": grp["private_pension_income"].sum(),
-        "capital_income": grp.apply(
-            lambda g: (g["savings_interest"] + g["dividend_income"]).sum(), include_groups=False),
-        "hh_income": grp.apply(_person_total_income_sum, include_groups=False),
+        "num_adults": g["is_adult"],
+        "num_children": g["is_child"],
+        "emp_income": g["emp_income"],
+        "se_income": g["se_income"],
+        "pension_income": g["pension_income"],
+        "capital_income": g["capital_income"],
+        "hh_income": g["hh_income"],
     })
     h = households.set_index("household_id").join(agg).reset_index()
     h[agg.columns] = h[agg.columns].fillna(0.0)
@@ -178,10 +187,6 @@ _INCOME_COLS = [
     "state_pension", "savings_interest", "dividend_income", "property_income",
     "maintenance_income", "miscellaneous_income", "other_income",
 ]
-
-
-def _person_total_income_sum(g: pd.DataFrame) -> float:
-    return float(g[_INCOME_COLS].to_numpy().sum())
 
 
 # ── Consumption imputation (LCFS 2022) ─────────────────────────────────────────
@@ -309,15 +314,16 @@ def build_lcfs_training(lcfs_dir: Path) -> tuple[np.ndarray, dict[str, np.ndarra
 def build_frs_consumption_features(
     persons: pd.DataFrame, households: pd.DataFrame
 ) -> np.ndarray:
-    grp = persons.groupby("household_id")
-    agg = pd.DataFrame({
-        "num_adults": grp.apply(lambda g: (g["age"] >= 18).sum(), include_groups=False),
-        "num_children": grp.apply(lambda g: (g["age"] < 18).sum(), include_groups=False),
-        "emp_income": grp["employment_income"].sum(),
-        "se_income": grp["self_employment_income"].sum(),
-        "pension_income": grp["private_pension_income"].sum(),
-        "hbai": grp.apply(_person_total_income_sum, include_groups=False),
+    aux = pd.DataFrame({
+        "household_id": persons["household_id"].to_numpy(),
+        "num_adults": (persons["age"] >= 18).astype(float).to_numpy(),
+        "num_children": (persons["age"] < 18).astype(float).to_numpy(),
+        "emp_income": persons["employment_income"].to_numpy(float),
+        "se_income": persons["self_employment_income"].to_numpy(float),
+        "pension_income": persons["private_pension_income"].to_numpy(float),
+        "hbai": persons[_INCOME_COLS].to_numpy(float).sum(axis=1),
     })
+    agg = aux.groupby("household_id").sum()
     h = households.set_index("household_id").join(agg).reset_index()
     h[agg.columns] = h[agg.columns].fillna(0.0)
     region = h["region"].map(_REGION_RF).fillna(6).to_numpy(dtype=float)
@@ -426,14 +432,15 @@ def train_predict(
     train_feat: np.ndarray, train_targets: dict[str, np.ndarray],
     predict_feat: np.ndarray, n_trees: int, seed: int,
 ) -> dict[str, np.ndarray]:
-    preds = {}
-    for i, (name, y) in enumerate(train_targets.items()):
-        model = RandomForestRegressor(
-            n_estimators=n_trees, random_state=seed + i, n_jobs=-1,
-        )
-        model.fit(train_feat, y)
-        preds[name] = model.predict(predict_feat)
-    return preds
+    # One multi-output forest over all targets: the trees are built once on the
+    # shared feature matrix and predict every target jointly, instead of fitting
+    # a separate forest per target. Same trees/features — just amortised.
+    names = list(train_targets)
+    y = np.column_stack([train_targets[n] for n in names])
+    model = RandomForestRegressor(n_estimators=n_trees, random_state=seed, n_jobs=-1)
+    model.fit(train_feat, y)
+    pred = model.predict(predict_feat)
+    return {name: pred[:, i] for i, name in enumerate(names)}
 
 
 # ── HHFCE level calibration ────────────────────────────────────────────────────
@@ -490,24 +497,45 @@ def scale_consumption_to_hhfce(households: pd.DataFrame, year: int) -> list[tupl
 def impute(
     frs_clean: Path, was_dir: Path, lcfs_dir: Path,
     year: int | None = None, seed: int = 42, spi_dir: Path | None = None,
+    spi_block_dir: Path | None = None, spi_block_year: int | None = None,
 ) -> None:
     persons = pd.read_csv(frs_clean / "persons.csv")
+    benunits = pd.read_csv(frs_clean / "benunits.csv")
     households = pd.read_csv(frs_clean / "households.csv")
     console.print(f"[bold]Imputing onto {len(households)} FRS households[/bold]")
     if year is None:
         year = int(frs_clean.name)
 
-    # ── SPI high-income top-up (replace top-decile FRS incomes with real SPI
-    # records) — runs first so downstream wealth/consumption features reflect the
-    # corrected incomes. Ranking still uses FRS-reported income to pick the top. ──
+    # ── SPI high-income injection — runs first so the injected single-adult
+    # households get wealth/consumption imputed alongside the FRS records. Drops
+    # FRS households with a high earner and appends a prebuilt SPI tail block
+    # (built once from the most recent survey year, reused verbatim every year so
+    # each SPI earner keeps the same donor family — see spi_topup). ──
     if spi_dir is not None:
         from build_targets import RAW_DIR, load_efo_earnings_index
-        from spi_topup import assign_top_incomes
+        from spi_topup import inject_spi_block
+        from spi_unearned import impute_unearned_income
 
-        console.print("Assigning SPI top-decile incomes…")
         earnings_index = load_efo_earnings_index(RAW_DIR / "obr" / "efo_economy.xlsx")
-        n = assign_top_incomes(persons, households, spi_dir, year, earnings_index, seed=seed)
-        console.print(f"  reassigned {n} adults in top-decile households")
+
+        # Impute unearned income onto FRS persons first (the FRS under-records it),
+        # then inject SPI high earners — the injected singles keep their tape values.
+        console.print("Imputing SPI unearned income (interest/dividends/property)…")
+        n_ad = impute_unearned_income(persons, spi_dir, year, earnings_index, seed=seed)
+        console.print(f"  imputed unearned income for {n_ad} FRS adults")
+
+        console.print("Injecting SPI high-income earners…")
+        block = (
+            pd.read_csv(spi_block_dir / "persons.csv"),
+            pd.read_csv(spi_block_dir / "benunits.csv"),
+            pd.read_csv(spi_block_dir / "households.csv"),
+        )
+        persons, benunits, households, n_inj, n_drop = inject_spi_block(
+            persons, benunits, households, block, spi_block_year, year, earnings_index,
+        )
+        console.print(
+            f"  dropped {n_drop} FRS high-income households, injected {n_inj} SPI singles"
+        )
 
     # ── Wealth (must run first — provides num_vehicles for fuel proxy) ──
     console.print("Training wealth models from WAS round 8…")
@@ -557,15 +585,17 @@ def impute(
             console.print(f"    {var:<44} {f:.2f}x")
 
     # ── NEED energy calibration ──
-    grp = persons.groupby("household_id")
-    gross = grp.apply(_person_total_income_sum, include_groups=False)
-    gross = households.set_index("household_id").index.map(gross).to_numpy(dtype=float)
+    gross_by_hh = pd.Series(
+        persons[_INCOME_COLS].to_numpy(float).sum(axis=1),
+    ).groupby(persons["household_id"].to_numpy()).sum()
+    gross = households["household_id"].map(gross_by_hh).to_numpy(dtype=float)
     gross = np.nan_to_num(gross)
     calibrate_energy_to_need(households, gross, households["weight"].to_numpy(float))
 
     households.to_csv(frs_clean / "households.csv", index=False)
     if spi_dir is not None:
         persons.to_csv(frs_clean / "persons.csv", index=False)
+        benunits.to_csv(frs_clean / "benunits.csv", index=False)
     w = households["weight"].to_numpy(float)
     mean_food = (w * households["food_consumption"].to_numpy(float)).sum() / w.sum()
     mean_prop = (w * households["property_wealth"].to_numpy(float)).sum() / w.sum()
