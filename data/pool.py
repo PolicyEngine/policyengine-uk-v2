@@ -72,6 +72,16 @@ def pool_frs_years(frs_base: Path, target_year: int, n_years: int = 3) -> tuple[
             persons = uprate_persons(persons, y, target_year)
             households = uprate_households(households, y, target_year)
 
+        # Stamp a stable cross-year provenance key from the source FRS year and
+        # the household's ORIGINAL (pre-rebase) id. Pooling rebases household_id
+        # with per-donor offsets, so this is the only durable link between the
+        # same underlying FRS household as it reappears across EFRS years (each
+        # year pools a 3-year window, so ~2/3 of households recur). Calibration
+        # uses it to warm-start weights from the prior year's solution.
+        households["provenance"] = [
+            f"{y}:{h}" for h in households["household_id"].to_numpy()
+        ]
+
         persons, benunits, households = _rebase(
             persons, benunits, households, p_off, b_off, h_off)
 

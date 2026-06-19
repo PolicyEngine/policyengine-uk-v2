@@ -246,15 +246,15 @@ def capabilities() -> dict:
 
     dataset_descriptions = {
         "efrs": (
-            "Enhanced Family Resources Survey. Gold standard for distributional analysis. "
-            "Merges FRS household microdata with Wealth and Assets Survey (wealth) and "
-            "Living Costs and Food Survey (expenditure). Full tax-benefit model. "
-            "Available from 2023."
+            "Enhanced Family Resources Survey. Merges FRS household microdata with "
+            "Wealth and Assets Survey (wealth) and Living Costs and Food Survey "
+            "(expenditure). Full tax-benefit model. Available from 1994 to 2029. "
+            "Use when wealth or expenditure data is needed (e.g. wealth tax, VAT)."
         ),
         "frs": (
             "Family Resources Survey. Full tax-benefit model, ~20,000 households. "
-            "Available from 1994 to present. Use for historical analysis (pre-2023) "
-            "or to cross-check EFRS estimates."
+            "Available from 1994 to 2024. Default dataset for distributional and "
+            "historical analysis."
         ),
         "spi": (
             "Survey of Personal Incomes (HMRC administrative data). Person-level only — "
@@ -286,7 +286,7 @@ def capabilities() -> dict:
             }
             for ds in DATASETS
         },
-        "default_dataset": "efrs",
+        "default_dataset": "frs",
         "programmes_modelled": [
             "Income tax", "National Insurance (employee and employer)",
             "Universal Credit", "Child Benefit", "State Pension",
