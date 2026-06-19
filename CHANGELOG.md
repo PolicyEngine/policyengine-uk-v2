@@ -1,3 +1,8 @@
+## [0.40.0] - 2026-06-19
+
+No significant changes.
+
+
 ## [0.39.0] - 2026-06-17
 
 No significant changes.
