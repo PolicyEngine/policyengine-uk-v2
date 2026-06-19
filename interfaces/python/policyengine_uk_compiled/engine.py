@@ -39,6 +39,10 @@ BENUNIT_DEFAULTS = {
     "benunit_id": 0, "household_id": 0, "person_ids": "0",
     "on_uc": False,
     "rent_monthly": 0.0, "is_lone_parent": False,
+    # Hypothetical households carry no reported receipt, so claim every
+    # means-tested benefit they're eligible for. Survey microdata overrides this
+    # to the reported claim status.
+    "claims_uc_if_eligible": True,
 }
 
 HOUSEHOLD_DEFAULTS = {
@@ -375,16 +379,9 @@ class Simulation:
         clean_frs: Optional[str] = None,
         frs_raw: Optional[str] = None,
         binary_path: Optional[str] = None,
-        full_take_up: Optional[bool] = None,
     ):
         self.year = year
         self.binary_path = binary_path or _find_binary()
-        # Hypothetical households (DataFrames/CSV strings) have no reported
-        # benefit receipt, so assume full take-up by default. Survey data
-        # carries reported amounts, so take-up is derived from them.
-        if full_take_up is None:
-            full_take_up = persons is not None
-        self.full_take_up = full_take_up
 
         # Determine data mode
         self._stdin_payload = None
@@ -510,9 +507,6 @@ class Simulation:
 
         if self._persons_only:
             cmd.append("--persons-only")
-
-        if self.full_take_up:
-            cmd.append("--full-take-up")
 
         if extra_args:
             cmd += extra_args

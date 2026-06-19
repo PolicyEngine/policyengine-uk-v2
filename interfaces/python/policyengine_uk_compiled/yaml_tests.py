@@ -337,9 +337,12 @@ def _run_case(case: YamlTestCase) -> YamlTestResult:
 
     # Pre-build the DataFrames (validates the situation early).
     persons, benunits, households = _situation_to_dataframes(situation, case.period)
+    # Take-up is now a benunit data field. The case-level flag applies uniformly
+    # to every benunit (matching the old --full-take-up behaviour).
+    benunits["claims_uc_if_eligible"] = case.full_take_up
     sim = Simulation(
         year=case.period, persons=persons, benunits=benunits,
-        households=households, full_take_up=case.full_take_up,
+        households=households,
     )
     micro = sim.run_microdata()
     tables = {"persons": micro.persons, "benunits": micro.benunits, "households": micro.households}

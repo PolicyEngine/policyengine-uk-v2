@@ -43,11 +43,6 @@ struct Cli {
     #[arg(long)]
     stdin_data: bool,
 
-    /// Assume every benefit is claimed regardless of reported receipt
-    /// (for hypothetical households without survey amounts).
-    #[arg(long)]
-    full_take_up: bool,
-
     /// Base dir with per-year clean subdirs (YYYY/persons.csv etc.).
     /// Works for any dataset (FRS, SPI, LCFS, WAS). Falls back to latest year + uprating.
     #[arg(long)]
@@ -173,7 +168,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     // Load dataset for simulation
-    let mut dataset = if cli.stdin_data {
+    let dataset = if cli.stdin_data {
         load_dataset_from_reader(std::io::BufReader::new(std::io::stdin().lock()), cli.year)?
     } else if let Some(base) = &cli.data {
         // Base dir with per-year clean subdirs: base/YYYY/persons.csv etc.
@@ -199,12 +194,6 @@ fn main() -> anyhow::Result<()> {
         anyhow::bail!("No data source specified. Use --data <clean-data-base> or --stdin-data.\n\
             To create clean data from raw surveys, use --extract with --frs, --spi, --lcfs, or --was.")
     };
-    if cli.full_take_up {
-        for bu in &mut dataset.benunits {
-            bu.full_take_up = true;
-        }
-    }
-
     // Load policy (if none specified, policy = baseline). Reforms loaded from a
     // YAML file may also declare a `neutralise:` list, applied to the reform
     // results below; JSON overlays don't carry one (parameter-only by design).

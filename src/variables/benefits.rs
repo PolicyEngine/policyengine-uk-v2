@@ -31,7 +31,7 @@ pub fn calculate_benunit(
     let claims_ctc = bu.claims(people, |p| p.child_tax_credit);
     let claims_wtc = bu.claims(people, |p| p.working_tax_credit);
     let claims_is  = bu.claims(people, |p| p.income_support);
-    let on_uc_system = bu.on_uc || bu.full_take_up;
+    let on_uc_system = bu.on_uc || bu.claims_uc_if_eligible;
     let on_legacy = claims_hb || claims_ctc || claims_wtc || claims_is;
 
     let (uc, pension_credit, housing_benefit, ctc, wtc, income_support, esa_ir, jsa_ib, scp);
@@ -1240,7 +1240,7 @@ mod tests {
             on_uc: true,
             rent_monthly: 800.0,
             is_lone_parent: num_children > 0,
-            full_take_up: true,
+            claims_uc_if_eligible: true,
             ..BenUnit::default()
         };
         let hh = Household {
@@ -1341,7 +1341,7 @@ mod tests {
             id: 0, household_id: 0, person_ids: vec![0],
             on_uc: false,
             rent_monthly: 0.0, is_lone_parent: false,
-            full_take_up: true,
+            claims_uc_if_eligible: true,
             ..BenUnit::default()
         };
         let hh = Household {
@@ -1372,6 +1372,7 @@ mod tests {
             id: 0, household_id: 0, person_ids: vec![0],
             on_uc: false,
             rent_monthly: 600.0, is_lone_parent: false,
+            claims_uc_if_eligible: false,
             ..BenUnit::default()
         };
         let hh = Household {
@@ -1403,7 +1404,7 @@ mod tests {
             id: 0, household_id: 0, person_ids: vec![0, 1],
             on_uc: false,
             rent_monthly: 0.0, is_lone_parent: true,
-            full_take_up: true,
+            claims_uc_if_eligible: true,
             ..BenUnit::default()
         };
         let hh = Household {
@@ -1453,7 +1454,7 @@ mod tests {
             id: 0, household_id: 0, person_ids: vec![0, 1],
             on_uc: true,
             rent_monthly: 0.0, is_lone_parent: true,
-            full_take_up: true,
+            claims_uc_if_eligible: true,
             ..BenUnit::default()
         };
         let hh = Household {
@@ -1553,7 +1554,7 @@ mod parameter_impact_tests {
             id: 0, household_id: 0, person_ids: vec![0],
             on_uc: true,
             rent_monthly: 500.0, is_lone_parent: false,
-            full_take_up: true,
+            claims_uc_if_eligible: true,
             ..BenUnit::default()
         };
         let hh = Household {
@@ -1599,7 +1600,7 @@ mod parameter_impact_tests {
         let mut p1 = Person::default(); p1.age = 35.0; p1.employment_income = 5000.0;
         let mut p2 = Person::default(); p2.id = 1; p2.age = 33.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1],
-            on_uc: true, rent_monthly: 500.0, full_take_up: true, ..BenUnit::default() };
+            on_uc: true, rent_monthly: 500.0, claims_uc_if_eligible: true, ..BenUnit::default() };
         let base = calc(&params, &[p1.clone(), p2.clone()], &bu, &hh).universal_credit;
         params.universal_credit.standard_allowance_couple_over25 += 100.0;
         let reformed = calc(&params, &[p1, p2], &bu, &hh).universal_credit;
@@ -1612,7 +1613,7 @@ mod parameter_impact_tests {
         let mut p1 = Person::default(); p1.age = 22.0; p1.employment_income = 5000.0;
         let mut p2 = Person::default(); p2.id = 1; p2.age = 21.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1],
-            on_uc: true, rent_monthly: 500.0, full_take_up: true, ..BenUnit::default() };
+            on_uc: true, rent_monthly: 500.0, claims_uc_if_eligible: true, ..BenUnit::default() };
         let base = calc(&params, &[p1.clone(), p2.clone()], &bu, &hh).universal_credit;
         params.universal_credit.standard_allowance_couple_under25 += 100.0;
         let reformed = calc(&params, &[p1, p2], &bu, &hh).universal_credit;
@@ -1624,7 +1625,7 @@ mod parameter_impact_tests {
         let (mut params, p, _, hh) = base_person_uc();
         let mut child = Person::default(); child.id = 1; child.age = 5.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1],
-            on_uc: true, rent_monthly: 0.0, full_take_up: true, is_lone_parent: true, ..BenUnit::default() };
+            on_uc: true, rent_monthly: 0.0, claims_uc_if_eligible: true, is_lone_parent: true, ..BenUnit::default() };
         let base = calc(&params, &[p.clone(), child.clone()], &bu, &hh).universal_credit;
         params.universal_credit.child_element_first += 100.0;
         let reformed = calc(&params, &[p, child], &bu, &hh).universal_credit;
@@ -1637,7 +1638,7 @@ mod parameter_impact_tests {
         let mut c1 = Person::default(); c1.id = 1; c1.age = 5.0;
         let mut c2 = Person::default(); c2.id = 2; c2.age = 3.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1, 2],
-            on_uc: true, rent_monthly: 0.0, full_take_up: true, is_lone_parent: true, ..BenUnit::default() };
+            on_uc: true, rent_monthly: 0.0, claims_uc_if_eligible: true, is_lone_parent: true, ..BenUnit::default() };
         let base = calc(&params, &[p.clone(), c1.clone(), c2.clone()], &bu, &hh).universal_credit;
         params.universal_credit.child_element_subsequent += 100.0;
         let reformed = calc(&params, &[p, c1, c2], &bu, &hh).universal_credit;
@@ -1649,7 +1650,7 @@ mod parameter_impact_tests {
         let (mut params, p, _, hh) = base_person_uc();
         let mut child = Person::default(); child.id = 1; child.age = 5.0; child.is_disabled = true;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1],
-            on_uc: true, rent_monthly: 0.0, full_take_up: true, is_lone_parent: true, ..BenUnit::default() };
+            on_uc: true, rent_monthly: 0.0, claims_uc_if_eligible: true, is_lone_parent: true, ..BenUnit::default() };
         let base = calc(&params, &[p.clone(), child.clone()], &bu, &hh).universal_credit;
         params.universal_credit.disabled_child_lower += 100.0;
         let reformed = calc(&params, &[p, child], &bu, &hh).universal_credit;
@@ -1661,7 +1662,7 @@ mod parameter_impact_tests {
         let (mut params, p, _, hh) = base_person_uc();
         let mut child = Person::default(); child.id = 1; child.age = 5.0; child.is_enhanced_disabled = true;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1],
-            on_uc: true, rent_monthly: 0.0, full_take_up: true, is_lone_parent: true, ..BenUnit::default() };
+            on_uc: true, rent_monthly: 0.0, claims_uc_if_eligible: true, is_lone_parent: true, ..BenUnit::default() };
         let base = calc(&params, &[p.clone(), child.clone()], &bu, &hh).universal_credit;
         params.universal_credit.disabled_child_higher += 100.0;
         let reformed = calc(&params, &[p, child], &bu, &hh).universal_credit;
@@ -1706,7 +1707,7 @@ mod parameter_impact_tests {
         p.employment_income = 15000.0;
         let mut child = Person::default(); child.id = 1; child.age = 5.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1],
-            on_uc: true, rent_monthly: 0.0, full_take_up: true, is_lone_parent: true, ..BenUnit::default() };
+            on_uc: true, rent_monthly: 0.0, claims_uc_if_eligible: true, is_lone_parent: true, ..BenUnit::default() };
         let base = calc(&params, &[p.clone(), child.clone()], &bu, &hh).universal_credit;
         params.universal_credit.work_allowance_higher += 500.0;
         let reformed = calc(&params, &[p, child], &bu, &hh).universal_credit;
@@ -1719,7 +1720,7 @@ mod parameter_impact_tests {
         // Has housing costs → lower work allowance applies
         let mut child = Person::default(); child.id = 1; child.age = 5.0;
         let bu2 = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1],
-            on_uc: true, rent_monthly: 500.0, full_take_up: true, is_lone_parent: true, ..BenUnit::default() };
+            on_uc: true, rent_monthly: 500.0, claims_uc_if_eligible: true, is_lone_parent: true, ..BenUnit::default() };
         let base = calc(&params, &[p.clone(), child.clone()], &bu2, &hh).universal_credit;
         params.universal_credit.work_allowance_lower += 500.0;
         let reformed = calc(&params, &[p, child], &bu2, &hh).universal_credit;
@@ -1733,7 +1734,7 @@ mod parameter_impact_tests {
         let mut c2 = Person::default(); c2.id = 2; c2.age = 3.0;
         let mut c3 = Person::default(); c3.id = 3; c3.age = 1.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1, 2, 3],
-            on_uc: true, rent_monthly: 0.0, full_take_up: true, is_lone_parent: true, ..BenUnit::default() };
+            on_uc: true, rent_monthly: 0.0, claims_uc_if_eligible: true, is_lone_parent: true, ..BenUnit::default() };
         params.universal_credit.child_limit = 2;
         let base = calc(&params, &[p.clone(), c1.clone(), c2.clone(), c3.clone()], &bu, &hh).universal_credit;
         params.universal_credit.child_limit = 3;
@@ -1748,7 +1749,7 @@ mod parameter_impact_tests {
         let (mut params, p, _, hh) = base_person_uc();
         let mut child = Person::default(); child.id = 1; child.age = 5.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1],
-            on_uc: false, full_take_up: true, ..BenUnit::default() };
+            on_uc: false, claims_uc_if_eligible: true, ..BenUnit::default() };
         let base = calc(&params, &[p.clone(), child.clone()], &bu, &hh).child_benefit;
         params.child_benefit.eldest_weekly += 10.0;
         let reformed = calc(&params, &[p, child], &bu, &hh).child_benefit;
@@ -1761,7 +1762,7 @@ mod parameter_impact_tests {
         let mut c1 = Person::default(); c1.id = 1; c1.age = 5.0;
         let mut c2 = Person::default(); c2.id = 2; c2.age = 3.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1, 2],
-            full_take_up: true, ..BenUnit::default() };
+            claims_uc_if_eligible: true, ..BenUnit::default() };
         let base = calc(&params, &[p.clone(), c1.clone(), c2.clone()], &bu, &hh).child_benefit;
         params.child_benefit.additional_weekly += 10.0;
         let reformed = calc(&params, &[p, c1, c2], &bu, &hh).child_benefit;
@@ -1802,7 +1803,7 @@ mod parameter_impact_tests {
         let (mut params, _, _, hh) = base_person_uc();
         let mut p = Person::default(); p.age = 68.0; p.state_pension = 5000.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0],
-            full_take_up: true, ..BenUnit::default() };
+            claims_uc_if_eligible: true, ..BenUnit::default() };
         let base = calc(&params, &[p.clone()], &bu, &hh).pension_credit;
         params.pension_credit.standard_minimum_single += 10.0;
         let reformed = calc(&params, &[p], &bu, &hh).pension_credit;
@@ -1815,7 +1816,7 @@ mod parameter_impact_tests {
         let mut p1 = Person::default(); p1.age = 68.0; p1.state_pension = 3000.0;
         let mut p2 = Person::default(); p2.id = 1; p2.age = 67.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1],
-            full_take_up: true, ..BenUnit::default() };
+            claims_uc_if_eligible: true, ..BenUnit::default() };
         let base = calc(&params, &[p1.clone(), p2.clone()], &bu, &hh).pension_credit;
         params.pension_credit.standard_minimum_couple += 10.0;
         let reformed = calc(&params, &[p1, p2], &bu, &hh).pension_credit;
@@ -1827,7 +1828,7 @@ mod parameter_impact_tests {
         let (mut params, _, _, hh) = base_person_uc();
         let mut p = Person::default(); p.age = 68.0; p.state_pension = 10000.0; p.savings_interest_income = 2000.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0],
-            full_take_up: true, ..BenUnit::default() };
+            claims_uc_if_eligible: true, ..BenUnit::default() };
         let base = calc(&params, &[p.clone()], &bu, &hh).pension_credit;
         params.pension_credit.savings_credit_threshold_single += 500.0;
         let reformed = calc(&params, &[p], &bu, &hh).pension_credit;
@@ -1842,7 +1843,7 @@ mod parameter_impact_tests {
         let mut p1 = Person::default(); p1.age = 68.0; p1.state_pension = 10000.0; p1.savings_interest_income = 8000.0;
         let mut p2 = Person::default(); p2.id = 1; p2.age = 67.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1],
-            full_take_up: true, ..BenUnit::default() };
+            claims_uc_if_eligible: true, ..BenUnit::default() };
         let base = calc(&params, &[p1.clone(), p2.clone()], &bu, &hh).pension_credit;
         // Raising threshold reduces SC (fewer people qualify / lower credit)
         params.pension_credit.savings_credit_threshold_couple += 500.0;
@@ -1858,7 +1859,7 @@ mod parameter_impact_tests {
         p.employment_income = 5000.0;
         p.housing_benefit = 1000.0; // reported receipt → legacy HB
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0],
-            rent_monthly: 500.0, ..BenUnit::default() };
+            rent_monthly: 500.0, claims_uc_if_eligible: false, ..BenUnit::default() };
         let base = calc(&params, &[p.clone()], &bu, &hh).housing_benefit;
         params.housing_benefit.as_mut().unwrap().withdrawal_rate -= 0.10;
         let reformed = calc(&params, &[p], &bu, &hh).housing_benefit;
@@ -1871,7 +1872,7 @@ mod parameter_impact_tests {
         p.employment_income = 5000.0;
         p.housing_benefit = 1000.0; // reported receipt → legacy HB
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0],
-            rent_monthly: 500.0, ..BenUnit::default() };
+            rent_monthly: 500.0, claims_uc_if_eligible: false, ..BenUnit::default() };
         let base = calc(&params, &[p.clone()], &bu, &hh).housing_benefit;
         params.housing_benefit.as_mut().unwrap().personal_allowance_single_25_plus += 20.0;
         let reformed = calc(&params, &[p], &bu, &hh).housing_benefit;
@@ -1885,7 +1886,7 @@ mod parameter_impact_tests {
         let mut p = Person::default(); p.age = 22.0; p.employment_income = 6000.0;
         p.housing_benefit = 1000.0; // reported receipt → legacy HB
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0],
-            rent_monthly: 500.0, ..BenUnit::default() };
+            rent_monthly: 500.0, claims_uc_if_eligible: false, ..BenUnit::default() };
         let base = calc(&params, &[p.clone()], &bu, &hh).housing_benefit;
         params.housing_benefit.as_mut().unwrap().personal_allowance_single_under25 += 20.0;
         let reformed = calc(&params, &[p], &bu, &hh).housing_benefit;
@@ -1900,7 +1901,7 @@ mod parameter_impact_tests {
         p1.housing_benefit = 1000.0; // reported receipt → legacy HB
         let mut p2 = Person::default(); p2.id = 1; p2.age = 33.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1],
-            rent_monthly: 500.0, ..BenUnit::default() };
+            rent_monthly: 500.0, claims_uc_if_eligible: false, ..BenUnit::default() };
         let base = calc(&params, &[p1.clone(), p2.clone()], &bu, &hh).housing_benefit;
         params.housing_benefit.as_mut().unwrap().personal_allowance_couple += 20.0;
         let reformed = calc(&params, &[p1, p2], &bu, &hh).housing_benefit;
@@ -1915,7 +1916,7 @@ mod parameter_impact_tests {
         p.housing_benefit = 1000.0; // reported receipt → legacy HB
         let mut child = Person::default(); child.id = 1; child.age = 5.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1],
-            rent_monthly: 500.0, is_lone_parent: true, ..BenUnit::default() };
+            rent_monthly: 500.0, is_lone_parent: true, claims_uc_if_eligible: false, ..BenUnit::default() };
         let base = calc(&params, &[p.clone(), child.clone()], &bu, &hh).housing_benefit;
         params.housing_benefit.as_mut().unwrap().child_allowance += 20.0;
         let reformed = calc(&params, &[p, child], &bu, &hh).housing_benefit;
@@ -1929,7 +1930,7 @@ mod parameter_impact_tests {
         p.housing_benefit = 1000.0; // reported receipt → legacy HB
         let mut child = Person::default(); child.id = 1; child.age = 5.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1],
-            rent_monthly: 500.0, is_lone_parent: true, ..BenUnit::default() };
+            rent_monthly: 500.0, is_lone_parent: true, claims_uc_if_eligible: false, ..BenUnit::default() };
         let base = calc(&params, &[p.clone(), child.clone()], &bu, &hh).housing_benefit;
         params.housing_benefit.as_mut().unwrap().family_premium += 10.0;
         let reformed = calc(&params, &[p, child], &bu, &hh).housing_benefit;
@@ -1944,7 +1945,7 @@ mod parameter_impact_tests {
         p.working_tax_credit = 1000.0; p.child_tax_credit = 1000.0; // reported receipt → legacy TC
         let mut child = Person::default(); child.id = 1; child.age = 5.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1],
-            rent_monthly: 0.0, is_lone_parent: true, ..BenUnit::default() };
+            rent_monthly: 0.0, is_lone_parent: true, claims_uc_if_eligible: false, ..BenUnit::default() };
         let hh = Household { id: 0, benunit_ids: vec![0], person_ids: vec![0, 1],
             weight: 1.0, region: Region::London, rent: 0.0, council_tax: 0.0, ..Household::default() };
         (params, p, child, bu, hh)
@@ -1967,7 +1968,7 @@ mod parameter_impact_tests {
         let mut p2 = Person::default(); p2.id = 1; p2.age = 28.0;
         let mut child = Person::default(); child.id = 2; child.age = 5.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1, 2],
-            ..BenUnit::default() };
+            claims_uc_if_eligible: false, ..BenUnit::default() };
         let base = calc(&params, &[p1.clone(), p2.clone(), child.clone()], &bu, &hh).working_tax_credit;
         params.tax_credits.as_mut().unwrap().wtc_couple_element += 500.0;
         let reformed = calc(&params, &[p1, p2, child], &bu, &hh).working_tax_credit;
@@ -2067,7 +2068,7 @@ mod parameter_impact_tests {
         let mut p2 = Person::default(); p2.id = 1; p2.age = 28.0;
         let mut child = Person::default(); child.id = 2; child.age = 5.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1, 2],
-            ..BenUnit::default() };
+            claims_uc_if_eligible: false, ..BenUnit::default() };
         params.tax_credits.as_mut().unwrap().wtc_min_hours_couple = 24.0;
         let base = calc(&params, &[p1.clone(), p2.clone(), child.clone()], &bu, &hh).working_tax_credit;
         params.tax_credits.as_mut().unwrap().wtc_min_hours_couple = 20.0;
@@ -2084,7 +2085,7 @@ mod parameter_impact_tests {
         let mut c1 = Person::default(); c1.id = 1; c1.age = 3.0;
         let mut c2 = Person::default(); c2.id = 2; c2.age = 5.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1, 2],
-            on_uc: true, rent_monthly: 2000.0, full_take_up: true, is_lone_parent: true, ..BenUnit::default() };
+            on_uc: true, rent_monthly: 2000.0, claims_uc_if_eligible: true, is_lone_parent: true, ..BenUnit::default() };
         let hh = Household { id: 0, benunit_ids: vec![0], person_ids: vec![0, 1, 2],
             weight: 1.0, region: Region::London, rent: 24000.0, council_tax: 0.0, ..Household::default() };
         let base = calc(&params, &[p.clone(), c1.clone(), c2.clone()], &bu, &hh).benefit_cap_reduction;
@@ -2099,7 +2100,7 @@ mod parameter_impact_tests {
         let mut p = Person::default(); p.age = 30.0;
         let mut c1 = Person::default(); c1.id = 1; c1.age = 3.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1],
-            on_uc: true, rent_monthly: 1500.0, full_take_up: true, is_lone_parent: true, ..BenUnit::default() };
+            on_uc: true, rent_monthly: 1500.0, claims_uc_if_eligible: true, is_lone_parent: true, ..BenUnit::default() };
         let hh = Household { id: 0, benunit_ids: vec![0], person_ids: vec![0, 1],
             weight: 1.0, region: Region::NorthEast, rent: 18000.0, council_tax: 0.0, ..Household::default() };
         let base = calc(&params, &[p.clone(), c1.clone()], &bu, &hh).benefit_cap_reduction;
@@ -2113,7 +2114,7 @@ mod parameter_impact_tests {
         let (mut params, _, _, _) = base_person_uc();
         let mut p = Person::default(); p.age = 30.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0],
-            on_uc: true, rent_monthly: 1500.0, full_take_up: true, ..BenUnit::default() };
+            on_uc: true, rent_monthly: 1500.0, claims_uc_if_eligible: true, ..BenUnit::default() };
         let hh = Household { id: 0, benunit_ids: vec![0], person_ids: vec![0],
             weight: 1.0, region: Region::London, rent: 18000.0, council_tax: 0.0, ..Household::default() };
         let base = calc(&params, &[p.clone()], &bu, &hh).benefit_cap_reduction;
@@ -2127,7 +2128,7 @@ mod parameter_impact_tests {
         let (mut params, _, _, _) = base_person_uc();
         let mut p = Person::default(); p.age = 30.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0],
-            on_uc: true, rent_monthly: 1200.0, full_take_up: true, ..BenUnit::default() };
+            on_uc: true, rent_monthly: 1200.0, claims_uc_if_eligible: true, ..BenUnit::default() };
         let hh = Household { id: 0, benunit_ids: vec![0], person_ids: vec![0],
             weight: 1.0, region: Region::NorthEast, rent: 14400.0, council_tax: 0.0, ..Household::default() };
         let base = calc(&params, &[p.clone()], &bu, &hh).benefit_cap_reduction;
@@ -2142,7 +2143,7 @@ mod parameter_impact_tests {
         let mut p = Person::default(); p.age = 30.0; p.employment_income = 7500.0;
         let mut c1 = Person::default(); c1.id = 1; c1.age = 3.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1],
-            on_uc: true, rent_monthly: 1500.0, full_take_up: true, is_lone_parent: true, ..BenUnit::default() };
+            on_uc: true, rent_monthly: 1500.0, claims_uc_if_eligible: true, is_lone_parent: true, ..BenUnit::default() };
         let hh = Household { id: 0, benunit_ids: vec![0], person_ids: vec![0, 1],
             weight: 1.0, region: Region::London, rent: 18000.0, council_tax: 0.0, ..Household::default() };
         // At £7,500 earnings, below the exemption threshold → cap applies
@@ -2161,7 +2162,7 @@ mod parameter_impact_tests {
         let (mut params, p, _, _) = base_person_uc();
         let mut child = Person::default(); child.id = 1; child.age = 5.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1],
-            on_uc: true, full_take_up: true, is_lone_parent: true, ..BenUnit::default() };
+            on_uc: true, claims_uc_if_eligible: true, is_lone_parent: true, ..BenUnit::default() };
         let hh = Household { id: 0, benunit_ids: vec![0], person_ids: vec![0, 1],
             weight: 1.0, region: Region::Scotland, rent: 0.0, council_tax: 0.0, ..Household::default() };
         let base = calc(&params, &[p.clone(), child.clone()], &bu, &hh).scottish_child_payment;
@@ -2175,7 +2176,7 @@ mod parameter_impact_tests {
         let (mut params, p, _, _) = base_person_uc();
         let mut child = Person::default(); child.id = 1; child.age = 15.0;
         let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0, 1],
-            on_uc: true, full_take_up: true, is_lone_parent: true, ..BenUnit::default() };
+            on_uc: true, claims_uc_if_eligible: true, is_lone_parent: true, ..BenUnit::default() };
         let hh = Household { id: 0, benunit_ids: vec![0], person_ids: vec![0, 1],
             weight: 1.0, region: Region::Scotland, rent: 0.0, council_tax: 0.0, ..Household::default() };
         params.scottish_child_payment.as_mut().unwrap().max_age = 14.0;
@@ -2239,7 +2240,7 @@ mod parameter_impact_tests {
         let bu = BenUnit {
             id: 0, household_id: 0, person_ids: vec![0],
             on_uc: true,
-            rent_monthly: 2000.0, full_take_up: true,
+            rent_monthly: 2000.0, claims_uc_if_eligible: true,
             ..BenUnit::default()
         };
         let hh = Household {
@@ -2283,6 +2284,7 @@ mod parameter_impact_tests {
         let bu = BenUnit {
             id: 0, household_id: 0, person_ids: vec![0],
             rent_monthly: 2500.0,
+            claims_uc_if_eligible: false,
             ..BenUnit::default()
         };
         let hh_private = Household {
