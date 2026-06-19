@@ -556,7 +556,7 @@ mod tests {
 
         let bu = BenUnit {
             id: 0, household_id: 0, person_ids: vec![0, 1],
-            full_take_up: true,
+            claims_uc_if_eligible: true,
             ..BenUnit::default()
         };
         let hh = Household {

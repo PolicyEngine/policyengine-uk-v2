@@ -214,7 +214,7 @@ impl Person {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct BenUnit {
     pub id: usize,
     pub household_id: usize,
@@ -223,9 +223,12 @@ pub struct BenUnit {
     pub on_uc: bool,
     pub rent_monthly: f64,
     pub is_lone_parent: bool,
-    /// Assume every benefit is claimed regardless of reported receipt.
-    /// Set at load time for hypothetical households (--full-take-up); never persisted.
-    pub full_take_up: bool,
+    /// Claim every means-tested benefit (UC, HB, CTC, WTC, IS, ESA, JSA) the
+    /// benunit is eligible for, rather than gating on reported receipt. Persisted
+    /// data field, defaults true so hypothetical households take up benefits; the
+    /// data pipeline sets it to `on_uc` for survey records so take-up matches the
+    /// FRS-reported claim status.
+    pub claims_uc_if_eligible: bool,
 
     // In-kind benefits (annual, from FRS DVs — included in HBAI net income)
     pub free_school_meals: f64,      // FSMBU
@@ -235,11 +238,30 @@ pub struct BenUnit {
     pub free_tv_licence: f64,        // BUTVLIC
 }
 
+impl Default for BenUnit {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            household_id: 0,
+            person_ids: Vec::new(),
+            on_uc: false,
+            rent_monthly: 0.0,
+            is_lone_parent: false,
+            claims_uc_if_eligible: true,
+            free_school_meals: 0.0,
+            free_school_fruit_veg: 0.0,
+            free_school_milk: 0.0,
+            healthy_start_vouchers: 0.0,
+            free_tv_licence: 0.0,
+        }
+    }
+}
+
 impl BenUnit {
-    /// Whether the benunit claims a benefit: full take-up, or any member
-    /// reported receipt of it in the survey.
+    /// Whether the benunit claims a benefit: eligibility-based take-up, or any
+    /// member reported receipt of it in the survey.
     pub fn claims(&self, people: &[Person], reported: impl Fn(&Person) -> f64) -> bool {
-        self.full_take_up || self.person_ids.iter().any(|&pid| reported(&people[pid]) > 0.0)
+        self.claims_uc_if_eligible || self.person_ids.iter().any(|&pid| reported(&people[pid]) > 0.0)
     }
 
     pub fn num_adults(&self, people: &[Person]) -> usize {

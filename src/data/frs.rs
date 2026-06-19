@@ -1068,6 +1068,10 @@ fn assemble_dataset(
         if bu.person_ids.iter().any(|&pid| people[pid].universal_credit > 0.0) {
             bu.on_uc = true;
         }
+        // Survey records gate take-up on reported receipt, not eligibility, so a
+        // benunit only routes to the UC system if it reported UC. (The struct
+        // default true is for hypothetical households without reported amounts.)
+        bu.claims_uc_if_eligible = bu.on_uc;
     }
 
     Ok(Dataset {

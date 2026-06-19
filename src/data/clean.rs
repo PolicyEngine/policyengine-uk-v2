@@ -148,6 +148,7 @@ fn write_benunits(dataset: &Dataset, output_dir: &Path) -> anyhow::Result<()> {
         "person_ids",
         "on_uc",
         "rent_monthly", "is_lone_parent",
+        "claims_uc_if_eligible",
     ])?;
 
     for bu in &dataset.benunits {
@@ -163,6 +164,7 @@ fn write_benunits(dataset: &Dataset, output_dir: &Path) -> anyhow::Result<()> {
             bu.on_uc.to_string(),
             format!("{:.2}", bu.rent_monthly),
             bu.is_lone_parent.to_string(),
+            bu.claims_uc_if_eligible.to_string(),
         ])?;
     }
 
@@ -443,7 +445,7 @@ fn write_microdata_csv_benunits<W: std::io::Write>(
         // IDs
         "benunit_id", "household_id", "person_ids",
         // Inputs
-        "on_uc", "rent_monthly", "is_lone_parent",
+        "on_uc", "rent_monthly", "is_lone_parent", "claims_uc_if_eligible",
         // ── Baseline outputs ──
         "baseline_universal_credit", "baseline_child_benefit",
         "baseline_state_pension", "baseline_pension_credit",
@@ -481,6 +483,7 @@ fn write_microdata_csv_benunits<W: std::io::Write>(
             bu.on_uc.to_string(),
             format!("{:.2}", bu.rent_monthly),
             bu.is_lone_parent.to_string(),
+            bu.claims_uc_if_eligible.to_string(),
             // Baseline
             format!("{:.2}", bl.universal_credit),
             format!("{:.2}", bl.child_benefit),
@@ -775,6 +778,16 @@ impl HeaderIndex {
         self.idx(name).map(|i| parse_bool(r.get(i).unwrap_or(""))).unwrap_or(false)
     }
 
+    fn get_bool_default(&self, r: &csv::StringRecord, name: &str, default: bool) -> bool {
+        match self.idx(name) {
+            Some(i) => {
+                let s = r.get(i).unwrap_or("");
+                if s.is_empty() { default } else { parse_bool(s) }
+            }
+            None => default,
+        }
+    }
+
     fn get_f64(&self, r: &csv::StringRecord, name: &str) -> f64 {
         self.idx(name).map(|i| parse_f64(r.get(i).unwrap_or(""))).unwrap_or(0.0)
     }
@@ -889,13 +902,18 @@ pub fn parse_benunits_csv<R: std::io::Read>(reader: R) -> anyhow::Result<Vec<Ben
     let mut benunits = Vec::new();
     for result in rdr.records() {
         let r = result?;
+        let on_uc = h.get_bool(&r, "on_uc");
         benunits.push(BenUnit {
             id: h.get_usize(&r, "benunit_id"),
             household_id: h.get_usize(&r, "household_id"),
             person_ids: parse_id_list(&h.get_str(&r, "person_ids")),
-            on_uc: h.get_bool(&r, "on_uc"),
+            on_uc,
             rent_monthly: h.get_f64(&r, "rent_monthly"),
             is_lone_parent: h.get_bool(&r, "is_lone_parent"),
+            // Survey records gate take-up on reported receipt: absent the column,
+            // fall back to the FRS-reported claim status (on_uc) rather than the
+            // hypothetical-household default (true), so clean data behaves as before.
+            claims_uc_if_eligible: h.get_bool_default(&r, "claims_uc_if_eligible", on_uc),
             ..BenUnit::default()
         });
     }
