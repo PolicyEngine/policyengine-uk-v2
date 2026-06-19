@@ -73,29 +73,7 @@ pub struct JsonOutput {
     pub cpi_index: f64,
 }
 
-/// CPI index by fiscal year (2025/26 = 100).
-/// Sources: ONS CPI annual average (historical), OBR EFO March 2026 table 1.7 (forecast).
-/// Each value is the annual average CPI index aligned to the fiscal year label.
-pub fn cpi_index_for_year(year: u32) -> f64 {
-    // CPI index by fiscal year, rebased to 2010/11 = 100 (the absolute-poverty
-    // reference year). Source: OBR EFO March 2026 table 1.7 CPI (2015=100), with
-    // pre-2010 fiscal years from ONS series D7BT financial-year averages.
-    let table: &[(u32, f64)] = &[
-        (1994, 72.916542), (1995, 74.863074), (1996, 76.532848), (1997, 77.879738),
-        (1998, 79.079023), (1999, 79.983099), (2000, 80.647319), (2001, 81.772802),
-        (2002, 82.787582), (2003, 83.876164), (2004, 85.084674), (2005, 86.874377),
-        (2006, 89.116118), (2007, 91.071875), (2008, 94.485225), (2009, 96.616263),
-        (2010, 100.000000), (2011, 104.300545), (2012, 107.068495), (2013, 109.535701),
-        (2014, 110.686646), (2015, 110.798825), (2016, 112.025879), (2017, 115.190516),
-        (2018, 117.802559), (2019, 119.851492), (2020, 120.557502), (2021, 125.368849),
-        (2022, 137.951381), (2023, 145.773765), (2024, 149.171329), (2025, 153.921493),
-        (2026, 156.889890), (2027, 160.021436), (2028, 163.222508), (2029, 166.486583),
-    ];
-    table.iter()
-        .find(|(y, _)| *y == year)
-        .map(|(_, v)| *v)
-        .unwrap_or(100.0)
-}
+pub use crate::data::clean::cpi_index_for_year;
 
 #[derive(Serialize, Clone, Copy)]
 pub struct BudgetaryImpact {

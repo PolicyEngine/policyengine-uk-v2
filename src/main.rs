@@ -286,7 +286,7 @@ fn main() -> anyhow::Result<()> {
     // Enhanced microdata output
     if let Some(micro_dir) = &cli.output_microdata {
         std::fs::create_dir_all(micro_dir)?;
-        write_microdata(&dataset, &baseline, &reformed, micro_dir)?;
+        write_microdata(&dataset, &baseline, &reformed, micro_dir, cli.year)?;
         if !json_mode {
             println!("  {} Wrote enhanced microdata to {}", "▸".bright_cyan(), micro_dir.display());
         }
@@ -295,7 +295,7 @@ fn main() -> anyhow::Result<()> {
 
     // Microdata to stdout
     if cli.output_microdata_stdout {
-        write_microdata_to_stdout(&dataset, &baseline, &reformed)?;
+        write_microdata_to_stdout(&dataset, &baseline, &reformed, cli.year)?;
         return Ok(());
     }
 

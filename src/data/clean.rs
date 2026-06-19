@@ -4,6 +4,27 @@ use crate::engine::entities::*;
 use crate::engine::simulation::SimulationResults;
 use crate::data::Dataset;
 
+/// CPI index by fiscal year, rebased to 2010/11 = 100 (the absolute-poverty
+/// reference year). Source: OBR EFO March 2026 table 1.7 CPI (2015=100), with
+/// pre-2010 fiscal years from ONS series D7BT financial-year averages.
+pub fn cpi_index_for_year(year: u32) -> f64 {
+    let table: &[(u32, f64)] = &[
+        (1994, 72.916542), (1995, 74.863074), (1996, 76.532848), (1997, 77.879738),
+        (1998, 79.079023), (1999, 79.983099), (2000, 80.647319), (2001, 81.772802),
+        (2002, 82.787582), (2003, 83.876164), (2004, 85.084674), (2005, 86.874377),
+        (2006, 89.116118), (2007, 91.071875), (2008, 94.485225), (2009, 96.616263),
+        (2010, 100.000000), (2011, 104.300545), (2012, 107.068495), (2013, 109.535701),
+        (2014, 110.686646), (2015, 110.798825), (2016, 112.025879), (2017, 115.190516),
+        (2018, 117.802559), (2019, 119.851492), (2020, 120.557502), (2021, 125.368849),
+        (2022, 137.951381), (2023, 145.773765), (2024, 149.171329), (2025, 153.921493),
+        (2026, 156.889890), (2027, 160.021436), (2028, 163.222508), (2029, 166.486583),
+    ];
+    table.iter()
+        .find(|(y, _)| *y == year)
+        .map(|(_, v)| *v)
+        .unwrap_or(100.0)
+}
+
 /// Write a Dataset to clean CSVs with descriptive column names.
 ///
 /// Produces three files in `output_dir`:
@@ -262,10 +283,11 @@ pub fn write_microdata(
     baseline: &SimulationResults,
     reformed: &SimulationResults,
     output_dir: &Path,
+    year: u32,
 ) -> anyhow::Result<()> {
     write_microdata_persons(dataset, baseline, reformed, output_dir)?;
     write_microdata_benunits(dataset, baseline, reformed, output_dir)?;
-    write_microdata_households(dataset, baseline, reformed, output_dir)?;
+    write_microdata_households(dataset, baseline, reformed, output_dir, year)?;
     Ok(())
 }
 
@@ -274,6 +296,7 @@ pub fn write_microdata_to_stdout(
     dataset: &Dataset,
     baseline: &SimulationResults,
     reformed: &SimulationResults,
+    year: u32,
 ) -> anyhow::Result<()> {
     use std::io::Write;
     let stdout = std::io::stdout();
@@ -289,7 +312,7 @@ pub fn write_microdata_to_stdout(
 
     // Households
     write!(out, "===HOUSEHOLDS===\n")?;
-    write_microdata_csv_households(&mut out, dataset, baseline, reformed)?;
+    write_microdata_csv_households(&mut out, dataset, baseline, reformed, year)?;
 
     out.flush()?;
     Ok(())
@@ -528,10 +551,42 @@ fn write_microdata_households(
     baseline: &SimulationResults,
     reformed: &SimulationResults,
     output_dir: &Path,
+    year: u32,
 ) -> anyhow::Result<()> {
     let path = output_dir.join("households.csv");
     let file = std::fs::File::create(&path)?;
-    write_microdata_csv_households(file, dataset, baseline, reformed)
+    write_microdata_csv_households(file, dataset, baseline, reformed, year)
+}
+
+/// Person-weighted median equivalised income (BHC and AHC) over all households,
+/// matching the HBAI aggregation in `run::analyse`. Each person carries the
+/// household's weight; the median is taken over the per-person distribution.
+fn person_weighted_median_equiv(
+    dataset: &Dataset,
+    results: &SimulationResults,
+) -> (f64, f64) {
+    let total_person_weight: f64 = dataset.households.iter()
+        .map(|h| h.weight * h.person_ids.len() as f64)
+        .sum();
+    let median = |mut vals: Vec<(f64, f64)>| -> f64 {
+        vals.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        let half = total_person_weight / 2.0;
+        let mut cum = 0.0;
+        for (v, w) in &vals {
+            cum += w;
+            if cum >= half { return *v; }
+        }
+        vals.last().map(|&(v, _)| v).unwrap_or(0.0)
+    };
+    let bhc = median(dataset.households.iter()
+        .map(|h| (results.household_results[h.id].equivalised_net_income,
+                  h.weight * h.person_ids.len() as f64))
+        .collect());
+    let ahc = median(dataset.households.iter()
+        .map(|h| (results.household_results[h.id].equivalised_net_income_ahc,
+                  h.weight * h.person_ids.len() as f64))
+        .collect());
+    (bhc, ahc)
 }
 
 fn write_microdata_csv_households<W: std::io::Write>(
@@ -539,8 +594,20 @@ fn write_microdata_csv_households<W: std::io::Write>(
     dataset: &Dataset,
     baseline: &SimulationResults,
     reformed: &SimulationResults,
+    year: u32,
 ) -> anyhow::Result<()> {
     let mut wtr = csv::Writer::from_writer(writer);
+
+    // Poverty lines. Relative lines = 60% of the baseline person-weighted median
+    // equivalised income; absolute lines = 2010/11 reference uprated by CPI. These
+    // match `run::analyse` so microdata flags reconcile with aggregate headcounts.
+    let (median_equiv_bhc, median_equiv_ahc) =
+        person_weighted_median_equiv(dataset, baseline);
+    let rel_line_bhc = 0.60 * median_equiv_bhc;
+    let rel_line_ahc = 0.60 * median_equiv_ahc;
+    let cpi = cpi_index_for_year(year) / 100.0;
+    let abs_line_bhc = 14_400.0 * cpi;
+    let abs_line_ahc = 11_600.0 * cpi;
 
     wtr.write_record(&[
         "household_id", "weight", "region",
@@ -552,6 +619,9 @@ fn write_microdata_csv_households<W: std::io::Write>(
         "baseline_property_transaction_tax",
         "baseline_vat", "baseline_fuel_duty",
         "baseline_equivalisation_factor", "baseline_equivalised_net_income",
+        "baseline_net_income_ahc", "baseline_equivalised_net_income_ahc",
+        "baseline_in_relative_poverty_bhc", "baseline_in_relative_poverty_ahc",
+        "baseline_in_absolute_poverty_bhc", "baseline_in_absolute_poverty_ahc",
         // ── Reform outputs ──
         "reform_net_income", "reform_gross_income",
         "reform_total_tax", "reform_total_benefits",
@@ -559,7 +629,12 @@ fn write_microdata_csv_households<W: std::io::Write>(
         "reform_property_transaction_tax",
         "reform_vat", "reform_fuel_duty",
         "reform_equivalisation_factor", "reform_equivalised_net_income",
+        "reform_net_income_ahc", "reform_equivalised_net_income_ahc",
+        "reform_in_relative_poverty_bhc", "reform_in_relative_poverty_ahc",
+        "reform_in_absolute_poverty_bhc", "reform_in_absolute_poverty_ahc",
     ])?;
+
+    let flag = |b: bool| if b { "1" } else { "0" }.to_string();
 
     for hh in &dataset.households {
         let bl = &baseline.household_results[hh.id];
@@ -583,6 +658,12 @@ fn write_microdata_csv_households<W: std::io::Write>(
             format!("{:.2}", bl.fuel_duty),
             format!("{:.4}", bl.equivalisation_factor),
             format!("{:.2}", bl.equivalised_net_income),
+            format!("{:.2}", bl.net_income_ahc),
+            format!("{:.2}", bl.equivalised_net_income_ahc),
+            flag(bl.equivalised_net_income < rel_line_bhc),
+            flag(bl.equivalised_net_income_ahc < rel_line_ahc),
+            flag(bl.equivalised_net_income < abs_line_bhc),
+            flag(bl.equivalised_net_income_ahc < abs_line_ahc),
             // Reform
             format!("{:.2}", rf.net_income),
             format!("{:.2}", rf.gross_income),
@@ -594,6 +675,12 @@ fn write_microdata_csv_households<W: std::io::Write>(
             format!("{:.2}", rf.fuel_duty),
             format!("{:.4}", rf.equivalisation_factor),
             format!("{:.2}", rf.equivalised_net_income),
+            format!("{:.2}", rf.net_income_ahc),
+            format!("{:.2}", rf.equivalised_net_income_ahc),
+            flag(rf.equivalised_net_income < rel_line_bhc),
+            flag(rf.equivalised_net_income_ahc < rel_line_ahc),
+            flag(rf.equivalised_net_income < abs_line_bhc),
+            flag(rf.equivalised_net_income_ahc < abs_line_ahc),
         ])?;
     }
 
