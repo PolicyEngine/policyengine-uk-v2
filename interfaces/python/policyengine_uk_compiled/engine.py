@@ -587,14 +587,19 @@ class Simulation:
         policy: Optional[Parameters] = None,
         structural: Optional[StructuralReform] = None,
         timeout: int = 120,
+        return_baselines: bool = False,
     ) -> MicrodataResult:
         """Run the simulation and return per-entity microdata as DataFrames.
 
-        If a structural post-hook is provided it is applied to the DataFrames
-        after the binary produces its output.
+        When neither policy nor return_baselines is set, output columns have
+        plain names (e.g. net_income, income_tax). Pass return_baselines=True
+        to get both baseline_* and reform_* columns side by side.
         """
+        extra_args = ["--output-microdata-stdout"]
+        if return_baselines:
+            extra_args.append("--microdata-return-baselines")
         stdin_payload = self._apply_pre_hook(structural)
-        cmd = self._build_cmd(policy, extra_args=["--output-microdata-stdout"], stdin_override=stdin_payload is not None)
+        cmd = self._build_cmd(policy, extra_args=extra_args, stdin_override=stdin_payload is not None)
         cwd = _find_cwd(self.binary_path)
         result = subprocess.run(
             cmd,

@@ -284,10 +284,11 @@ pub fn write_microdata(
     reformed: &SimulationResults,
     output_dir: &Path,
     year: u32,
+    return_baselines: bool,
 ) -> anyhow::Result<()> {
-    write_microdata_persons(dataset, baseline, reformed, output_dir)?;
-    write_microdata_benunits(dataset, baseline, reformed, output_dir)?;
-    write_microdata_households(dataset, baseline, reformed, output_dir, year)?;
+    write_microdata_persons(dataset, baseline, reformed, output_dir, return_baselines)?;
+    write_microdata_benunits(dataset, baseline, reformed, output_dir, return_baselines)?;
+    write_microdata_households(dataset, baseline, reformed, output_dir, year, return_baselines)?;
     Ok(())
 }
 
@@ -297,22 +298,20 @@ pub fn write_microdata_to_stdout(
     baseline: &SimulationResults,
     reformed: &SimulationResults,
     year: u32,
+    return_baselines: bool,
 ) -> anyhow::Result<()> {
     use std::io::Write;
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
 
-    // Persons
     write!(out, "===PERSONS===\n")?;
-    write_microdata_csv_persons(&mut out, dataset, baseline, reformed)?;
+    write_microdata_csv_persons(&mut out, dataset, baseline, reformed, return_baselines)?;
 
-    // Benunits
     write!(out, "===BENUNITS===\n")?;
-    write_microdata_csv_benunits(&mut out, dataset, baseline, reformed)?;
+    write_microdata_csv_benunits(&mut out, dataset, baseline, reformed, return_baselines)?;
 
-    // Households
     write!(out, "===HOUSEHOLDS===\n")?;
-    write_microdata_csv_households(&mut out, dataset, baseline, reformed, year)?;
+    write_microdata_csv_households(&mut out, dataset, baseline, reformed, year, return_baselines)?;
 
     out.flush()?;
     Ok(())
@@ -323,10 +322,11 @@ fn write_microdata_persons(
     baseline: &SimulationResults,
     reformed: &SimulationResults,
     output_dir: &Path,
+    return_baselines: bool,
 ) -> anyhow::Result<()> {
     let path = output_dir.join("persons.csv");
     let file = std::fs::File::create(&path)?;
-    write_microdata_csv_persons(file, dataset, baseline, reformed)
+    write_microdata_csv_persons(file, dataset, baseline, reformed, return_baselines)
 }
 
 fn write_microdata_csv_persons<W: std::io::Write>(
@@ -334,10 +334,11 @@ fn write_microdata_csv_persons<W: std::io::Write>(
     dataset: &Dataset,
     baseline: &SimulationResults,
     reformed: &SimulationResults,
+    return_baselines: bool,
 ) -> anyhow::Result<()> {
     let mut wtr = csv::Writer::from_writer(writer);
 
-    wtr.write_record(&[
+    let mut header: Vec<&str> = vec![
         // IDs
         "person_id", "benunit_id", "household_id",
         // Demographics
@@ -362,23 +363,32 @@ fn write_microdata_csv_persons<W: std::io::Write>(
         "income_support", "pension_credit",
         "child_tax_credit", "working_tax_credit",
         "universal_credit", "carers_allowance",
-        // ── Baseline outputs ──
-        "baseline_income_tax", "baseline_employee_ni", "baseline_employer_ni",
-        // Per-class NI breakdown (sum of class1_employee + class2 + class4 == employee_ni)
-        "baseline_ni_class1_employee", "baseline_ni_class2", "baseline_ni_class4",
-        "baseline_total_income", "baseline_taxable_income",
-        "baseline_personal_allowance", "baseline_capital_gains_tax",
-        // ── Reform outputs ──
-        "reform_income_tax", "reform_employee_ni", "reform_employer_ni",
-        "reform_ni_class1_employee", "reform_ni_class2", "reform_ni_class4",
-        "reform_total_income", "reform_taxable_income",
-        "reform_personal_allowance", "reform_capital_gains_tax",
-    ])?;
+    ];
+    if return_baselines {
+        header.extend_from_slice(&[
+            "baseline_income_tax", "baseline_employee_ni", "baseline_employer_ni",
+            "baseline_ni_class1_employee", "baseline_ni_class2", "baseline_ni_class4",
+            "baseline_total_income", "baseline_taxable_income",
+            "baseline_personal_allowance", "baseline_capital_gains_tax",
+            "reform_income_tax", "reform_employee_ni", "reform_employer_ni",
+            "reform_ni_class1_employee", "reform_ni_class2", "reform_ni_class4",
+            "reform_total_income", "reform_taxable_income",
+            "reform_personal_allowance", "reform_capital_gains_tax",
+        ]);
+    } else {
+        header.extend_from_slice(&[
+            "income_tax", "employee_ni", "employer_ni",
+            "ni_class1_employee", "ni_class2", "ni_class4",
+            "total_income", "taxable_income",
+            "personal_allowance", "capital_gains_tax",
+        ]);
+    }
+    wtr.write_record(&header)?;
 
     for p in &dataset.people {
         let bl = &baseline.person_results[p.id];
         let rf = &reformed.person_results[p.id];
-        wtr.write_record(&[
+        let mut row: Vec<String> = vec![
             p.id.to_string(),
             p.benunit_id.to_string(),
             p.household_id.to_string(),
@@ -400,7 +410,6 @@ fn write_microdata_csv_persons<W: std::io::Write>(
             format!("{:.2}", p.other_income),
             p.is_in_scotland.to_string(),
             format!("{:.1}", p.hours_worked),
-            // emp_status: 1=employed, 2=self-employed, 3=unemployed, 4=inactive
             (if p.emp_status == 1 || p.emp_status == 2 { 1 } else { 0 }).to_string(),
             (if p.emp_status == 3 { 1 } else { 0 }).to_string(),
             p.is_disabled.to_string(),
@@ -416,29 +425,45 @@ fn write_microdata_csv_persons<W: std::io::Write>(
             format!("{:.2}", p.working_tax_credit),
             format!("{:.2}", p.universal_credit),
             format!("{:.2}", p.carers_allowance),
-            // Baseline
-            format!("{:.2}", bl.income_tax),
-            format!("{:.2}", bl.national_insurance),
-            format!("{:.2}", bl.employer_ni),
-            format!("{:.2}", bl.ni_class1_employee),
-            format!("{:.2}", bl.ni_class2),
-            format!("{:.2}", bl.ni_class4),
-            format!("{:.2}", bl.total_income),
-            format!("{:.2}", bl.taxable_income),
-            format!("{:.2}", bl.personal_allowance),
-            format!("{:.2}", bl.capital_gains_tax),
-            // Reform
-            format!("{:.2}", rf.income_tax),
-            format!("{:.2}", rf.national_insurance),
-            format!("{:.2}", rf.employer_ni),
-            format!("{:.2}", rf.ni_class1_employee),
-            format!("{:.2}", rf.ni_class2),
-            format!("{:.2}", rf.ni_class4),
-            format!("{:.2}", rf.total_income),
-            format!("{:.2}", rf.taxable_income),
-            format!("{:.2}", rf.personal_allowance),
-            format!("{:.2}", rf.capital_gains_tax),
-        ])?;
+        ];
+        if return_baselines {
+            row.extend_from_slice(&[
+                format!("{:.2}", bl.income_tax),
+                format!("{:.2}", bl.national_insurance),
+                format!("{:.2}", bl.employer_ni),
+                format!("{:.2}", bl.ni_class1_employee),
+                format!("{:.2}", bl.ni_class2),
+                format!("{:.2}", bl.ni_class4),
+                format!("{:.2}", bl.total_income),
+                format!("{:.2}", bl.taxable_income),
+                format!("{:.2}", bl.personal_allowance),
+                format!("{:.2}", bl.capital_gains_tax),
+                format!("{:.2}", rf.income_tax),
+                format!("{:.2}", rf.national_insurance),
+                format!("{:.2}", rf.employer_ni),
+                format!("{:.2}", rf.ni_class1_employee),
+                format!("{:.2}", rf.ni_class2),
+                format!("{:.2}", rf.ni_class4),
+                format!("{:.2}", rf.total_income),
+                format!("{:.2}", rf.taxable_income),
+                format!("{:.2}", rf.personal_allowance),
+                format!("{:.2}", rf.capital_gains_tax),
+            ]);
+        } else {
+            row.extend_from_slice(&[
+                format!("{:.2}", rf.income_tax),
+                format!("{:.2}", rf.national_insurance),
+                format!("{:.2}", rf.employer_ni),
+                format!("{:.2}", rf.ni_class1_employee),
+                format!("{:.2}", rf.ni_class2),
+                format!("{:.2}", rf.ni_class4),
+                format!("{:.2}", rf.total_income),
+                format!("{:.2}", rf.taxable_income),
+                format!("{:.2}", rf.personal_allowance),
+                format!("{:.2}", rf.capital_gains_tax),
+            ]);
+        }
+        wtr.write_record(&row)?;
     }
 
     wtr.flush()?;
@@ -450,10 +475,11 @@ fn write_microdata_benunits(
     baseline: &SimulationResults,
     reformed: &SimulationResults,
     output_dir: &Path,
+    return_baselines: bool,
 ) -> anyhow::Result<()> {
     let path = output_dir.join("benunits.csv");
     let file = std::fs::File::create(&path)?;
-    write_microdata_csv_benunits(file, dataset, baseline, reformed)
+    write_microdata_csv_benunits(file, dataset, baseline, reformed, return_baselines)
 }
 
 fn write_microdata_csv_benunits<W: std::io::Write>(
@@ -461,35 +487,49 @@ fn write_microdata_csv_benunits<W: std::io::Write>(
     dataset: &Dataset,
     baseline: &SimulationResults,
     reformed: &SimulationResults,
+    return_baselines: bool,
 ) -> anyhow::Result<()> {
     let mut wtr = csv::Writer::from_writer(writer);
 
-    wtr.write_record(&[
-        // IDs
+    let mut header: Vec<&str> = vec![
         "benunit_id", "household_id", "person_ids",
-        // Inputs
         "on_uc", "rent_monthly", "is_lone_parent", "claims_uc_if_eligible",
-        // ── Baseline outputs ──
-        "baseline_universal_credit", "baseline_child_benefit",
-        "baseline_state_pension", "baseline_pension_credit",
-        "baseline_housing_benefit",
-        "baseline_child_tax_credit", "baseline_working_tax_credit",
-        "baseline_income_support",
-        "baseline_esa_income_related", "baseline_jsa_income_based",
-        "baseline_carers_allowance", "baseline_scottish_child_payment",
-        "baseline_benefit_cap_reduction", "baseline_passthrough_benefits",
-        "baseline_total_benefits",
-        // ── Reform outputs ──
-        "reform_universal_credit", "reform_child_benefit",
-        "reform_state_pension", "reform_pension_credit",
-        "reform_housing_benefit",
-        "reform_child_tax_credit", "reform_working_tax_credit",
-        "reform_income_support",
-        "reform_esa_income_related", "reform_jsa_income_based",
-        "reform_carers_allowance", "reform_scottish_child_payment",
-        "reform_benefit_cap_reduction", "reform_passthrough_benefits",
-        "reform_total_benefits",
-    ])?;
+    ];
+    if return_baselines {
+        header.extend_from_slice(&[
+            "baseline_universal_credit", "baseline_child_benefit",
+            "baseline_state_pension", "baseline_pension_credit",
+            "baseline_housing_benefit",
+            "baseline_child_tax_credit", "baseline_working_tax_credit",
+            "baseline_income_support",
+            "baseline_esa_income_related", "baseline_jsa_income_based",
+            "baseline_carers_allowance", "baseline_scottish_child_payment",
+            "baseline_benefit_cap_reduction", "baseline_passthrough_benefits",
+            "baseline_total_benefits",
+            "reform_universal_credit", "reform_child_benefit",
+            "reform_state_pension", "reform_pension_credit",
+            "reform_housing_benefit",
+            "reform_child_tax_credit", "reform_working_tax_credit",
+            "reform_income_support",
+            "reform_esa_income_related", "reform_jsa_income_based",
+            "reform_carers_allowance", "reform_scottish_child_payment",
+            "reform_benefit_cap_reduction", "reform_passthrough_benefits",
+            "reform_total_benefits",
+        ]);
+    } else {
+        header.extend_from_slice(&[
+            "universal_credit", "child_benefit",
+            "state_pension", "pension_credit",
+            "housing_benefit",
+            "child_tax_credit", "working_tax_credit",
+            "income_support",
+            "esa_income_related", "jsa_income_based",
+            "carers_allowance", "scottish_child_payment",
+            "benefit_cap_reduction", "passthrough_benefits",
+            "total_benefits",
+        ]);
+    }
+    wtr.write_record(&header)?;
 
     for bu in &dataset.benunits {
         let bl = &baseline.benunit_results[bu.id];
@@ -499,7 +539,7 @@ fn write_microdata_csv_benunits<W: std::io::Write>(
             .collect::<Vec<_>>()
             .join(";");
 
-        wtr.write_record(&[
+        let mut row: Vec<String> = vec![
             bu.id.to_string(),
             bu.household_id.to_string(),
             ids,
@@ -507,39 +547,60 @@ fn write_microdata_csv_benunits<W: std::io::Write>(
             format!("{:.2}", bu.rent_monthly),
             bu.is_lone_parent.to_string(),
             bu.claims_uc_if_eligible.to_string(),
-            // Baseline
-            format!("{:.2}", bl.universal_credit),
-            format!("{:.2}", bl.child_benefit),
-            format!("{:.2}", bl.state_pension),
-            format!("{:.2}", bl.pension_credit),
-            format!("{:.2}", bl.housing_benefit),
-            format!("{:.2}", bl.child_tax_credit),
-            format!("{:.2}", bl.working_tax_credit),
-            format!("{:.2}", bl.income_support),
-            format!("{:.2}", bl.esa_income_related),
-            format!("{:.2}", bl.jsa_income_based),
-            format!("{:.2}", bl.carers_allowance),
-            format!("{:.2}", bl.scottish_child_payment),
-            format!("{:.2}", bl.benefit_cap_reduction),
-            format!("{:.2}", bl.passthrough_benefits),
-            format!("{:.2}", bl.total_benefits),
-            // Reform
-            format!("{:.2}", rf.universal_credit),
-            format!("{:.2}", rf.child_benefit),
-            format!("{:.2}", rf.state_pension),
-            format!("{:.2}", rf.pension_credit),
-            format!("{:.2}", rf.housing_benefit),
-            format!("{:.2}", rf.child_tax_credit),
-            format!("{:.2}", rf.working_tax_credit),
-            format!("{:.2}", rf.income_support),
-            format!("{:.2}", rf.esa_income_related),
-            format!("{:.2}", rf.jsa_income_based),
-            format!("{:.2}", rf.carers_allowance),
-            format!("{:.2}", rf.scottish_child_payment),
-            format!("{:.2}", rf.benefit_cap_reduction),
-            format!("{:.2}", rf.passthrough_benefits),
-            format!("{:.2}", rf.total_benefits),
-        ])?;
+        ];
+        if return_baselines {
+            row.extend_from_slice(&[
+                format!("{:.2}", bl.universal_credit),
+                format!("{:.2}", bl.child_benefit),
+                format!("{:.2}", bl.state_pension),
+                format!("{:.2}", bl.pension_credit),
+                format!("{:.2}", bl.housing_benefit),
+                format!("{:.2}", bl.child_tax_credit),
+                format!("{:.2}", bl.working_tax_credit),
+                format!("{:.2}", bl.income_support),
+                format!("{:.2}", bl.esa_income_related),
+                format!("{:.2}", bl.jsa_income_based),
+                format!("{:.2}", bl.carers_allowance),
+                format!("{:.2}", bl.scottish_child_payment),
+                format!("{:.2}", bl.benefit_cap_reduction),
+                format!("{:.2}", bl.passthrough_benefits),
+                format!("{:.2}", bl.total_benefits),
+                format!("{:.2}", rf.universal_credit),
+                format!("{:.2}", rf.child_benefit),
+                format!("{:.2}", rf.state_pension),
+                format!("{:.2}", rf.pension_credit),
+                format!("{:.2}", rf.housing_benefit),
+                format!("{:.2}", rf.child_tax_credit),
+                format!("{:.2}", rf.working_tax_credit),
+                format!("{:.2}", rf.income_support),
+                format!("{:.2}", rf.esa_income_related),
+                format!("{:.2}", rf.jsa_income_based),
+                format!("{:.2}", rf.carers_allowance),
+                format!("{:.2}", rf.scottish_child_payment),
+                format!("{:.2}", rf.benefit_cap_reduction),
+                format!("{:.2}", rf.passthrough_benefits),
+                format!("{:.2}", rf.total_benefits),
+            ]);
+        } else {
+            row.extend_from_slice(&[
+                format!("{:.2}", rf.universal_credit),
+                format!("{:.2}", rf.child_benefit),
+                format!("{:.2}", rf.state_pension),
+                format!("{:.2}", rf.pension_credit),
+                format!("{:.2}", rf.housing_benefit),
+                format!("{:.2}", rf.child_tax_credit),
+                format!("{:.2}", rf.working_tax_credit),
+                format!("{:.2}", rf.income_support),
+                format!("{:.2}", rf.esa_income_related),
+                format!("{:.2}", rf.jsa_income_based),
+                format!("{:.2}", rf.carers_allowance),
+                format!("{:.2}", rf.scottish_child_payment),
+                format!("{:.2}", rf.benefit_cap_reduction),
+                format!("{:.2}", rf.passthrough_benefits),
+                format!("{:.2}", rf.total_benefits),
+            ]);
+        }
+        wtr.write_record(&row)?;
     }
 
     wtr.flush()?;
@@ -552,10 +613,11 @@ fn write_microdata_households(
     reformed: &SimulationResults,
     output_dir: &Path,
     year: u32,
+    return_baselines: bool,
 ) -> anyhow::Result<()> {
     let path = output_dir.join("households.csv");
     let file = std::fs::File::create(&path)?;
-    write_microdata_csv_households(file, dataset, baseline, reformed, year)
+    write_microdata_csv_households(file, dataset, baseline, reformed, year, return_baselines)
 }
 
 /// Person-weighted median equivalised income (BHC and AHC) over all households,
@@ -595,12 +657,10 @@ fn write_microdata_csv_households<W: std::io::Write>(
     baseline: &SimulationResults,
     reformed: &SimulationResults,
     year: u32,
+    return_baselines: bool,
 ) -> anyhow::Result<()> {
     let mut wtr = csv::Writer::from_writer(writer);
 
-    // Poverty lines. Relative lines = 60% of the baseline person-weighted median
-    // equivalised income; absolute lines = 2010/11 reference uprated by CPI. These
-    // match `run::analyse` so microdata flags reconcile with aggregate headcounts.
     let (median_equiv_bhc, median_equiv_ahc) =
         person_weighted_median_equiv(dataset, baseline);
     let rel_line_bhc = 0.60 * median_equiv_bhc;
@@ -609,30 +669,45 @@ fn write_microdata_csv_households<W: std::io::Write>(
     let abs_line_bhc = 14_400.0 * cpi;
     let abs_line_ahc = 11_600.0 * cpi;
 
-    wtr.write_record(&[
+    let mut header: Vec<&str> = vec![
         "household_id", "weight", "region",
         "rent_annual", "council_tax_annual", "tenure_type",
-        // ── Baseline outputs ──
-        "baseline_net_income", "baseline_gross_income",
-        "baseline_total_tax", "baseline_total_benefits",
-        "baseline_council_tax_calculated",
-        "baseline_property_transaction_tax",
-        "baseline_vat", "baseline_fuel_duty",
-        "baseline_equivalisation_factor", "baseline_equivalised_net_income",
-        "baseline_net_income_ahc", "baseline_equivalised_net_income_ahc",
-        "baseline_in_relative_poverty_bhc", "baseline_in_relative_poverty_ahc",
-        "baseline_in_absolute_poverty_bhc", "baseline_in_absolute_poverty_ahc",
-        // ── Reform outputs ──
-        "reform_net_income", "reform_gross_income",
-        "reform_total_tax", "reform_total_benefits",
-        "reform_council_tax_calculated",
-        "reform_property_transaction_tax",
-        "reform_vat", "reform_fuel_duty",
-        "reform_equivalisation_factor", "reform_equivalised_net_income",
-        "reform_net_income_ahc", "reform_equivalised_net_income_ahc",
-        "reform_in_relative_poverty_bhc", "reform_in_relative_poverty_ahc",
-        "reform_in_absolute_poverty_bhc", "reform_in_absolute_poverty_ahc",
-    ])?;
+    ];
+    if return_baselines {
+        header.extend_from_slice(&[
+            "baseline_net_income", "baseline_gross_income",
+            "baseline_total_tax", "baseline_total_benefits",
+            "baseline_council_tax_calculated",
+            "baseline_property_transaction_tax",
+            "baseline_vat", "baseline_fuel_duty",
+            "baseline_equivalisation_factor", "baseline_equivalised_net_income",
+            "baseline_net_income_ahc", "baseline_equivalised_net_income_ahc",
+            "baseline_in_relative_poverty_bhc", "baseline_in_relative_poverty_ahc",
+            "baseline_in_absolute_poverty_bhc", "baseline_in_absolute_poverty_ahc",
+            "reform_net_income", "reform_gross_income",
+            "reform_total_tax", "reform_total_benefits",
+            "reform_council_tax_calculated",
+            "reform_property_transaction_tax",
+            "reform_vat", "reform_fuel_duty",
+            "reform_equivalisation_factor", "reform_equivalised_net_income",
+            "reform_net_income_ahc", "reform_equivalised_net_income_ahc",
+            "reform_in_relative_poverty_bhc", "reform_in_relative_poverty_ahc",
+            "reform_in_absolute_poverty_bhc", "reform_in_absolute_poverty_ahc",
+        ]);
+    } else {
+        header.extend_from_slice(&[
+            "net_income", "gross_income",
+            "total_tax", "total_benefits",
+            "council_tax_calculated",
+            "property_transaction_tax",
+            "vat", "fuel_duty",
+            "equivalisation_factor", "equivalised_net_income",
+            "net_income_ahc", "equivalised_net_income_ahc",
+            "in_relative_poverty_bhc", "in_relative_poverty_ahc",
+            "in_absolute_poverty_bhc", "in_absolute_poverty_ahc",
+        ]);
+    }
+    wtr.write_record(&header)?;
 
     let flag = |b: bool| if b { "1" } else { "0" }.to_string();
 
@@ -640,48 +715,70 @@ fn write_microdata_csv_households<W: std::io::Write>(
         let bl = &baseline.household_results[hh.id];
         let rf = &reformed.household_results[hh.id];
 
-        wtr.write_record(&[
+        let mut row: Vec<String> = vec![
             hh.id.to_string(),
             format!("{:.4}", hh.weight),
             hh.region.name().to_string(),
             format!("{:.2}", hh.rent),
             format!("{:.2}", hh.council_tax),
             (hh.tenure_type.to_rf_code() as i32).to_string(),
-            // Baseline
-            format!("{:.2}", bl.net_income),
-            format!("{:.2}", bl.gross_income),
-            format!("{:.2}", bl.total_tax),
-            format!("{:.2}", bl.total_benefits),
-            format!("{:.2}", bl.council_tax_calculated),
-            format!("{:.2}", bl.stamp_duty),
-            format!("{:.2}", bl.vat),
-            format!("{:.2}", bl.fuel_duty),
-            format!("{:.4}", bl.equivalisation_factor),
-            format!("{:.2}", bl.equivalised_net_income),
-            format!("{:.2}", bl.net_income_ahc),
-            format!("{:.2}", bl.equivalised_net_income_ahc),
-            flag(bl.equivalised_net_income < rel_line_bhc),
-            flag(bl.equivalised_net_income_ahc < rel_line_ahc),
-            flag(bl.equivalised_net_income < abs_line_bhc),
-            flag(bl.equivalised_net_income_ahc < abs_line_ahc),
-            // Reform
-            format!("{:.2}", rf.net_income),
-            format!("{:.2}", rf.gross_income),
-            format!("{:.2}", rf.total_tax),
-            format!("{:.2}", rf.total_benefits),
-            format!("{:.2}", rf.council_tax_calculated),
-            format!("{:.2}", rf.stamp_duty),
-            format!("{:.2}", rf.vat),
-            format!("{:.2}", rf.fuel_duty),
-            format!("{:.4}", rf.equivalisation_factor),
-            format!("{:.2}", rf.equivalised_net_income),
-            format!("{:.2}", rf.net_income_ahc),
-            format!("{:.2}", rf.equivalised_net_income_ahc),
-            flag(rf.equivalised_net_income < rel_line_bhc),
-            flag(rf.equivalised_net_income_ahc < rel_line_ahc),
-            flag(rf.equivalised_net_income < abs_line_bhc),
-            flag(rf.equivalised_net_income_ahc < abs_line_ahc),
-        ])?;
+        ];
+        if return_baselines {
+            row.extend_from_slice(&[
+                format!("{:.2}", bl.net_income),
+                format!("{:.2}", bl.gross_income),
+                format!("{:.2}", bl.total_tax),
+                format!("{:.2}", bl.total_benefits),
+                format!("{:.2}", bl.council_tax_calculated),
+                format!("{:.2}", bl.stamp_duty),
+                format!("{:.2}", bl.vat),
+                format!("{:.2}", bl.fuel_duty),
+                format!("{:.4}", bl.equivalisation_factor),
+                format!("{:.2}", bl.equivalised_net_income),
+                format!("{:.2}", bl.net_income_ahc),
+                format!("{:.2}", bl.equivalised_net_income_ahc),
+                flag(bl.equivalised_net_income < rel_line_bhc),
+                flag(bl.equivalised_net_income_ahc < rel_line_ahc),
+                flag(bl.equivalised_net_income < abs_line_bhc),
+                flag(bl.equivalised_net_income_ahc < abs_line_ahc),
+                format!("{:.2}", rf.net_income),
+                format!("{:.2}", rf.gross_income),
+                format!("{:.2}", rf.total_tax),
+                format!("{:.2}", rf.total_benefits),
+                format!("{:.2}", rf.council_tax_calculated),
+                format!("{:.2}", rf.stamp_duty),
+                format!("{:.2}", rf.vat),
+                format!("{:.2}", rf.fuel_duty),
+                format!("{:.4}", rf.equivalisation_factor),
+                format!("{:.2}", rf.equivalised_net_income),
+                format!("{:.2}", rf.net_income_ahc),
+                format!("{:.2}", rf.equivalised_net_income_ahc),
+                flag(rf.equivalised_net_income < rel_line_bhc),
+                flag(rf.equivalised_net_income_ahc < rel_line_ahc),
+                flag(rf.equivalised_net_income < abs_line_bhc),
+                flag(rf.equivalised_net_income_ahc < abs_line_ahc),
+            ]);
+        } else {
+            row.extend_from_slice(&[
+                format!("{:.2}", rf.net_income),
+                format!("{:.2}", rf.gross_income),
+                format!("{:.2}", rf.total_tax),
+                format!("{:.2}", rf.total_benefits),
+                format!("{:.2}", rf.council_tax_calculated),
+                format!("{:.2}", rf.stamp_duty),
+                format!("{:.2}", rf.vat),
+                format!("{:.2}", rf.fuel_duty),
+                format!("{:.4}", rf.equivalisation_factor),
+                format!("{:.2}", rf.equivalised_net_income),
+                format!("{:.2}", rf.net_income_ahc),
+                format!("{:.2}", rf.equivalised_net_income_ahc),
+                flag(rf.equivalised_net_income < rel_line_bhc),
+                flag(rf.equivalised_net_income_ahc < rel_line_ahc),
+                flag(rf.equivalised_net_income < abs_line_bhc),
+                flag(rf.equivalised_net_income_ahc < abs_line_ahc),
+            ]);
+        }
+        wtr.write_record(&row)?;
     }
 
     wtr.flush()?;
