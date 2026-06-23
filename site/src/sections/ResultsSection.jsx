@@ -20,6 +20,11 @@ const PERSON_COLS = [
   ['capital_gains', 'none'], ['property_income', 'none'],
   ['is_in_scotland', 'none'], ['hours_worked_annual', 'none'],
   ['is_disabled', 'none'], ['is_carer', 'none'],
+  ['dla_care', 'none'], ['dla_mobility', 'none'],
+  ['pip_daily_living', 'none'], ['pip_mobility', 'none'],
+  ['attendance_allowance', 'none'],
+  ['adp_daily_living', 'none'], ['adp_mobility', 'none'],
+  ['cdp_care', 'none'], ['cdp_mobility', 'none'],
   ['baseline_income_tax', 'baseline'], ['baseline_employee_ni', 'baseline'],
   ['baseline_employer_ni', 'baseline'], ['baseline_ni_class1_employee', 'baseline'],
   ['baseline_ni_class2', 'baseline'], ['baseline_ni_class4', 'baseline'],
@@ -55,7 +60,7 @@ const BENUNIT_COLS = [
 
 const HH_COLS = [
   ['household_id', 'none'], ['weight', 'none'], ['region', 'none'],
-  ['rent_annual', 'none'], ['council_tax_annual', 'none'], ['tenure_type', 'none'],
+  ['rent_annual', 'none'], ['council_tax_annual', 'none'], ['tenure_type', 'none'], ['council_tax_band', 'none'],
   ['baseline_net_income', 'baseline'], ['baseline_gross_income', 'baseline'],
   ['baseline_total_tax', 'baseline'], ['baseline_total_benefits', 'baseline'],
   ['baseline_council_tax_calculated', 'baseline'], ['baseline_property_transaction_tax', 'baseline'],

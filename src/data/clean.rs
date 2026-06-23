@@ -201,7 +201,7 @@ fn write_households(dataset: &Dataset, output_dir: &Path) -> anyhow::Result<()> 
         "household_id",
         "benunit_ids", "person_ids",
         "weight", "region",
-        "rent_annual", "council_tax_annual",
+        "rent_annual", "council_tax_annual", "council_tax_band",
         // Auxiliary
         "num_bedrooms", "tenure_type", "accommodation_type",
         // Wealth
@@ -236,6 +236,7 @@ fn write_households(dataset: &Dataset, output_dir: &Path) -> anyhow::Result<()> 
             hh.region.name().to_string(),
             format!("{:.2}", hh.rent),
             format!("{:.2}", hh.council_tax),
+            hh.council_tax_band.to_string(),
             // Auxiliary
             hh.num_bedrooms.to_string(),
             (hh.tenure_type.to_rf_code() as i32).to_string(),
@@ -355,6 +356,12 @@ fn write_microdata_csv_persons<W: std::io::Write>(
         "is_employed", "is_unemployed",
         // Status
         "is_disabled", "is_carer",
+        // Disability benefit amounts (annual, from FRS)
+        "dla_care", "dla_mobility",
+        "pip_daily_living", "pip_mobility",
+        "attendance_allowance",
+        "adp_daily_living", "adp_mobility",
+        "cdp_care", "cdp_mobility",
         // Contributions
         "employee_pension_contributions", "personal_pension_contributions",
         "childcare_expenses",
@@ -414,6 +421,15 @@ fn write_microdata_csv_persons<W: std::io::Write>(
             (if p.emp_status == 3 { 1 } else { 0 }).to_string(),
             p.is_disabled.to_string(),
             p.is_carer.to_string(),
+            format!("{:.2}", p.dla_care),
+            format!("{:.2}", p.dla_mobility),
+            format!("{:.2}", p.pip_daily_living),
+            format!("{:.2}", p.pip_mobility),
+            format!("{:.2}", p.attendance_allowance),
+            format!("{:.2}", p.adp_daily_living),
+            format!("{:.2}", p.adp_mobility),
+            format!("{:.2}", p.cdp_care),
+            format!("{:.2}", p.cdp_mobility),
             format!("{:.2}", p.employee_pension_contributions),
             format!("{:.2}", p.personal_pension_contributions),
             format!("{:.2}", p.childcare_expenses),
@@ -671,7 +687,7 @@ fn write_microdata_csv_households<W: std::io::Write>(
 
     let mut header: Vec<&str> = vec![
         "household_id", "weight", "region",
-        "rent_annual", "council_tax_annual", "tenure_type",
+        "rent_annual", "council_tax_annual", "tenure_type", "council_tax_band",
     ];
     if return_baselines {
         header.extend_from_slice(&[
@@ -722,6 +738,7 @@ fn write_microdata_csv_households<W: std::io::Write>(
             format!("{:.2}", hh.rent),
             format!("{:.2}", hh.council_tax),
             (hh.tenure_type.to_rf_code() as i32).to_string(),
+            hh.council_tax_band.to_string(),
         ];
         if return_baselines {
             row.extend_from_slice(&[
@@ -1121,6 +1138,7 @@ pub fn parse_households_csv<R: std::io::Read>(reader: R) -> anyhow::Result<Vec<H
             region: parse_region(&h.get_str(&r, "region")),
             rent: h.get_f64(&r, "rent_annual"),
             council_tax: h.get_f64(&r, "council_tax_annual"),
+            council_tax_band: h.get_i64(&r, "council_tax_band").clamp(0, 8) as u8,
             // Auxiliary
             num_bedrooms: h.get_usize(&r, "num_bedrooms") as u32,
             tenure_type: TenureType::from_rf_code(h.get_i64(&r, "tenure_type") as i32),
