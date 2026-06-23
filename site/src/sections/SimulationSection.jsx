@@ -110,23 +110,24 @@ print(result.baseline_poverty.relative_ahc_children)  # → float, e.g. 18.7 (pe
 
 const microdataCode = `micro = sim.run_microdata(policy=reform_pa)
 
-# Per-household net incomes
-hh = micro.households[["household_id", "weight",
-                        "baseline_net_income", "reform_net_income"]]
+# Per-household net incomes (reform values, plain column names)
+hh = micro.households[["household_id", "weight", "net_income"]]
 # → DataFrame, one row per household
-#    household_id  weight  baseline_net_income  reform_net_income
-#    0             1.0     39519.6              41347.91
+#    household_id  weight  net_income
+#    0             1.0     41347.91
 
 # Per-person tax liabilities
 persons = micro.persons[["person_id", "household_id",
-                          "employment_income",
-                          "baseline_income_tax", "reform_income_tax"]]
+                          "employment_income", "income_tax"]]
 # → DataFrame, one row per person
-#    person_id  household_id  employment_income  baseline_income_tax  reform_income_tax
-#    0          0             50000.0            7486.0               7348.33
+#    person_id  household_id  employment_income  income_tax
+#    0          0             50000.0            7348.33
 
-hh["net_income_change"] = hh["reform_net_income"] - hh["baseline_net_income"]
-# hh["net_income_change"].iloc[0] → 1828.31`
+# To compare baseline vs reform side by side:
+micro2 = sim.run_microdata(policy=reform_pa, return_baselines=True)
+hh2 = micro2.households
+print(hh2["reform_net_income"].iloc[0] - hh2["baseline_net_income"].iloc[0])
+# → 1828.31`
 
 export default function SimulationSection({ id }) {
   return (

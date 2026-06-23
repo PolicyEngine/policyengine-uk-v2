@@ -20,58 +20,38 @@ const PERSON_COLS = [
   ['capital_gains', 'none'], ['property_income', 'none'],
   ['is_in_scotland', 'none'], ['hours_worked_annual', 'none'],
   ['is_disabled', 'none'], ['is_carer', 'none'],
-  ['baseline_income_tax', 'baseline'], ['baseline_employee_ni', 'baseline'],
-  ['baseline_employer_ni', 'baseline'], ['baseline_ni_class1_employee', 'baseline'],
-  ['baseline_ni_class2', 'baseline'], ['baseline_ni_class4', 'baseline'],
-  ['baseline_total_income', 'baseline'], ['baseline_taxable_income', 'baseline'],
-  ['baseline_personal_allowance', 'baseline'], ['baseline_capital_gains_tax', 'baseline'],
-  ['reform_income_tax', 'reform'], ['reform_employee_ni', 'reform'],
-  ['reform_employer_ni', 'reform'], ['reform_total_income', 'reform'],
-  ['reform_taxable_income', 'reform'], ['reform_personal_allowance', 'reform'],
-  ['reform_capital_gains_tax', 'reform'],
+  ['income_tax', 'reform'], ['employee_ni', 'reform'],
+  ['employer_ni', 'reform'], ['ni_class1_employee', 'reform'],
+  ['ni_class2', 'reform'], ['ni_class4', 'reform'],
+  ['total_income', 'reform'], ['taxable_income', 'reform'],
+  ['personal_allowance', 'reform'], ['capital_gains_tax', 'reform'],
 ]
 
 const BENUNIT_COLS = [
   ['benunit_id', 'none'], ['household_id', 'none'], ['person_ids', 'none'],
   ['on_uc', 'none'], ['rent_monthly', 'none'], ['is_lone_parent', 'none'],
   ['claims_uc_if_eligible', 'none'],
-  ['baseline_universal_credit', 'baseline'], ['baseline_child_benefit', 'baseline'],
-  ['baseline_state_pension', 'baseline'], ['baseline_pension_credit', 'baseline'],
-  ['baseline_housing_benefit', 'baseline'], ['baseline_child_tax_credit', 'baseline'],
-  ['baseline_working_tax_credit', 'baseline'], ['baseline_income_support', 'baseline'],
-  ['baseline_esa_income_related', 'baseline'], ['baseline_jsa_income_based', 'baseline'],
-  ['baseline_carers_allowance', 'baseline'], ['baseline_scottish_child_payment', 'baseline'],
-  ['baseline_benefit_cap_reduction', 'baseline'], ['baseline_passthrough_benefits', 'baseline'],
-  ['baseline_total_benefits', 'baseline'],
-  ['reform_universal_credit', 'reform'], ['reform_child_benefit', 'reform'],
-  ['reform_state_pension', 'reform'], ['reform_pension_credit', 'reform'],
-  ['reform_housing_benefit', 'reform'], ['reform_child_tax_credit', 'reform'],
-  ['reform_working_tax_credit', 'reform'], ['reform_income_support', 'reform'],
-  ['reform_esa_income_related', 'reform'], ['reform_jsa_income_based', 'reform'],
-  ['reform_carers_allowance', 'reform'], ['reform_scottish_child_payment', 'reform'],
-  ['reform_benefit_cap_reduction', 'reform'], ['reform_passthrough_benefits', 'reform'],
-  ['reform_total_benefits', 'reform'],
+  ['universal_credit', 'reform'], ['child_benefit', 'reform'],
+  ['state_pension', 'reform'], ['pension_credit', 'reform'],
+  ['housing_benefit', 'reform'], ['child_tax_credit', 'reform'],
+  ['working_tax_credit', 'reform'], ['income_support', 'reform'],
+  ['esa_income_related', 'reform'], ['jsa_income_based', 'reform'],
+  ['carers_allowance', 'reform'], ['scottish_child_payment', 'reform'],
+  ['benefit_cap_reduction', 'reform'], ['passthrough_benefits', 'reform'],
+  ['total_benefits', 'reform'],
 ]
 
 const HH_COLS = [
   ['household_id', 'none'], ['weight', 'none'], ['region', 'none'],
   ['rent_annual', 'none'], ['council_tax_annual', 'none'], ['tenure_type', 'none'],
-  ['baseline_net_income', 'baseline'], ['baseline_gross_income', 'baseline'],
-  ['baseline_total_tax', 'baseline'], ['baseline_total_benefits', 'baseline'],
-  ['baseline_council_tax_calculated', 'baseline'], ['baseline_property_transaction_tax', 'baseline'],
-  ['baseline_vat', 'baseline'], ['baseline_fuel_duty', 'baseline'],
-  ['baseline_equivalisation_factor', 'baseline'], ['baseline_equivalised_net_income', 'baseline'],
-  ['baseline_net_income_ahc', 'baseline'], ['baseline_equivalised_net_income_ahc', 'baseline'],
-  ['baseline_in_relative_poverty_bhc', 'baseline'], ['baseline_in_relative_poverty_ahc', 'baseline'],
-  ['baseline_in_absolute_poverty_bhc', 'baseline'], ['baseline_in_absolute_poverty_ahc', 'baseline'],
-  ['reform_net_income', 'reform'], ['reform_gross_income', 'reform'],
-  ['reform_total_tax', 'reform'], ['reform_total_benefits', 'reform'],
-  ['reform_council_tax_calculated', 'reform'], ['reform_property_transaction_tax', 'reform'],
-  ['reform_vat', 'reform'], ['reform_fuel_duty', 'reform'],
-  ['reform_equivalisation_factor', 'reform'], ['reform_equivalised_net_income', 'reform'],
-  ['reform_net_income_ahc', 'reform'], ['reform_equivalised_net_income_ahc', 'reform'],
-  ['reform_in_relative_poverty_bhc', 'reform'], ['reform_in_relative_poverty_ahc', 'reform'],
-  ['reform_in_absolute_poverty_bhc', 'reform'], ['reform_in_absolute_poverty_ahc', 'reform'],
+  ['net_income', 'reform'], ['gross_income', 'reform'],
+  ['total_tax', 'reform'], ['total_benefits', 'reform'],
+  ['council_tax_calculated', 'reform'], ['property_transaction_tax', 'reform'],
+  ['vat', 'reform'], ['fuel_duty', 'reform'],
+  ['equivalisation_factor', 'reform'], ['equivalised_net_income', 'reform'],
+  ['net_income_ahc', 'reform'], ['equivalised_net_income_ahc', 'reform'],
+  ['in_relative_poverty_bhc', 'reform'], ['in_relative_poverty_ahc', 'reform'],
+  ['in_absolute_poverty_bhc', 'reform'], ['in_absolute_poverty_ahc', 'reform'],
 ]
 
 const aggregateCode = `result = sim.run(policy=reform)
@@ -104,24 +84,21 @@ for d in result.decile_impacts:
     print(f"Decile {d.decile:2d}: £{d.avg_change:+.0f}/yr  ({d.pct_change:+.1f}%)")
 # → "Decile  1: £+NN/yr  (+N.N%)"  ...  "Decile 10: £+NNN/yr  (+N.N%)"`
 
-const microdataCode = `micro = sim.run_microdata(policy=reform)
-
-# Household-level winners and losers
+const microdataCode = `# Default: plain column names using reform values
+micro = sim.run_microdata(policy=reform)
 hh = micro.households
-hh["income_change"] = hh["reform_net_income"] - hh["baseline_net_income"]
-hh["winner"] = hh["income_change"] > 1
-# hh.dtypes → household_id: int64, weight: float64, reform_net_income: float64, ...
+print(hh["net_income"].mean())            # → reform net income
+print(hh["in_relative_poverty_ahc"].mean()) # → reform poverty rate
 
-# Poverty flag: binary 0/1, already computed by the engine
-poor_baseline = hh["baseline_in_relative_poverty_ahc"].sum()
-poor_reform   = hh["reform_in_relative_poverty_ahc"].sum()
-# → counts of households below the poverty line (unweighted)
+# Compare baseline vs reform: pass return_baselines=True
+micro2 = sim.run_microdata(policy=reform, return_baselines=True)
+hh2 = micro2.households
+hh2["income_change"] = hh2["reform_net_income"] - hh2["baseline_net_income"]
+hh2["winner"] = hh2["income_change"] > 1
 
 # Benefit unit UC amounts
 bu = micro.benunits
-gainers = bu[bu["reform_universal_credit"] > bu["baseline_universal_credit"]]
-print(f"{len(gainers)} benefit units gain UC under reform")
-# → "N benefit units gain UC under reform"`
+print(bu["universal_credit"].sum())       # → total UC entitlement under reform`
 
 function FieldTable({ rows }) {
   return (
@@ -217,8 +194,7 @@ function Expandable({ title, children }) {
 function MicrodataTab({ label, cols }) {
   const legend = [
     { cls: 'prefix-none', label: 'input / identifier' },
-    { cls: 'prefix-baseline', label: 'baseline_* output' },
-    { cls: 'prefix-reform', label: 'reform_* output' },
+    { cls: 'prefix-reform', label: 'computed output (reform value by default)' },
   ]
   return (
     <div>
@@ -337,7 +313,9 @@ export default function ResultsSection({ id }) {
       <h2>MicrodataResult</h2>
       <p>
         Three DataFrames — <code>persons</code>, <code>benunits</code>, <code>households</code> — each with input
-        columns plus <code>baseline_*</code> and <code>reform_*</code> output columns side by side.
+        columns plus computed output columns. By default columns use plain names (<code>net_income</code>,{' '}
+        <code>income_tax</code>, etc.) containing the reform value. Pass <code>return_baselines=True</code> to{' '}
+        get both <code>baseline_*</code> and <code>reform_*</code> columns side by side.
       </p>
 
       <div className="tabs" style={{ marginTop: 20 }}>
