@@ -1,0 +1,64 @@
+{
+  "single_baseline_revenue": 13580.66,
+  "pa_reform_net_cost": -43.24,
+  "microdata_hh": {
+    "household_id": 0,
+    "weight": 1.0,
+    "baseline_net_income": 39519.6,
+    "reform_net_income": 41347.91
+  },
+  "microdata_person": {
+    "person_id": 0,
+    "employment_income": 50000.0,
+    "baseline_income_tax": 7486.0,
+    "reform_income_tax": 7348.33
+  },
+  "couple_baseline_net_income": 0.0,
+  "couple_hh": {
+    "baseline_net_income": 74492.77,
+    "baseline_total_tax": 22955.23,
+    "baseline_total_benefits": 6915.77
+  },
+  "sweep_sample": [
+    {
+      "employment_income": 10000,
+      "baseline_net_income": 10000.0
+    },
+    {
+      "employment_income": 20000,
+      "baseline_net_income": 17919.6
+    },
+    {
+      "employment_income": 30000,
+      "baseline_net_income": 25119.6
+    },
+    {
+      "employment_income": 40000,
+      "baseline_net_income": 32319.6
+    },
+    {
+      "employment_income": 50000,
+      "baseline_net_income": 39519.6
+    },
+    {
+      "employment_income": 60000,
+      "baseline_net_income": 45357.4
+    },
+    {
+      "employment_income": 70000,
+      "baseline_net_income": 51157.4
+    },
+    {
+      "employment_income": 80000,
+      "baseline_net_income": 56957.4
+    },
+    {
+      "employment_income": 90000,
+      "baseline_net_income": 62757.4
+    },
+    {
+      "employment_income": 100000,
+      "baseline_net_income": 68557.4
+    }
+  ]
+}
