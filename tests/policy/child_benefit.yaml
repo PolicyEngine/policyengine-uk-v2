@@ -14,7 +14,7 @@
     households:
       h: { members: [p1, p2, c1, c2], region: London }
   output:
-    baseline_child_benefit: 2252
+    child_benefit: 2252
 
 - name: No children — no Child Benefit
   period: 2025
@@ -28,4 +28,4 @@
     households:
       h: { members: [p1, p2], region: London }
   output:
-    baseline_child_benefit: 0
+    child_benefit: 0

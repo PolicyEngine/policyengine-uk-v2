@@ -23,7 +23,7 @@
       h: { members: [c], region: London }
   output:
     # £5,740.80 + £4,006.60 = £9,747.40
-    baseline_total_benefits: 9747
+    total_benefits: 9747
 
 - name: DLA care low alone
   period: 2025
@@ -39,7 +39,7 @@
       h: { members: [c], region: London }
   output:
     # £29.20 × 52 = £1,518.40
-    baseline_total_benefits: 1518
+    total_benefits: 1518
 
 - name: Attendance Allowance high (post-SP-age, new SP cohort)
   period: 2025
@@ -58,7 +58,7 @@
     # £110.40 × 52 = £5,740.80; SP also kicks in for age ≥ SP age
     # The SP component reduces what we can isolate, so check just the AA delta
     # by using a non-SP-age person with the AA flag in a separate test:
-    baseline_total_benefits: 17714  # = AA £5740.80 + new SP £11,973 (param)
+    total_benefits: 17714  # = AA £5740.80 + new SP £11,973 (param)
 
 - name: AA low alone (pre-SP age)
   period: 2025
@@ -74,4 +74,4 @@
       h: { members: [p], region: London }
   output:
     # £73.90 × 52 = £3,842.80, no SP (under SP age)
-    baseline_total_benefits: 3843
+    total_benefits: 3843

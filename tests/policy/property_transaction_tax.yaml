@@ -18,7 +18,7 @@
       h: { members: [p], region: London, main_residence_value: 500_000 }
   output:
     # SDLT one-off: 0 + 2%×125k + 5%×250k = £15,000; annualised = £645.00
-    baseline_property_transaction_tax: 645
+    property_transaction_tax: 645
 
 - name: LBTT in Scotland on a £500k property
   period: 2025
@@ -32,7 +32,7 @@
       h: { members: [p], region: Scotland, main_residence_value: 500_000 }
   output:
     # LBTT one-off: 2%×105k + 5%×75k + 10%×175k = £23,350; annualised = £1004.05
-    baseline_property_transaction_tax: 1004
+    property_transaction_tax: 1004
 
 - name: LTT in Wales on a £500k property
   period: 2025
@@ -46,7 +46,7 @@
       h: { members: [p], region: Wales, main_residence_value: 500_000 }
   output:
     # LTT one-off: 3.5%×70k + 5%×150k + 7.5%×100k = £17,450; annualised = £750.35
-    baseline_property_transaction_tax: 750
+    property_transaction_tax: 750
 
 - name: Below LBTT nil-band (£100k in Scotland) — no tax
   period: 2025
@@ -59,7 +59,7 @@
     households:
       h: { members: [p], region: Scotland, main_residence_value: 100_000 }
   output:
-    baseline_property_transaction_tax: 0
+    property_transaction_tax: 0
 
 - name: Below LTT nil-band (£150k in Wales) — no tax
   period: 2025
@@ -72,7 +72,7 @@
     households:
       h: { members: [p], region: Wales, main_residence_value: 150_000 }
   output:
-    baseline_property_transaction_tax: 0
+    property_transaction_tax: 0
 
 - name: No property — no tax (Scotland)
   period: 2025
@@ -85,4 +85,4 @@
     households:
       h: { members: [p], region: Scotland }
   output:
-    baseline_property_transaction_tax: 0
+    property_transaction_tax: 0

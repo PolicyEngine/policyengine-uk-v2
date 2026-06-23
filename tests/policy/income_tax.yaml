@@ -7,7 +7,7 @@
   input:
     employment_income: 0
   output:
-    baseline_income_tax: 0
+    income_tax: 0
 
 - name: Below personal allowance — no tax
   period: 2025
@@ -15,7 +15,7 @@
   input:
     employment_income: 12_000
   output:
-    baseline_income_tax: 0
+    income_tax: 0
 
 - name: Basic-rate band only
   period: 2025
@@ -23,7 +23,7 @@
   input:
     employment_income: 25_000
   output:
-    baseline_income_tax: 2486
+    income_tax: 2486
 
 - name: Spans basic and higher rates
   period: 2025
@@ -31,7 +31,7 @@
   input:
     employment_income: 50_000
   output:
-    baseline_income_tax: 7486
+    income_tax: 7486
 
 - name: Personal allowance fully tapered
   period: 2025
@@ -39,4 +39,4 @@
   input:
     employment_income: 150_000
   output:
-    baseline_income_tax: 53703
+    income_tax: 53703

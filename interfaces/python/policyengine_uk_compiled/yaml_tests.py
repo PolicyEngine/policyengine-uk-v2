@@ -246,7 +246,7 @@ def _situation_to_dataframes(situation: dict, year: int):
 
 # Map output variable names → which microdata table they live in.
 # Order matters: persons checked first, then benunits, then households.
-_OUTPUT_TABLES = ("persons", "benunits", "households")
+_OUTPUT_TABLES = ("benunits", "households", "persons")
 
 
 @dataclass

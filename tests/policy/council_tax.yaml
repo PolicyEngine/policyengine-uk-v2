@@ -17,7 +17,7 @@
     households:
       h: { members: [p1, p2], region: London, main_residence_value: 80_000 }
   output:
-    baseline_council_tax_calculated: 2280
+    council_tax_calculated: 2280
 
 - name: Band D, single adult — 25% discount applies
   period: 2025
@@ -31,7 +31,7 @@
       h: { members: [p], region: London, main_residence_value: 80_000 }
   output:
     # £2,280 × 0.75 = £1,710
-    baseline_council_tax_calculated: 1710
+    council_tax_calculated: 1710
 
 - name: Band A, single adult
   period: 2025
@@ -45,7 +45,7 @@
       h: { members: [p], region: London, main_residence_value: 30_000 }
   output:
     # Band A multiplier = 6/9 → £2,280 × 6/9 = £1,520; ×0.75 = £1,140
-    baseline_council_tax_calculated: 1140
+    council_tax_calculated: 1140
 
 - name: Band D, adult with two children — full rate (children don't count)
   period: 2025
@@ -61,4 +61,4 @@
       h: { members: [p1, c1, c2], region: London, main_residence_value: 80_000 }
   output:
     # Single adult → 25% discount: £2,280 × 0.75 = £1,710
-    baseline_council_tax_calculated: 1710
+    council_tax_calculated: 1710

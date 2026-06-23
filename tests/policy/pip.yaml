@@ -23,7 +23,7 @@
       h: { members: [p], region: London }
   output:
     # £5,740.80 + £1,518.40 = £7,259.20
-    baseline_total_benefits: 7259
+    total_benefits: 7259
 
 - name: PIP DL standard alone
   period: 2025
@@ -38,7 +38,7 @@
     households:
       h: { members: [p], region: London }
   output:
-    baseline_total_benefits: 3843
+    total_benefits: 3843
 
 - name: PIP mobility enhanced alone
   period: 2025
@@ -53,7 +53,7 @@
     households:
       h: { members: [p], region: London }
   output:
-    baseline_total_benefits: 4007
+    total_benefits: 4007
 
 - name: No PIP flags — no benefits when claiming disabled
   period: 2025
@@ -68,4 +68,4 @@
     households:
       h: { members: [p], region: London }
   output:
-    baseline_total_benefits: 0
+    total_benefits: 0
