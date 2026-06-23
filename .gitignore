@@ -32,3 +32,4 @@ interfaces/web/api/*.egg-info/
 .DS_Store
 
 energy_shock_consumption.py
+site/node_modules/

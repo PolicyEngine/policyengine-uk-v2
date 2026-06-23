@@ -8,15 +8,8 @@ const constructorSig = `Simulation(
     benunits  = None,
     households = None,
 
-    # Or point at a dataset directory
-    data_dir  = None,      # base dir with per-year subdirs: data/frs/2025/
-    dataset   = None,      # "frs" | "spi" | "lcfs" | "was" — auto-downloads
-
-    # Legacy / advanced
-    clean_frs_base = None,
-    clean_frs      = None,
-    frs_raw        = None,
-    binary_path    = None,
+    # Or use a named dataset (auto-downloads)
+    dataset   = None,      # "frs" | "spi" | "lcfs" | "was"
 )`
 
 const singlePersonCode = `persons, benunits, households = Simulation.single_person(
@@ -41,15 +34,23 @@ const coupleCode = `persons, benunits, households = Simulation.couple(
 )
 
 sim = Simulation(year=2025, persons=persons, benunits=benunits, households=households)
-result = sim.run()`
+micro = sim.run_microdata()
+hh = micro.households.iloc[0]
+print(hh["baseline_net_income"])    # → 74492.77
+print(hh["baseline_total_tax"])     # → 22955.23
+print(hh["baseline_total_benefits"])# → 6915.77`
+
+const coupleOutput = `74492.77
+22955.23
+6915.77`
 
 const customCode = `import pandas as pd
 from policyengine_uk_compiled import Simulation
 from policyengine_uk_compiled.engine import PERSON_DEFAULTS, BENUNIT_DEFAULTS, HOUSEHOLD_DEFAULTS
 
-# Batch: income sweep £10k–£100k
+# Batch: income sweep £10k–£100k (step £10k)
 persons, benunits, households = [], [], []
-for i, income in enumerate(range(10_000, 100_001, 1_000)):
+for i, income in enumerate(range(10_000, 100_001, 10_000)):
     persons.append({**PERSON_DEFAULTS, "person_id": i, "benunit_id": i,
                     "household_id": i, "employment_income": float(income)})
     benunits.append({**BENUNIT_DEFAULTS, "benunit_id": i, "household_id": i,
@@ -63,7 +64,21 @@ sim = Simulation(year=2025,
     households=pd.DataFrame(households))
 
 micro = sim.run_microdata()
-# One row per household; net_income, total_tax, etc.`
+sweep = micro.households[["baseline_net_income"]].copy()
+sweep["employment_income"] = list(range(10_000, 100_001, 10_000))
+print(sweep.to_string(index=False))`
+
+const customOutput = ` baseline_net_income  employment_income
+             10000.0              10000
+             17919.6              20000
+             25119.6              30000
+             32319.6              40000
+             39519.6              50000
+             45357.4              60000
+             51157.4              70000
+             56957.4              80000
+             62757.4              90000
+             68557.4             100000`
 
 const datasetCode = `import os
 os.environ["POLICYENGINE_UK_DATA_TOKEN"] = "your-token"
@@ -89,24 +104,29 @@ baseline = sim.run()
 reform = Parameters(universal_credit=UniversalCreditParams(taper_rate=0.50))
 result = sim.run(policy=reform)
 
-print(result.budgetary_impact.net_cost)          # net fiscal cost
-print(result.winners_losers.winners_pct)         # % of households gaining
-print(result.baseline_poverty.relative_ahc_children)  # baseline child poverty rate`
+print(result.budgetary_impact.net_cost)               # → float, £/yr (positive = fiscal cost)
+print(result.winners_losers.winners_pct)              # → float, e.g. 42.3
+print(result.baseline_poverty.relative_ahc_children)  # → float, e.g. 18.7 (percent)`
 
-const microdataCode = `micro = sim.run_microdata()
+const microdataCode = `micro = sim.run_microdata(policy=reform_pa)
 
-# Per-household net incomes (baseline and reform side by side)
+# Per-household net incomes
 hh = micro.households[["household_id", "weight",
                         "baseline_net_income", "reform_net_income"]]
+# → DataFrame, one row per household
+#    household_id  weight  baseline_net_income  reform_net_income
+#    0             1.0     39519.6              41347.91
 
 # Per-person tax liabilities
 persons = micro.persons[["person_id", "household_id",
                           "employment_income",
                           "baseline_income_tax", "reform_income_tax"]]
+# → DataFrame, one row per person
+#    person_id  household_id  employment_income  baseline_income_tax  reform_income_tax
+#    0          0             50000.0            7486.0               7348.33
 
-# Marginal tax rate from microdata
-import pandas as pd
-hh["net_income_change"] = hh["reform_net_income"] - hh["baseline_net_income"]`
+hh["net_income_change"] = hh["reform_net_income"] - hh["baseline_net_income"]
+# hh["net_income_change"].iloc[0] → 1828.31`
 
 export default function SimulationSection({ id }) {
   return (
@@ -141,11 +161,6 @@ export default function SimulationSection({ id }) {
             <td>Full-population run (auto-download)</td>
             <td><code>dataset="frs"</code></td>
           </tr>
-          <tr>
-            <td>Directory path</td>
-            <td>Local pre-downloaded data</td>
-            <td><code>data_dir="data/frs/"</code></td>
-          </tr>
         </tbody>
       </table>
 
@@ -156,8 +171,8 @@ export default function SimulationSection({ id }) {
       </p>
       <Tabs tabs={[
         { label: 'single_person', code: singlePersonCode },
-        { label: 'couple', code: coupleCode },
-        { label: 'custom batch', code: customCode },
+        { label: 'couple', code: coupleCode, output: coupleOutput },
+        { label: 'custom batch', code: customCode, output: customOutput },
       ]} />
 
       <div className="callout info">

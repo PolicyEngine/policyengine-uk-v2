@@ -450,21 +450,14 @@ p strong { color: var(--text); font-weight: 500; }
 
 /* ── Callout ── */
 .callout {
-  border-radius: 8px;
-  padding: 14px 16px;
   margin: 16px 0;
   font-size: 13px;
-  border-left: 3px solid;
-  display: flex;
-  gap: 10px;
 }
 
-.callout.info { background: color-mix(in srgb, var(--accent) 6%, var(--bg2)); border-color: var(--accent); }
-.callout.warn { background: color-mix(in srgb, var(--warn) 6%, var(--bg2)); border-color: var(--warn); }
-.callout-icon { flex-shrink: 0; margin-top: 1px; }
-.callout p { margin: 0; max-width: none; }
-.callout.info p { color: var(--text2); }
-.callout.warn p { color: var(--text2); }
+.callout-icon { display: none; }
+.callout p { margin: 0; max-width: 640px; }
+.callout.info p { color: var(--text3); }
+.callout.warn p { color: var(--text3); }
 
 /* ── Column grid for microdata ── */
 .col-grid {
@@ -487,9 +480,9 @@ p strong { color: var(--text); font-weight: 500; }
   text-overflow: ellipsis;
 }
 
-.col-pill.prefix-baseline { border-left: 2px solid var(--text3); }
-.col-pill.prefix-reform { border-left: 2px solid var(--accent); }
-.col-pill.prefix-none { border-left: 2px solid var(--border2); }
+.col-pill.prefix-baseline { color: var(--text3); }
+.col-pill.prefix-reform { color: var(--accent2); }
+.col-pill.prefix-none { }
 
 /* ── Dataset grid ── */
 .dataset-grid {
@@ -584,6 +577,29 @@ p code, li code, td code {
   color: var(--accent2);
   padding: 1px 5px;
   border-radius: 3px;
+}
+
+/* ── Cell output ── */
+.cell-output {
+  border: 1px solid var(--border);
+  border-top: none;
+  background: var(--bg);
+  padding: 12px 24px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text2);
+  line-height: 1.7;
+  white-space: pre;
+  overflow-x: auto;
+  border-radius: 0 0 8px 8px;
+}
+
+.cell-output-label {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--text3);
+  padding: 0 0 4px;
+  display: block;
 }
 
 /* hljs overrides */

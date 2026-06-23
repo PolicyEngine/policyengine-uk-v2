@@ -16,7 +16,7 @@ const NAV = [
 ]
 
 export default function App() {
-  const [theme, setTheme] = useState('dark')
+  const [theme, setTheme] = useState('light')
   const [active, setActive] = useState('getting-started')
   const observerRef = useRef(null)
 

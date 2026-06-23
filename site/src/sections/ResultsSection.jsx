@@ -78,29 +78,31 @@ const aggregateCode = `result = sim.run(policy=reform)
 
 # Fiscal impact
 bi = result.budgetary_impact
-print(f"Net cost:        £{bi.net_cost / 1e9:.1f}bn")
-print(f"Revenue change:  £{bi.revenue_change / 1e9:.1f}bn")
+print(f"Net cost:        £{bi.net_cost / 1e9:.1f}bn")       # → "Net cost:        £X.Xbn"
+print(f"Revenue change:  £{bi.revenue_change / 1e9:.1f}bn")  # → "Revenue change:  £X.Xbn"
 print(f"Benefit change:  £{bi.benefit_spending_change / 1e9:.1f}bn")
 
 # Winners and losers
 wl = result.winners_losers
 print(f"Winners: {wl.winners_pct:.1f}%  avg gain £{wl.avg_gain:.0f}/yr")
+# → "Winners: N.N%  avg gain £NNN/yr"
 print(f"Losers:  {wl.losers_pct:.1f}%  avg loss £{wl.avg_loss:.0f}/yr")
 
-# Poverty
+# Poverty rates (%)
 print(f"Baseline child poverty (AHC): {result.baseline_poverty.relative_ahc_children:.1f}%")
 print(f"Reform child poverty  (AHC):  {result.reform_poverty.relative_ahc_children:.1f}%")
 
-# HBAI incomes
+# HBAI incomes (£/yr)
 print(f"Baseline median equiv BHC: £{result.baseline_hbai_incomes.median_equiv_bhc:.0f}")
 
-# Programme breakdown
+# Programme breakdown (£/yr)
 pb = result.program_breakdown
 print(f"Reform UC spend: £{pb.universal_credit / 1e9:.1f}bn")
 
-# Decile impacts
+# Decile impacts — 10 rows, one per decile
 for d in result.decile_impacts:
-    print(f"Decile {d.decile:2d}: £{d.avg_change:+.0f}/yr  ({d.pct_change:+.1f}%)")`
+    print(f"Decile {d.decile:2d}: £{d.avg_change:+.0f}/yr  ({d.pct_change:+.1f}%)")
+# → "Decile  1: £+NN/yr  (+N.N%)"  ...  "Decile 10: £+NNN/yr  (+N.N%)"`
 
 const microdataCode = `micro = sim.run_microdata(policy=reform)
 
@@ -108,18 +110,18 @@ const microdataCode = `micro = sim.run_microdata(policy=reform)
 hh = micro.households
 hh["income_change"] = hh["reform_net_income"] - hh["baseline_net_income"]
 hh["winner"] = hh["income_change"] > 1
+# hh.dtypes → household_id: int64, weight: float64, reform_net_income: float64, ...
 
-# MTR: marginal tax rate (requires two sims with income ± delta)
-# Simpler: compare reform to baseline directly
-hh["mtr_approx"] = 1 - (hh["reform_net_income"] - hh["baseline_net_income"]) / income_delta
-
-# Poverty flag: already computed by the engine
+# Poverty flag: binary 0/1, already computed by the engine
 poor_baseline = hh["baseline_in_relative_poverty_ahc"].sum()
 poor_reform   = hh["reform_in_relative_poverty_ahc"].sum()
+# → counts of households below the poverty line (unweighted)
 
 # Benefit unit UC amounts
 bu = micro.benunits
-gainers = bu[bu["reform_universal_credit"] > bu["baseline_universal_credit"]]`
+gainers = bu[bu["reform_universal_credit"] > bu["baseline_universal_credit"]]
+print(f"{len(gainers)} benefit units gain UC under reform")
+# → "N benefit units gain UC under reform"`
 
 function FieldTable({ rows }) {
   return (

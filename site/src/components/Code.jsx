@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import hljs from 'highlight.js/lib/core'
 import python from 'highlight.js/lib/languages/python'
-import 'highlight.js/styles/github-dark-dimmed.css'
+import 'highlight.js/styles/github.css'
 
 hljs.registerLanguage('python', python)
 
-export function Code({ code, label, lang = 'python' }) {
+export function Code({ code, label, lang = 'python', output }) {
   const ref = useRef(null)
   const [copied, setCopied] = useState(false)
 
@@ -22,28 +22,35 @@ export function Code({ code, label, lang = 'python' }) {
   }
 
   return (
-    <div className="code-block">
-      {label && (
-        <div className="code-label">
-          <span className="code-label-dot" />
-          {label}
-          <button className={`copy-btn ${copied ? 'copied' : ''}`} onClick={copy} style={{ marginLeft: 'auto' }}>
+    <div>
+      <div className="code-block" style={output ? { borderRadius: '8px 8px 0 0', borderBottom: 'none' } : {}}>
+        {label && (
+          <div className="code-label">
+            <span className="code-label-dot" />
+            {label}
+            <button className={`copy-btn ${copied ? 'copied' : ''}`} onClick={copy} style={{ marginLeft: 'auto' }}>
+              {copied ? 'copied' : 'copy'}
+            </button>
+          </div>
+        )}
+        {!label && (
+          <button
+            className={`copy-btn ${copied ? 'copied' : ''}`}
+            onClick={copy}
+            style={{ position: 'absolute', top: 10, right: 12, zIndex: 1 }}
+          >
             {copied ? 'copied' : 'copy'}
           </button>
+        )}
+        <pre>
+          <code ref={ref} className={`language-${lang}`}>{code.trim()}</code>
+        </pre>
+      </div>
+      {output && (
+        <div className="cell-output">
+          <span className="cell-output-label">output</span>{output.trim()}
         </div>
       )}
-      {!label && (
-        <button
-          className={`copy-btn ${copied ? 'copied' : ''}`}
-          onClick={copy}
-          style={{ position: 'absolute', top: 10, right: 12, zIndex: 1 }}
-        >
-          {copied ? 'copied' : 'copy'}
-        </button>
-      )}
-      <pre>
-        <code ref={ref} className={`language-${lang}`}>{code.trim()}</code>
-      </pre>
     </div>
   )
 }
@@ -59,7 +66,7 @@ export function Tabs({ tabs }) {
           </button>
         ))}
       </div>
-      <Code code={tabs[active].code} label={null} lang={tabs[active].lang || 'python'} />
+      <Code code={tabs[active].code} label={null} lang={tabs[active].lang || 'python'} output={tabs[active].output} />
     </div>
   )
 }

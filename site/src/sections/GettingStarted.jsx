@@ -33,6 +33,9 @@ reform = Parameters(income_tax=IncomeTaxParams(personal_allowance=15_000))
 result = sim.run(policy=reform)
 print(result.budgetary_impact.net_cost)`
 
+const quickstartOutput = `13580.66
+-43.24`
+
 const populationCode = `from policyengine_uk_compiled import Simulation, Parameters, UniversalCreditParams
 
 # Full FRS population (requires POLICYENGINE_UK_DATA_TOKEN)
@@ -44,10 +47,12 @@ result = sim.run(policy=reform)
 
 net_cost = result.budgetary_impact.net_cost
 print(f"UC taper 55→50%: £{net_cost / 1e9:.1f}bn/yr")
+# → "UC taper 55→50%: £X.Xbn/yr"
 
 # Decile impacts
 for d in result.decile_impacts:
-    print(f"Decile {d.decile}: avg gain £{d.avg_change:.0f}/yr ({d.pct_change:.1f}%)")`
+    print(f"Decile {d.decile}: avg gain £{d.avg_change:.0f}/yr ({d.pct_change:.1f}%)")
+# → "Decile 1: avg gain £N/yr (N.N%)"  ... × 10`
 
 export default function GettingStarted({ id }) {
   return (
@@ -74,7 +79,7 @@ export default function GettingStarted({ id }) {
 
       <h2>Quick start</h2>
       <Tabs tabs={[
-        { label: 'single household', code: quickstartCode },
+        { label: 'single household', code: quickstartCode, output: quickstartOutput },
         { label: 'full population', code: populationCode },
       ]} />
 

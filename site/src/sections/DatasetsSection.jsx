@@ -39,8 +39,7 @@ const yearCode = `# Any year 1994–2029
 sim_past   = Simulation(year=2010)  # historical
 sim_future = Simulation(year=2028)  # OBR-forecast uprated
 
-# When no exact-year data exists, the engine falls back to the nearest
-# available year and uprates all income/wage fields to the target year.
+result = sim_past.run()
 result = sim_future.run()`
 
 const DATASETS = [
@@ -83,8 +82,7 @@ export default function DatasetsSection({ id }) {
       <h1>Datasets</h1>
       <p>
         Full-population datasets download automatically to <code>~/.policyengine-uk-data/</code> on first use when{' '}
-        <code>POLICYENGINE_UK_DATA_TOKEN</code> is set. All datasets cover fiscal years 1994–2029; when an exact
-        year is not available, the engine falls back to the nearest year and uprates income fields.
+        <code>POLICYENGINE_UK_DATA_TOKEN</code> is set. Available fiscal years: 1994–2029.
       </p>
 
       <div className="dataset-grid">
