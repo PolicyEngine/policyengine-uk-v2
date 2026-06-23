@@ -92,7 +92,7 @@ pub fn load_frs(data_dir: &Path, fiscal_year: u32) -> anyhow::Result<Dataset> {
     let adult_records = parse_adults(&adult_table, &account_agg, &benefit_agg, &job_agg, &pension_agg, &penprov_agg, &oddjob_agg, &hh_property_map, era);
 
     // Phase 5: Build child records
-    let child_records = parse_children(&child_table);
+    let child_records = parse_children(&child_table, &benefit_agg);
 
     // Phase 6: Assemble into entity hierarchy
     assemble_dataset(hh_data, bu_data, adult_records, child_records)
@@ -852,11 +852,37 @@ fn parse_adults(
     }).collect()
 }
 
-fn parse_children(table: &Table) -> Vec<PersonRecord> {
+fn parse_children(
+    table: &Table,
+    benefit_agg: &Option<HashMap<PersonKey, BenefitAgg>>,
+) -> Vec<PersonRecord> {
     table.iter().map(|row| {
         let sernum = get_i64(row, "sernum");
         let person_id = get_i64(row, "person");
         let sex = get_i64(row, "sex");
+        let key = person_key(sernum, person_id);
+        let bens = benefit_agg.as_ref().and_then(|m| m.get(&key));
+
+        let dla_sc = bens.map_or(0.0, |b| b.dla_sc);
+        let dla_m = bens.map_or(0.0, |b| b.dla_m);
+        let pip_dl = bens.map_or(0.0, |b| b.pip_dl);
+        let pip_m = bens.map_or(0.0, |b| b.pip_m);
+
+        // Same rate-band thresholds as adults
+        let dla_care_low  = dla_sc > 0.0 && dla_sc < 49.30;
+        let dla_care_mid  = dla_sc >= 49.30 && dla_sc < 89.55;
+        let dla_care_high = dla_sc >= 89.55;
+        let dla_mob_low   = dla_m > 0.0 && dla_m < 51.32;
+        let dla_mob_high  = dla_m >= 51.32;
+        let pip_dl_std    = pip_dl > 0.0 && pip_dl < 84.93;
+        let pip_dl_enh    = pip_dl >= 84.93;
+        let pip_mob_std   = pip_m > 0.0 && pip_m < 51.32;
+        let pip_mob_enh   = pip_m >= 51.32;
+
+        let is_disabled = (dla_sc + dla_m + pip_dl + pip_m) > 0.0;
+        let is_enhanced_disabled = dla_care_high || pip_dl_enh;
+        let is_severely_disabled = pip_dl_enh || dla_care_high;
+
         PersonRecord {
             sernum,
             benunit: get_i64(row, "benunit"),
@@ -875,14 +901,14 @@ fn parse_children(table: &Table) -> Vec<PersonRecord> {
             maintenance_income_weekly: 0.0,
             miscellaneous_income_weekly: get_f64(row, "chrinc").max(0.0),
             hours_worked_weekly: 0.0,
-            dla_care_low: false, dla_care_mid: false, dla_care_high: false,
-            dla_mob_low: false, dla_mob_high: false,
-            pip_dl_std: false, pip_dl_enh: false,
-            pip_mob_std: false, pip_mob_enh: false,
+            dla_care_low, dla_care_mid, dla_care_high,
+            dla_mob_low, dla_mob_high,
+            pip_dl_std, pip_dl_enh,
+            pip_mob_std, pip_mob_enh,
             aa_low: false, aa_high: false,
-            is_disabled: false,
-            is_enhanced_disabled: false,
-            is_severely_disabled: false,
+            is_disabled,
+            is_enhanced_disabled,
+            is_severely_disabled,
             is_carer: false,
             limitill: false,
             esa_group: 0,
@@ -899,10 +925,10 @@ fn parse_children(table: &Table) -> Vec<PersonRecord> {
             child_tax_credit_weekly: 0.0,
             working_tax_credit_weekly: 0.0,
             universal_credit_weekly: 0.0,
-            dla_care_weekly: 0.0,
-            dla_mobility_weekly: 0.0,
-            pip_daily_living_weekly: 0.0,
-            pip_mobility_weekly: 0.0,
+            dla_care_weekly: dla_sc,
+            dla_mobility_weekly: dla_m,
+            pip_daily_living_weekly: pip_dl,
+            pip_mobility_weekly: pip_m,
             carers_allowance_weekly: 0.0,
             attendance_allowance_weekly: 0.0,
             esa_income_weekly: 0.0,
@@ -910,10 +936,10 @@ fn parse_children(table: &Table) -> Vec<PersonRecord> {
             jsa_income_weekly: 0.0,
             jsa_contributory_weekly: 0.0,
             other_benefits_weekly: 0.0,
-            adp_daily_living_weekly: 0.0,
-            adp_mobility_weekly: 0.0,
-            cdp_care_weekly: 0.0,
-            cdp_mobility_weekly: 0.0,
+            adp_daily_living_weekly: bens.map_or(0.0, |b| b.adp_dl),
+            adp_mobility_weekly: bens.map_or(0.0, |b| b.adp_m),
+            cdp_care_weekly: bens.map_or(0.0, |b| b.cdp_care),
+            cdp_mobility_weekly: bens.map_or(0.0, |b| b.cdp_mob),
             is_child: true,
         }
     }).collect()
