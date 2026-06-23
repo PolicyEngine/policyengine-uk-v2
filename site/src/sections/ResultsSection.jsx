@@ -55,7 +55,7 @@ const BENUNIT_COLS = [
 
 const HH_COLS = [
   ['household_id', 'none'], ['weight', 'none'], ['region', 'none'],
-  ['rent_annual', 'none'], ['council_tax_annual', 'none'], ['tenure_type', 'none'],
+  ['rent_annual', 'none'], ['council_tax_annual', 'none'], ['tenure_type', 'none'], ['council_tax_band', 'none'],
   ['baseline_net_income', 'baseline'], ['baseline_gross_income', 'baseline'],
   ['baseline_total_tax', 'baseline'], ['baseline_total_benefits', 'baseline'],
   ['baseline_council_tax_calculated', 'baseline'], ['baseline_property_transaction_tax', 'baseline'],

@@ -29,7 +29,7 @@ pub fn load_frs(data_dir: &Path, fiscal_year: u32) -> anyhow::Result<Dataset> {
     // Load tables with only the columns we need (raw FRS has 400+ cols per table)
     let household_table = load_table_cols(data_dir, "househol", Some(&[
         "sernum", "gross3", "gross4", "stdregn", "gvtregn", "gvtregno",
-        "ctannual", "hhrent", "subrent", "cvpay",
+        "ctannual", "ctband", "hhrent", "subrent", "cvpay",
         "bedroom6", "tentyp2", "typeacc",
     ]))?;
     let benunit_table = load_table_cols(data_dir, "benunit", Some(&[
@@ -230,6 +230,7 @@ struct HouseholdRecord {
     num_bedrooms: u32,
     tenure_type: TenureType,
     accommodation_type: AccommodationType,
+    council_tax_band: u8,
 }
 
 pub(crate) fn region_from_gvtregno(code: i64) -> Region {
@@ -276,6 +277,7 @@ fn parse_households(table: &Table, era: FrsEra) -> Vec<HouseholdRecord> {
             num_bedrooms: get_i64(row, "bedroom6").max(0) as u32,
             tenure_type: TenureType::from_frs_code(get_i64(row, "tentyp2") as i32),
             accommodation_type: AccommodationType::from_frs_code(get_i64(row, "typeacc") as i32),
+            council_tax_band: get_i64(row, "ctband").clamp(0, 8) as u8,
         }
     }).collect()
 }
@@ -941,6 +943,7 @@ fn assemble_dataset(
             num_bedrooms: hh.num_bedrooms,
             tenure_type: hh.tenure_type,
             accommodation_type: hh.accommodation_type,
+            council_tax_band: hh.council_tax_band,
             ..Household::default()
         });
     }

@@ -303,6 +303,7 @@ pub struct Household {
     pub num_bedrooms: u32,
     pub tenure_type: TenureType,
     pub accommodation_type: AccommodationType,
+    pub council_tax_band: u8,  // FRS CTBAND 1–8 (A–H), 0 = unknown/N/A
 
     // Wealth (from WAS imputation)
     pub owned_land: f64,
@@ -350,6 +351,7 @@ impl Default for Household {
             num_bedrooms: 0,
             tenure_type: TenureType::default(),
             accommodation_type: AccommodationType::default(),
+            council_tax_band: 0,
             owned_land: 0.0,
             property_wealth: 0.0,
             corporate_wealth: 0.0,

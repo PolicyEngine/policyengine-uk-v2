@@ -48,7 +48,7 @@ BENUNIT_DEFAULTS = {
 HOUSEHOLD_DEFAULTS = {
     "household_id": 0, "benunit_ids": "0", "person_ids": "0",
     "weight": 1.0, "region": "London",
-    "rent_annual": 0.0, "council_tax_annual": 0.0,
+    "rent_annual": 0.0, "council_tax_annual": 0.0, "council_tax_band": 0,
 }
 
 
