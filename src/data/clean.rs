@@ -356,6 +356,12 @@ fn write_microdata_csv_persons<W: std::io::Write>(
         "is_employed", "is_unemployed",
         // Status
         "is_disabled", "is_carer",
+        // Disability benefit amounts (annual, from FRS)
+        "dla_care", "dla_mobility",
+        "pip_daily_living", "pip_mobility",
+        "attendance_allowance",
+        "adp_daily_living", "adp_mobility",
+        "cdp_care", "cdp_mobility",
         // Contributions
         "employee_pension_contributions", "personal_pension_contributions",
         "childcare_expenses",
@@ -415,6 +421,15 @@ fn write_microdata_csv_persons<W: std::io::Write>(
             (if p.emp_status == 3 { 1 } else { 0 }).to_string(),
             p.is_disabled.to_string(),
             p.is_carer.to_string(),
+            format!("{:.2}", p.dla_care),
+            format!("{:.2}", p.dla_mobility),
+            format!("{:.2}", p.pip_daily_living),
+            format!("{:.2}", p.pip_mobility),
+            format!("{:.2}", p.attendance_allowance),
+            format!("{:.2}", p.adp_daily_living),
+            format!("{:.2}", p.adp_mobility),
+            format!("{:.2}", p.cdp_care),
+            format!("{:.2}", p.cdp_mobility),
             format!("{:.2}", p.employee_pension_contributions),
             format!("{:.2}", p.personal_pension_contributions),
             format!("{:.2}", p.childcare_expenses),
