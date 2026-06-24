@@ -47,6 +47,11 @@ pub fn load_frs(data_dir: &Path, fiscal_year: u32) -> anyhow::Result<Dataset> {
     ]))?;
     let child_table = load_table_cols(data_dir, "child", Some(&[
         "sernum", "benunit", "person", "sex", "age", "chearns", "chrinc",
+        // Disability indicator columns (rate-band codes, used for under-16s where benefits.tab has no amounts)
+        "chdla1", "chdla3",  // DLA care rate (1=high,2=mid) and mobility rate (1=high,2=low)
+        "pip1", "pip2",      // PIP daily living and mobility receipt (1=yes, 16+ only)
+        "cdp1", "cdp2",      // CDP care and mobility receipt (Scotland, 1=yes)
+        "chdscdp",           // CDP rate: 1=standard, 2=enhanced
     ]))?;
 
     // Optional tables
@@ -869,17 +874,48 @@ fn parse_children(
         let pip_m = bens.map_or(0.0, |b| b.pip_m);
 
         // Same rate-band thresholds as adults
-        let dla_care_low  = dla_sc > 0.0 && dla_sc < 49.30;
-        let dla_care_mid  = dla_sc >= 49.30 && dla_sc < 89.55;
-        let dla_care_high = dla_sc >= 89.55;
-        let dla_mob_low   = dla_m > 0.0 && dla_m < 51.32;
-        let dla_mob_high  = dla_m >= 51.32;
-        let pip_dl_std    = pip_dl > 0.0 && pip_dl < 84.93;
-        let pip_dl_enh    = pip_dl >= 84.93;
-        let pip_mob_std   = pip_m > 0.0 && pip_m < 51.32;
-        let pip_mob_enh   = pip_m >= 51.32;
+        let     dla_care_low  = dla_sc > 0.0 && dla_sc < 49.30;
+        let mut dla_care_mid  = dla_sc >= 49.30 && dla_sc < 89.55;
+        let mut dla_care_high = dla_sc >= 89.55;
+        let mut dla_mob_low   = dla_m > 0.0 && dla_m < 51.32;
+        let mut dla_mob_high  = dla_m >= 51.32;
+        let mut pip_dl_std    = pip_dl > 0.0 && pip_dl < 84.93;
+        let mut pip_dl_enh    = pip_dl >= 84.93;
+        let mut pip_mob_std   = pip_m > 0.0 && pip_m < 51.32;
+        let     pip_mob_enh   = pip_m >= 51.32;
 
-        let is_disabled = (dla_sc + dla_m + pip_dl + pip_m) > 0.0;
+        // Under-16 disability: FRS records rate-band indicator codes in child.tab (chdla1, chdla3,
+        // pip1/2, cdp1/2) but no amounts in benefits.tab. Set boolean flags from those codes so
+        // the model can compute the correct statutory amounts.
+        let benefits_have_disability = (dla_sc + dla_m + pip_dl + pip_m) > 0.0;
+        if !benefits_have_disability {
+            let chdla1 = get_i64(row, "chdla1"); // DLA care: 1=high, 2=mid
+            let chdla3 = get_i64(row, "chdla3"); // DLA mobility: 1=high, 2=low
+            let pip1   = get_i64(row, "pip1");   // PIP daily living: 1=receiving
+            let pip2   = get_i64(row, "pip2");   // PIP mobility: 1=receiving
+            match chdla1 {
+                1 => dla_care_high = true,
+                2 => dla_care_mid  = true,
+                _ => {}
+            }
+            match chdla3 {
+                1 => dla_mob_high = true,
+                2 => dla_mob_low  = true,
+                _ => {}
+            }
+            // PIP: child.tab records receipt (1=yes) but not std/enh split for under-16s.
+            // The DLA care rate (chdla1) provides the best proxy for PIP DL level.
+            if pip1 == 1 {
+                if chdla1 == 1 { pip_dl_enh = true; } else { pip_dl_std = true; }
+            }
+            if pip2 == 1 {
+                pip_mob_std = true; // default to standard; no sub-rate available in child.tab
+            }
+        }
+
+        let is_disabled = dla_care_low || dla_care_mid || dla_care_high
+            || dla_mob_low || dla_mob_high
+            || pip_dl_std || pip_dl_enh || pip_mob_std || pip_mob_enh;
         let is_enhanced_disabled = dla_care_high || pip_dl_enh;
         let is_severely_disabled = pip_dl_enh || dla_care_high;
 
