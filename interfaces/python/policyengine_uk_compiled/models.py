@@ -289,15 +289,6 @@ class SimulationConfig(BaseModel):
     policy: Optional[Parameters] = Field(
         None, description="Reform parameters (overlay on baseline)"
     )
-    clean_frs_base: Optional[str] = Field(
-        None, description="Base dir with per-year clean FRS subdirs"
-    )
-    clean_frs: Optional[str] = Field(
-        None, description="Single clean FRS directory"
-    )
-    frs_raw: Optional[str] = Field(
-        None, description="Base dir with per-year raw FRS tab files"
-    )
     binary_path: Optional[str] = Field(
         None, description="Path to compiled policyengine-uk-rust binary"
     )
