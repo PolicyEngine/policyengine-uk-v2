@@ -48,9 +48,6 @@ pub struct Parameters {
     /// Tobacco duty (effective rate on household tobacco spending).
     #[serde(default)]
     pub tobacco_duty: Option<TobaccoDutyParams>,
-    /// Council tax (calculated). Allows reform modelling via band_d rate override.
-    #[serde(default)]
-    pub council_tax: Option<CouncilTaxParams>,
     /// Capital gains tax. TCGA 1992; 18%/24% from October 2024 Budget.
     #[serde(default)]
     pub capital_gains_tax: Option<CapitalGainsTaxParams>,
@@ -382,35 +379,6 @@ pub struct TobaccoDutyParams {
 /// Council tax parameters (for reform modelling).
 ///
 /// Local Government Finance Act 1992. Council tax is currently reported from the FRS.
-/// These parameters allow modelling reforms (e.g. changing the Band D rate) while
-/// keeping the baseline as the reported amount.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CouncilTaxParams {
-    /// Average Band D rate (£/year). England average £2,280 for 2025/26.
-    pub average_band_d: f64,
-    /// Band multipliers as fractions of Band D: A=6/9, B=7/9, ... H=18/9.
-    #[serde(default = "default_band_multipliers")]
-    pub band_multipliers: Vec<f64>,
-    /// Property value thresholds for bands A–H (1991 values, England).
-    #[serde(default = "default_band_thresholds")]
-    pub band_thresholds: Vec<f64>,
-    /// Single-person discount: fraction subtracted from council tax when only
-    /// one adult (18+) is resident. 25% in England/Wales/Scotland — Local
-    /// Government Finance Act 1992 s.11(1)(a).
-    #[serde(default = "default_single_person_discount")]
-    pub single_person_discount_rate: f64,
-}
-
-fn default_single_person_discount() -> f64 { 0.25 }
-
-fn default_band_multipliers() -> Vec<f64> {
-    vec![6.0/9.0, 7.0/9.0, 8.0/9.0, 1.0, 11.0/9.0, 13.0/9.0, 15.0/9.0, 18.0/9.0]
-}
-
-fn default_band_thresholds() -> Vec<f64> {
-    vec![0.0, 40001.0, 52001.0, 68001.0, 88001.0, 120001.0, 160001.0, 320001.0]
-}
-
 /// Capital gains tax parameters.
 ///
 /// Taxation of Chargeable Gains Act 1992. Rates raised to 18%/24% from October 2024.

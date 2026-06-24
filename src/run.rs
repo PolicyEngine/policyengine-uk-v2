@@ -377,7 +377,7 @@ pub fn analyse(
             cgt_total += hh.weight * hr.capital_gains_tax;
             stamp_duty_total += hh.weight * hr.stamp_duty;
             wealth_tax_total += hh.weight * hr.wealth_tax;
-            council_tax_total += hh.weight * hr.council_tax_calculated;
+            council_tax_total += hh.weight * hh.council_tax;
             for &pid in &hh.person_ids {
                 let person = &people[pid];
                 total_employment += hh.weight * person.employment_income;
