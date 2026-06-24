@@ -56,6 +56,13 @@ pub struct BenUnitResult {
     pub total_benefits: f64,
     pub uc_max_amount: f64,
     pub uc_income_reduction: f64,
+    // UC element breakdown (annual)
+    pub uc_standard_allowance: f64,
+    pub uc_child_element: f64,
+    pub uc_disabled_child_element: f64,
+    pub uc_lcwra_element: f64,
+    pub uc_carer_element: f64,
+    pub uc_housing_element: f64,
 }
 
 /// Results for a household
