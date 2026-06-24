@@ -48,6 +48,9 @@ const BENUNIT_COLS = [
   ['baseline_carers_allowance', 'baseline'], ['baseline_scottish_child_payment', 'baseline'],
   ['baseline_benefit_cap_reduction', 'baseline'], ['baseline_passthrough_benefits', 'baseline'],
   ['baseline_total_benefits', 'baseline'],
+  ['baseline_uc_standard_allowance', 'baseline'], ['baseline_uc_child_element', 'baseline'],
+  ['baseline_uc_disabled_child_element', 'baseline'], ['baseline_uc_lcwra_element', 'baseline'],
+  ['baseline_uc_carer_element', 'baseline'], ['baseline_uc_housing_element', 'baseline'],
   ['reform_universal_credit', 'reform'], ['reform_child_benefit', 'reform'],
   ['reform_state_pension', 'reform'], ['reform_pension_credit', 'reform'],
   ['reform_housing_benefit', 'reform'], ['reform_child_tax_credit', 'reform'],
@@ -56,6 +59,9 @@ const BENUNIT_COLS = [
   ['reform_carers_allowance', 'reform'], ['reform_scottish_child_payment', 'reform'],
   ['reform_benefit_cap_reduction', 'reform'], ['reform_passthrough_benefits', 'reform'],
   ['reform_total_benefits', 'reform'],
+  ['reform_uc_standard_allowance', 'reform'], ['reform_uc_child_element', 'reform'],
+  ['reform_uc_disabled_child_element', 'reform'], ['reform_uc_lcwra_element', 'reform'],
+  ['reform_uc_carer_element', 'reform'], ['reform_uc_housing_element', 'reform'],
 ]
 
 const HH_COLS = [

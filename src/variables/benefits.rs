@@ -38,7 +38,7 @@ pub fn calculate_benunit(
     if on_uc_system {
         let would_claim = bu.claims(people, |p| p.universal_credit);
         let raw_uc = calculate_universal_credit(bu, people, person_results, household, params);
-        uc = if would_claim { raw_uc } else { (0.0, raw_uc.1, raw_uc.2) };
+        uc = if would_claim { raw_uc } else { (0.0, raw_uc.1, raw_uc.2, raw_uc.3, raw_uc.4, raw_uc.5, raw_uc.6, raw_uc.7, raw_uc.8) };
         pension_credit = calculate_pension_credit(bu, people, params);
         housing_benefit = 0.0;
         ctc = 0.0;
@@ -49,7 +49,7 @@ pub fn calculate_benunit(
         scp = if would_claim { calculate_scottish_child_payment(bu, people, household, params) } else { 0.0 };
     } else if on_legacy {
         // Not yet migrated: still on legacy system
-        uc = (0.0, 0.0, 0.0);
+        uc = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         pension_credit = calculate_pension_credit(bu, people, params);
         let raw_hb = calculate_housing_benefit(bu, people, person_results, household, params);
         housing_benefit = if raw_hb > 0.0 && claims_hb { raw_hb } else { 0.0 };
@@ -69,7 +69,7 @@ pub fn calculate_benunit(
         scp = 0.0;
     } else {
         // Not on any means-tested system
-        uc = (0.0, 0.0, 0.0);
+        uc = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         pension_credit = calculate_pension_credit(bu, people, params);
         housing_benefit = 0.0;
         ctc = 0.0;
@@ -127,6 +127,12 @@ pub fn calculate_benunit(
         total_benefits,
         uc_max_amount: uc.1,
         uc_income_reduction: uc.2,
+        uc_standard_allowance: uc.3,
+        uc_child_element: uc.4,
+        uc_disabled_child_element: uc.5,
+        uc_lcwra_element: uc.6,
+        uc_carer_element: uc.7,
+        uc_housing_element: uc.8,
     }
 }
 
@@ -165,10 +171,10 @@ fn calculate_universal_credit(
     person_results: &[PersonResult],
     household: &Household,
     params: &Parameters,
-) -> (f64, f64, f64) {
+) -> (f64, f64, f64, f64, f64, f64, f64, f64, f64) {
     // Basic eligibility: at least one working-age adult (not SP age)
     if !uc_has_working_age_adult(bu, people) {
-        return (0.0, 0.0, 0.0);
+        return (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
     }
 
     // Maximum amount = sum of all elements at the per-month rate.
@@ -199,7 +205,15 @@ fn calculate_universal_credit(
     let total_reduction = (earned_income_reduction + unearned_income).min(max_amount_annual);
     let uc_amount = (max_amount_annual - total_reduction).max(0.0);
 
-    (uc_amount, max_amount_annual, total_reduction)
+    (
+        uc_amount, max_amount_annual, total_reduction,
+        standard_allowance * 12.0,
+        child_element * 12.0,
+        disabled_child_element * 12.0,
+        lcwra_element * 12.0,
+        carer_element * 12.0,
+        housing_element * 12.0,
+    )
 }
 
 /// True when the benunit has at least one working-age adult — UC is closed to

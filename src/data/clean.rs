@@ -522,6 +522,9 @@ fn write_microdata_csv_benunits<W: std::io::Write>(
             "baseline_carers_allowance", "baseline_scottish_child_payment",
             "baseline_benefit_cap_reduction", "baseline_passthrough_benefits",
             "baseline_total_benefits",
+            "baseline_uc_standard_allowance", "baseline_uc_child_element",
+            "baseline_uc_disabled_child_element", "baseline_uc_lcwra_element",
+            "baseline_uc_carer_element", "baseline_uc_housing_element",
             "reform_universal_credit", "reform_child_benefit",
             "reform_state_pension", "reform_pension_credit",
             "reform_housing_benefit",
@@ -531,6 +534,9 @@ fn write_microdata_csv_benunits<W: std::io::Write>(
             "reform_carers_allowance", "reform_scottish_child_payment",
             "reform_benefit_cap_reduction", "reform_passthrough_benefits",
             "reform_total_benefits",
+            "reform_uc_standard_allowance", "reform_uc_child_element",
+            "reform_uc_disabled_child_element", "reform_uc_lcwra_element",
+            "reform_uc_carer_element", "reform_uc_housing_element",
         ]);
     } else {
         header.extend_from_slice(&[
@@ -543,6 +549,9 @@ fn write_microdata_csv_benunits<W: std::io::Write>(
             "carers_allowance", "scottish_child_payment",
             "benefit_cap_reduction", "passthrough_benefits",
             "total_benefits",
+            "uc_standard_allowance", "uc_child_element",
+            "uc_disabled_child_element", "uc_lcwra_element",
+            "uc_carer_element", "uc_housing_element",
         ]);
     }
     wtr.write_record(&header)?;
@@ -581,6 +590,12 @@ fn write_microdata_csv_benunits<W: std::io::Write>(
                 format!("{:.2}", bl.benefit_cap_reduction),
                 format!("{:.2}", bl.passthrough_benefits),
                 format!("{:.2}", bl.total_benefits),
+                format!("{:.2}", bl.uc_standard_allowance),
+                format!("{:.2}", bl.uc_child_element),
+                format!("{:.2}", bl.uc_disabled_child_element),
+                format!("{:.2}", bl.uc_lcwra_element),
+                format!("{:.2}", bl.uc_carer_element),
+                format!("{:.2}", bl.uc_housing_element),
                 format!("{:.2}", rf.universal_credit),
                 format!("{:.2}", rf.child_benefit),
                 format!("{:.2}", rf.state_pension),
@@ -596,6 +611,12 @@ fn write_microdata_csv_benunits<W: std::io::Write>(
                 format!("{:.2}", rf.benefit_cap_reduction),
                 format!("{:.2}", rf.passthrough_benefits),
                 format!("{:.2}", rf.total_benefits),
+                format!("{:.2}", rf.uc_standard_allowance),
+                format!("{:.2}", rf.uc_child_element),
+                format!("{:.2}", rf.uc_disabled_child_element),
+                format!("{:.2}", rf.uc_lcwra_element),
+                format!("{:.2}", rf.uc_carer_element),
+                format!("{:.2}", rf.uc_housing_element),
             ]);
         } else {
             row.extend_from_slice(&[
@@ -614,6 +635,12 @@ fn write_microdata_csv_benunits<W: std::io::Write>(
                 format!("{:.2}", rf.benefit_cap_reduction),
                 format!("{:.2}", rf.passthrough_benefits),
                 format!("{:.2}", rf.total_benefits),
+                format!("{:.2}", rf.uc_standard_allowance),
+                format!("{:.2}", rf.uc_child_element),
+                format!("{:.2}", rf.uc_disabled_child_element),
+                format!("{:.2}", rf.uc_lcwra_element),
+                format!("{:.2}", rf.uc_carer_element),
+                format!("{:.2}", rf.uc_housing_element),
             ]);
         }
         wtr.write_record(&row)?;
