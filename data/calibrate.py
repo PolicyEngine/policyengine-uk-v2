@@ -2,10 +2,10 @@
 
 Builds a matrix of household-level contributions to each calibration target by
 running a baseline simulation through the Python engine interface
-(`Simulation.run_microdata`), then calibrates household weights using the CALMAR
-logit method: Newton-Raphson on the Lagrange multipliers of a logit-bounded
-distance function. Weights are bounded to [L, U] × initial weight (CALMAR
-defaults L=0.05, U=10), satisfying the margin constraints exactly where feasible.
+(`Simulation.run_microdata`), then optimises household weights with Adam in
+log-space to minimise mean squared relative error. A log-space weight-deviation
+penalty plus a hard max-weight-ratio clamp keep calibrated weights close to the
+survey originals.
 
 Usage:
     python data/calibrate.py --data data/clean/efrs/2023 --year 2023
@@ -34,16 +34,27 @@ console = Console()
 # ── Config ───────────────────────────────────────────────────────────────────
 
 class CalibrateConfig(BaseModel):
-    # CALMAR logit bounds: calibrated weight stays within [logit_l, logit_u] × w0.
-    # Defaults match the DWP PSM CALMAR documentation (L=0.05, U=10).
-    logit_l: float = Field(default=0.05, gt=0.0)
-    logit_u: float = Field(default=10.0, gt=1.0)
-    # Newton-Raphson iteration limit. Convergence is typically reached well
-    # before this with the damped step; 200 is a safe ceiling.
-    max_iter: int = 200
-    # Drop targets below these magnitudes from the constraint system.
-    # A tiny target (e.g. a £11m dividend micro-band) the survey can't represent
-    # makes the NR Jacobian ill-conditioned and inflates weight ratios for no gain.
+    # Calibration is a quick nudge, not a fit: RMSRE plateaus by ~64 epochs and
+    # the Adam loop runs in well under a second. More epochs just overfit target
+    # noise while drifting weights away from the survey.
+    epochs: int = 64
+    lr: float = 0.1
+    beta1: float = 0.9
+    beta2: float = 0.999
+    eps: float = 1e-8
+    dropout: float = 0.05
+    log_interval: int = 16
+    # No household may exceed max_weight_ratio× its original weight (or fall
+    # below 1/ratio×). Hard backstop applied after each step. 0 disables.
+    max_weight_ratio: float = 10.0
+    # Weight on the log-space deviation penalty: mean_i (log w_i - log w0_i)^2.
+    # 0.05 keeps mean abs log-weight drift ~0.07 (vs ~0.23 at 0.01) for ~1pp
+    # more RMSRE — favouring fidelity to the survey over chasing every target.
+    weight_deviation_penalty: float = Field(default=5e-2, ge=0.0)
+    # Drop targets below these magnitudes from the loss. RMSRE is magnitude-blind,
+    # so a tiny target (e.g. a £11m dividend micro-band, or transitional UC in its
+    # 2013 pilot year) the survey frame can't represent dominates the metric and
+    # the gradient. Floored by unit: £ for sum targets, people for count targets.
     min_target_value_sum: float = Field(default=5e7, ge=0.0)
     min_target_value_count: float = Field(default=1e4, ge=0.0)
 
@@ -137,24 +148,7 @@ def build_matrix(
     return matrix, y, train_mask
 
 
-# ── CALMAR logit calibration ─────────────────────────────────────────────────
-
-def _logit_w(lam: np.ndarray, A: np.ndarray, w0: np.ndarray, L: float, U: float) -> np.ndarray:
-    """Calibrated weights given Lagrange multipliers.
-
-    w_i = w0_i * g(A_i · lam)  where g(x) = (L + U·exp(x)) / (1 + exp(x)).
-    """
-    x = A @ lam
-    ex = np.exp(np.clip(x, -500, 500))
-    return w0 * (L + U * ex) / (1.0 + ex)
-
-
-def _logit_dg(lam: np.ndarray, A: np.ndarray, L: float, U: float) -> np.ndarray:
-    """Elementwise derivative dg/dx, shape (n_hh,)."""
-    x = A @ lam
-    ex = np.exp(np.clip(x, -500, 500))
-    return (U - L) * ex / (1.0 + ex) ** 2
-
+# ── Optimiser ────────────────────────────────────────────────────────────────
 
 def calibrate(
     matrix: np.ndarray,
@@ -163,54 +157,63 @@ def calibrate(
     initial_weights: np.ndarray,
     config: CalibrateConfig,
 ) -> np.ndarray:
-    """CALMAR logit calibration via Newton-Raphson on Lagrange multipliers.
+    """Adam optimisation of log-weights minimising MSRE + log-deviation penalty.
 
-    Minimises sum_i w0_i · F(w_i/w0_i) subject to A[:, train].T @ w = t[train],
-    where F is the logit distance function. Solved by NR on the residual
-    r(lam) = A.T @ w(lam) - t, using the Jacobian J_kl = sum_i A_ik A_il w0_i dg_i.
+    `initial_weights` anchor both the log-deviation penalty and the hard
+    max-weight-ratio clamp, keeping the solution tethered to the survey.
     """
-    L, U = config.logit_l, config.logit_u
-    A = matrix[:, train_mask]  # (n_hh, n_constraints)
-    t = y[train_mask]
+    n_hh = matrix.shape[0]
+    n_train = int(train_mask.sum())
+    if n_hh == 0 or n_train == 0:
+        return initial_weights.copy()
 
     w0 = np.where(initial_weights > 0.0, initial_weights, 1.0)
-    lam = np.zeros(t.shape[0])
+    u0 = np.log(w0)
+    u = u0.copy()
 
-    best_lam = lam.copy()
-    best_rel = np.inf
+    if config.max_weight_ratio > 0.0:
+        u_max = u0 + np.log(config.max_weight_ratio)
+        u_min = u0 - np.log(config.max_weight_ratio)
+        np.clip(u, u_min, u_max, out=u)
+    else:
+        u_max = np.full(n_hh, np.inf)
+        u_min = np.full(n_hh, -np.inf)
 
-    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-        for _ in range(config.max_iter):
-            w = _logit_w(lam, A, w0, L, U)
-            r = A.T @ w - t
-            rel = float(np.nanmax(np.abs(r / np.where(np.abs(t) > 0, t, 1.0))))
-            if rel < best_rel:
-                best_rel = rel
-                best_lam = lam.copy()
-            if rel < 1e-4:
-                break
-            dg = _logit_dg(lam, A, L, U)
-            D = w0 * dg
-            J = (A * D[:, None]).T @ A
-            try:
-                delta = np.linalg.solve(J, r)
-            except np.linalg.LinAlgError:
-                delta = np.linalg.lstsq(J, r, rcond=None)[0]
+    m = np.zeros(n_hh)
+    v = np.zeros(n_hh)
+    rng = np.random.default_rng(0)
 
-            # Damped step: halve until residual norm decreases.
-            r_norm = float(np.nanmax(np.abs(r)))
-            step = 1.0
-            for _ in range(10):
-                lam_try = lam - step * delta
-                r_try = A.T @ _logit_w(lam_try, A, w0, L, U) - t
-                if np.isfinite(r_try).all() and float(np.nanmax(np.abs(r_try))) < r_norm:
-                    break
-                step *= 0.5
-            lam = lam - step * delta
+    active = train_mask & (np.abs(y) > 1.0)
+    y_safe = np.where(np.abs(y) > 1.0, y, 1.0)
+    lam = config.weight_deviation_penalty
 
-    # Reconstruct full weight vector (unconstrained targets keep initial weight).
-    w_final = _logit_w(best_lam, A, w0, L, U)
-    return w_final
+    for epoch in range(config.epochs):
+        if config.dropout > 0.0:
+            keep = rng.random(n_hh) >= config.dropout
+            weights = np.where(keep, np.exp(u) / (1.0 - config.dropout), 0.0)
+        else:
+            weights = np.exp(u)
+
+        predictions = matrix.T @ weights
+        residuals = np.where(active, predictions / y_safe - 1.0, 0.0)
+
+        if epoch % config.log_interval == 0 or epoch == config.epochs - 1:
+            rmsre = np.sqrt(np.sum(residuals[active] ** 2) / n_train) * 100.0
+            console.print(f"  epoch {epoch:>4}/{config.epochs}: training RMSRE {rmsre:.2f}%")
+
+        g_msre = (2.0 / n_train) * weights * (matrix @ (residuals / y_safe))
+        g_pen = lam * (2.0 / n_hh) * (u - u0)
+        grad = g_msre + g_pen
+
+        t = epoch + 1
+        m = config.beta1 * m + (1.0 - config.beta1) * grad
+        v = config.beta2 * v + (1.0 - config.beta2) * grad * grad
+        m_hat = m / (1.0 - config.beta1 ** t)
+        v_hat = v / (1.0 - config.beta2 ** t)
+        u -= config.lr * m_hat / (np.sqrt(v_hat) + config.eps)
+        np.clip(u, u_min, u_max, out=u)
+
+    return np.exp(u)
 
 
 # ── Reporting ────────────────────────────────────────────────────────────────
@@ -241,8 +244,6 @@ def print_report(
     n_train = int(active.sum())
     rmsre = np.sqrt(np.sum(rel_err[active] ** 2) / n_train) * 100.0 if n_train else 0.0
 
-    w_ratio = weights / np.where(initial_weights > 0.0, initial_weights, 1.0)
-
     console.print("\n[bold green]Calibration complete[/bold green]")
     console.print(
         f"  households: {len(weights)}  "
@@ -250,9 +251,6 @@ def print_report(
         f"calibrated weight sum: {weights.sum():,.0f}"
     )
     console.print(f"  training RMSRE: {rmsre:.2f}%")
-    console.print(
-        f"  weight ratio min: {w_ratio.min():.3f}  max: {w_ratio.max():.3f}"
-    )
 
     order = np.argsort(-np.abs(rel_err))
     table = Table(show_header=True)
@@ -305,7 +303,6 @@ def run(data_dir: Path, year: int, config: CalibrateConfig) -> None:
 
     matrix, y, train_mask = build_matrix(persons, md.benunits, households, targets)
 
-    # Drop sub-threshold targets from the constraint system.
     too_small = np.array([
         abs(t["value"]) < (config.min_target_value_count
                            if t["aggregation"] in ("count", "count_nonzero")
@@ -314,15 +311,11 @@ def run(data_dir: Path, year: int, config: CalibrateConfig) -> None:
     ])
     n_dropped = int((train_mask & too_small).sum())
     if n_dropped:
-        console.print(f"  [yellow]Dropped {n_dropped} sub-threshold targets from constraint system[/yellow]")
+        console.print(f"  [yellow]Dropped {n_dropped} sub-threshold targets from loss[/yellow]")
     train_mask = train_mask & ~too_small
 
     initial_weights = households["weight"].to_numpy(dtype=float)
 
-    console.print(
-        f"  CALMAR logit NR  L={config.logit_l}  U={config.logit_u}  "
-        f"constraints={int(train_mask.sum())}"
-    )
     weights = calibrate(matrix, y, train_mask, initial_weights, config)
     print_report(targets, matrix, y, train_mask, weights, initial_weights)
 
@@ -348,15 +341,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", type=Path, required=True, help="EFRS clean dir (contains households.csv)")
     parser.add_argument("--year", type=int, required=True)
-    parser.add_argument("--logit-l", type=float, default=CalibrateConfig.model_fields["logit_l"].default)
-    parser.add_argument("--logit-u", type=float, default=CalibrateConfig.model_fields["logit_u"].default)
-    parser.add_argument("--max-iter", type=int, default=CalibrateConfig.model_fields["max_iter"].default)
+    parser.add_argument("--epochs", type=int, default=CalibrateConfig.model_fields["epochs"].default)
+    parser.add_argument("--weight-deviation-penalty", type=float,
+                        default=CalibrateConfig.model_fields["weight_deviation_penalty"].default)
+    parser.add_argument("--max-weight-ratio", type=float,
+                        default=CalibrateConfig.model_fields["max_weight_ratio"].default)
     args = parser.parse_args()
 
     config = CalibrateConfig(
-        logit_l=args.logit_l,
-        logit_u=args.logit_u,
-        max_iter=args.max_iter,
+        epochs=args.epochs,
+        weight_deviation_penalty=args.weight_deviation_penalty,
+        max_weight_ratio=args.max_weight_ratio,
     )
     run(args.data, args.year, config)
 
