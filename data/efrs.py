@@ -184,7 +184,7 @@ def build_forecast(year: int, work_dir: Path, upload: bool = True, calibrate: bo
         from calibrate import CalibrateConfig
         from calibrate import run as run_calibration
 
-        run_calibration(out_dir, year, CalibrateConfig(weight_deviation_penalty=0.0))
+        run_calibration(out_dir, year, CalibrateConfig())
     elif calibrate:
         console.print(f"  [yellow]no calibration targets for {year} — leaving uprated weights[/yellow]")
 
@@ -279,7 +279,7 @@ def build(year: int, work_dir: Path, upload: bool = True, calibrate: bool = True
         from calibrate import CalibrateConfig
         from calibrate import run as run_calibration
 
-        run_calibration(efrs_out, year, CalibrateConfig(weight_deviation_penalty=0.0))
+        run_calibration(efrs_out, year, CalibrateConfig())
     elif calibrate:
         console.print(f"  [yellow]no calibration targets for {year} — leaving uprated weights[/yellow]")
 
