@@ -135,7 +135,7 @@ download_all(datasets=("spi", "was")) # specific datasets
 
 Or with an explicit local path:
 ```python
-sim = Simulation(year=2025, clean_frs_base="data/frs")
+sim = Simulation(year=2025, data_dir="data/frs")
 result = sim.run()
 ```
 

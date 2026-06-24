@@ -4,6 +4,83 @@ use crate::engine::entities::*;
 use crate::engine::simulation::SimulationResults;
 use crate::data::Dataset;
 
+/// Typed column data for a microdata table. This is the single source of truth
+/// for microdata output: CSV serialisation (used by the file and stdout paths)
+/// and the in-process columnar transfer to Python both consume `Table`.
+///
+/// CSV rendering matches the historical formatting exactly (per-column decimal
+/// places, bool word vs 0/1), while the native Python path receives full
+/// precision and clean dtypes (int64, float64, bool, object).
+pub enum ColumnData {
+    Int(Vec<i64>),
+    /// Full-precision floats. `dp` controls CSV decimal places only.
+    Float { vals: Vec<f64>, dp: usize },
+    /// `csv_word` true → "true"/"false"; false → "1"/"0". Always bool to Python.
+    Bool { vals: Vec<bool>, csv_word: bool },
+    Text(Vec<String>),
+}
+
+pub struct Column {
+    pub name: &'static str,
+    pub data: ColumnData,
+}
+
+pub struct Table {
+    pub columns: Vec<Column>,
+}
+
+impl Column {
+    fn len(&self) -> usize {
+        match &self.data {
+            ColumnData::Int(v) => v.len(),
+            ColumnData::Float { vals, .. } => vals.len(),
+            ColumnData::Bool { vals, .. } => vals.len(),
+            ColumnData::Text(v) => v.len(),
+        }
+    }
+
+    fn csv_cell(&self, row: usize) -> String {
+        match &self.data {
+            ColumnData::Int(v) => v[row].to_string(),
+            ColumnData::Float { vals, dp } => format!("{:.*}", dp, vals[row]),
+            ColumnData::Bool { vals, csv_word } => {
+                if *csv_word {
+                    vals[row].to_string()
+                } else if vals[row] {
+                    "1".to_string()
+                } else {
+                    "0".to_string()
+                }
+            }
+            ColumnData::Text(v) => v[row].clone(),
+        }
+    }
+}
+
+impl Table {
+    fn nrows(&self) -> usize {
+        self.columns.first().map(|c| c.len()).unwrap_or(0)
+    }
+
+    /// Serialise to CSV using the same writer/quoting behaviour as before.
+    pub fn write_csv<W: std::io::Write>(&self, writer: W) -> anyhow::Result<()> {
+        let mut wtr = csv::Writer::from_writer(writer);
+        let header: Vec<&str> = self.columns.iter().map(|c| c.name).collect();
+        wtr.write_record(&header)?;
+        let nrows = self.nrows();
+        let mut record: Vec<String> = Vec::with_capacity(self.columns.len());
+        for row in 0..nrows {
+            record.clear();
+            for col in &self.columns {
+                record.push(col.csv_cell(row));
+            }
+            wtr.write_record(&record)?;
+        }
+        wtr.flush()?;
+        Ok(())
+    }
+}
+
 /// CPI index by fiscal year, rebased to 2010/11 = 100 (the absolute-poverty
 /// reference year). Source: OBR EFO March 2026 table 1.7 CPI (2015=100), with
 /// pre-2010 fiscal years from ONS series D7BT financial-year averages.
@@ -337,153 +414,123 @@ fn write_microdata_csv_persons<W: std::io::Write>(
     reformed: &SimulationResults,
     return_baselines: bool,
 ) -> anyhow::Result<()> {
-    let mut wtr = csv::Writer::from_writer(writer);
+    build_microdata_persons_table(dataset, baseline, reformed, return_baselines).write_csv(writer)
+}
 
-    let mut header: Vec<&str> = vec![
-        // IDs
-        "person_id", "benunit_id", "household_id",
-        // Demographics
-        "age", "gender", "is_benunit_head", "is_household_head",
-        // Input incomes
-        "employment_income", "self_employment_income",
-        "private_pension_income", "state_pension",
-        "savings_interest", "dividend_income", "capital_gains",
-        "capital_gains_residential_share",
-        "property_income", "maintenance_income",
-        "miscellaneous_income", "other_income",
-        // Employment
-        "is_in_scotland", "hours_worked_annual",
-        "is_employed", "is_unemployed",
-        // Status
-        "is_disabled", "is_carer",
-        // Disability benefit amounts (annual, from FRS)
-        "dla_care", "dla_mobility",
-        "pip_daily_living", "pip_mobility",
-        "attendance_allowance",
-        "adp_daily_living", "adp_mobility",
-        "cdp_care", "cdp_mobility",
-        // Contributions
-        "employee_pension_contributions", "personal_pension_contributions",
-        "childcare_expenses",
-        // Reported benefits
-        "child_benefit", "housing_benefit",
-        "income_support", "pension_credit",
-        "child_tax_credit", "working_tax_credit",
-        "universal_credit", "carers_allowance",
+/// Build the typed persons microdata table (single source of truth for both
+/// CSV and the in-process columnar transfer).
+pub fn build_microdata_persons_table(
+    dataset: &Dataset,
+    baseline: &SimulationResults,
+    reformed: &SimulationResults,
+    return_baselines: bool,
+) -> Table {
+    let people = &dataset.people;
+    let icol = |name, f: &dyn Fn(&Person) -> i64| Column {
+        name, data: ColumnData::Int(people.iter().map(f).collect()),
+    };
+    let fcol = |name, dp, f: &dyn Fn(&Person) -> f64| Column {
+        name, data: ColumnData::Float { vals: people.iter().map(f).collect(), dp },
+    };
+    let bcol = |name, f: &dyn Fn(&Person) -> bool| Column {
+        name, data: ColumnData::Bool { vals: people.iter().map(f).collect(), csv_word: true },
+    };
+    let bcol01 = |name, f: &dyn Fn(&Person) -> bool| Column {
+        name, data: ColumnData::Bool { vals: people.iter().map(f).collect(), csv_word: false },
+    };
+
+    let mut columns = vec![
+        icol("person_id", &|p| p.id as i64),
+        icol("benunit_id", &|p| p.benunit_id as i64),
+        icol("household_id", &|p| p.household_id as i64),
+        fcol("age", 0, &|p| p.age),
+        Column { name: "gender", data: ColumnData::Text(
+            people.iter().map(|p| if p.gender == Gender::Male { "male".to_string() } else { "female".to_string() }).collect()) },
+        bcol("is_benunit_head", &|p| p.is_benunit_head),
+        bcol("is_household_head", &|p| p.is_household_head),
+        fcol("employment_income", 2, &|p| p.employment_income),
+        fcol("self_employment_income", 2, &|p| p.self_employment_income),
+        fcol("private_pension_income", 2, &|p| p.pension_income),
+        fcol("state_pension", 2, &|p| p.state_pension),
+        fcol("savings_interest", 2, &|p| p.savings_interest_income),
+        fcol("dividend_income", 2, &|p| p.dividend_income),
+        fcol("capital_gains", 2, &|p| p.capital_gains),
+        fcol("capital_gains_residential_share", 4, &|p| p.capital_gains_residential_share),
+        fcol("property_income", 2, &|p| p.property_income),
+        fcol("maintenance_income", 2, &|p| p.maintenance_income),
+        fcol("miscellaneous_income", 2, &|p| p.miscellaneous_income),
+        fcol("other_income", 2, &|p| p.other_income),
+        bcol("is_in_scotland", &|p| p.is_in_scotland),
+        fcol("hours_worked_annual", 1, &|p| p.hours_worked),
+        bcol01("is_employed", &|p| p.emp_status == 1 || p.emp_status == 2),
+        bcol01("is_unemployed", &|p| p.emp_status == 3),
+        bcol("is_disabled", &|p| p.is_disabled),
+        bcol("is_carer", &|p| p.is_carer),
+        fcol("dla_care", 2, &|p| p.dla_care),
+        fcol("dla_mobility", 2, &|p| p.dla_mobility),
+        fcol("pip_daily_living", 2, &|p| p.pip_daily_living),
+        fcol("pip_mobility", 2, &|p| p.pip_mobility),
+        fcol("attendance_allowance", 2, &|p| p.attendance_allowance),
+        fcol("adp_daily_living", 2, &|p| p.adp_daily_living),
+        fcol("adp_mobility", 2, &|p| p.adp_mobility),
+        fcol("cdp_care", 2, &|p| p.cdp_care),
+        fcol("cdp_mobility", 2, &|p| p.cdp_mobility),
+        fcol("employee_pension_contributions", 2, &|p| p.employee_pension_contributions),
+        fcol("personal_pension_contributions", 2, &|p| p.personal_pension_contributions),
+        fcol("childcare_expenses", 2, &|p| p.childcare_expenses),
+        fcol("child_benefit", 2, &|p| p.child_benefit),
+        fcol("housing_benefit", 2, &|p| p.housing_benefit),
+        fcol("income_support", 2, &|p| p.income_support),
+        fcol("pension_credit", 2, &|p| p.pension_credit),
+        fcol("child_tax_credit", 2, &|p| p.child_tax_credit),
+        fcol("working_tax_credit", 2, &|p| p.working_tax_credit),
+        fcol("universal_credit", 2, &|p| p.universal_credit),
+        fcol("carers_allowance", 2, &|p| p.carers_allowance),
     ];
+
+    // Output columns, indexed by person id into the result vectors.
+    let res_fcol = |name, results: &SimulationResults, f: &dyn Fn(&crate::engine::simulation::PersonResult) -> f64| Column {
+        name, data: ColumnData::Float {
+            vals: people.iter().map(|p| f(&results.person_results[p.id])).collect(), dp: 2 },
+    };
+    let outputs = |bl_or_rf: &SimulationResults, names: [&'static str; 10]| -> Vec<Column> {
+        vec![
+            res_fcol(names[0], bl_or_rf, &|r| r.income_tax),
+            res_fcol(names[1], bl_or_rf, &|r| r.national_insurance),
+            res_fcol(names[2], bl_or_rf, &|r| r.employer_ni),
+            res_fcol(names[3], bl_or_rf, &|r| r.ni_class1_employee),
+            res_fcol(names[4], bl_or_rf, &|r| r.ni_class2),
+            res_fcol(names[5], bl_or_rf, &|r| r.ni_class4),
+            res_fcol(names[6], bl_or_rf, &|r| r.total_income),
+            res_fcol(names[7], bl_or_rf, &|r| r.taxable_income),
+            res_fcol(names[8], bl_or_rf, &|r| r.personal_allowance),
+            res_fcol(names[9], bl_or_rf, &|r| r.capital_gains_tax),
+        ]
+    };
+
     if return_baselines {
-        header.extend_from_slice(&[
+        columns.extend(outputs(baseline, [
             "baseline_income_tax", "baseline_employee_ni", "baseline_employer_ni",
             "baseline_ni_class1_employee", "baseline_ni_class2", "baseline_ni_class4",
             "baseline_total_income", "baseline_taxable_income",
             "baseline_personal_allowance", "baseline_capital_gains_tax",
+        ]));
+        columns.extend(outputs(reformed, [
             "reform_income_tax", "reform_employee_ni", "reform_employer_ni",
             "reform_ni_class1_employee", "reform_ni_class2", "reform_ni_class4",
             "reform_total_income", "reform_taxable_income",
             "reform_personal_allowance", "reform_capital_gains_tax",
-        ]);
+        ]));
     } else {
-        header.extend_from_slice(&[
+        columns.extend(outputs(reformed, [
             "income_tax", "employee_ni", "employer_ni",
             "ni_class1_employee", "ni_class2", "ni_class4",
             "total_income", "taxable_income",
             "personal_allowance", "capital_gains_tax",
-        ]);
-    }
-    wtr.write_record(&header)?;
-
-    for p in &dataset.people {
-        let bl = &baseline.person_results[p.id];
-        let rf = &reformed.person_results[p.id];
-        let mut row: Vec<String> = vec![
-            p.id.to_string(),
-            p.benunit_id.to_string(),
-            p.household_id.to_string(),
-            format!("{:.0}", p.age),
-            if p.gender == Gender::Male { "male".to_string() } else { "female".to_string() },
-            p.is_benunit_head.to_string(),
-            p.is_household_head.to_string(),
-            format!("{:.2}", p.employment_income),
-            format!("{:.2}", p.self_employment_income),
-            format!("{:.2}", p.pension_income),
-            format!("{:.2}", p.state_pension),
-            format!("{:.2}", p.savings_interest_income),
-            format!("{:.2}", p.dividend_income),
-            format!("{:.2}", p.capital_gains),
-            format!("{:.4}", p.capital_gains_residential_share),
-            format!("{:.2}", p.property_income),
-            format!("{:.2}", p.maintenance_income),
-            format!("{:.2}", p.miscellaneous_income),
-            format!("{:.2}", p.other_income),
-            p.is_in_scotland.to_string(),
-            format!("{:.1}", p.hours_worked),
-            (if p.emp_status == 1 || p.emp_status == 2 { 1 } else { 0 }).to_string(),
-            (if p.emp_status == 3 { 1 } else { 0 }).to_string(),
-            p.is_disabled.to_string(),
-            p.is_carer.to_string(),
-            format!("{:.2}", p.dla_care),
-            format!("{:.2}", p.dla_mobility),
-            format!("{:.2}", p.pip_daily_living),
-            format!("{:.2}", p.pip_mobility),
-            format!("{:.2}", p.attendance_allowance),
-            format!("{:.2}", p.adp_daily_living),
-            format!("{:.2}", p.adp_mobility),
-            format!("{:.2}", p.cdp_care),
-            format!("{:.2}", p.cdp_mobility),
-            format!("{:.2}", p.employee_pension_contributions),
-            format!("{:.2}", p.personal_pension_contributions),
-            format!("{:.2}", p.childcare_expenses),
-            format!("{:.2}", p.child_benefit),
-            format!("{:.2}", p.housing_benefit),
-            format!("{:.2}", p.income_support),
-            format!("{:.2}", p.pension_credit),
-            format!("{:.2}", p.child_tax_credit),
-            format!("{:.2}", p.working_tax_credit),
-            format!("{:.2}", p.universal_credit),
-            format!("{:.2}", p.carers_allowance),
-        ];
-        if return_baselines {
-            row.extend_from_slice(&[
-                format!("{:.2}", bl.income_tax),
-                format!("{:.2}", bl.national_insurance),
-                format!("{:.2}", bl.employer_ni),
-                format!("{:.2}", bl.ni_class1_employee),
-                format!("{:.2}", bl.ni_class2),
-                format!("{:.2}", bl.ni_class4),
-                format!("{:.2}", bl.total_income),
-                format!("{:.2}", bl.taxable_income),
-                format!("{:.2}", bl.personal_allowance),
-                format!("{:.2}", bl.capital_gains_tax),
-                format!("{:.2}", rf.income_tax),
-                format!("{:.2}", rf.national_insurance),
-                format!("{:.2}", rf.employer_ni),
-                format!("{:.2}", rf.ni_class1_employee),
-                format!("{:.2}", rf.ni_class2),
-                format!("{:.2}", rf.ni_class4),
-                format!("{:.2}", rf.total_income),
-                format!("{:.2}", rf.taxable_income),
-                format!("{:.2}", rf.personal_allowance),
-                format!("{:.2}", rf.capital_gains_tax),
-            ]);
-        } else {
-            row.extend_from_slice(&[
-                format!("{:.2}", rf.income_tax),
-                format!("{:.2}", rf.national_insurance),
-                format!("{:.2}", rf.employer_ni),
-                format!("{:.2}", rf.ni_class1_employee),
-                format!("{:.2}", rf.ni_class2),
-                format!("{:.2}", rf.ni_class4),
-                format!("{:.2}", rf.total_income),
-                format!("{:.2}", rf.taxable_income),
-                format!("{:.2}", rf.personal_allowance),
-                format!("{:.2}", rf.capital_gains_tax),
-            ]);
-        }
-        wtr.write_record(&row)?;
+        ]));
     }
 
-    wtr.flush()?;
-    Ok(())
+    Table { columns }
 }
 
 fn write_microdata_benunits(
@@ -505,14 +552,64 @@ fn write_microdata_csv_benunits<W: std::io::Write>(
     reformed: &SimulationResults,
     return_baselines: bool,
 ) -> anyhow::Result<()> {
-    let mut wtr = csv::Writer::from_writer(writer);
+    build_microdata_benunits_table(dataset, baseline, reformed, return_baselines).write_csv(writer)
+}
 
-    let mut header: Vec<&str> = vec![
-        "benunit_id", "household_id", "person_ids",
-        "on_uc", "rent_monthly", "is_lone_parent", "claims_uc_if_eligible",
+/// Build the typed benunits microdata table.
+pub fn build_microdata_benunits_table(
+    dataset: &Dataset,
+    baseline: &SimulationResults,
+    reformed: &SimulationResults,
+    return_baselines: bool,
+) -> Table {
+    let benunits = &dataset.benunits;
+    let icol = |name, f: &dyn Fn(&BenUnit) -> i64| Column {
+        name, data: ColumnData::Int(benunits.iter().map(f).collect()),
+    };
+    let fcol = |name, f: &dyn Fn(&BenUnit) -> f64| Column {
+        name, data: ColumnData::Float { vals: benunits.iter().map(f).collect(), dp: 2 },
+    };
+    let bcol = |name, f: &dyn Fn(&BenUnit) -> bool| Column {
+        name, data: ColumnData::Bool { vals: benunits.iter().map(f).collect(), csv_word: true },
+    };
+
+    let mut columns = vec![
+        icol("benunit_id", &|b| b.id as i64),
+        icol("household_id", &|b| b.household_id as i64),
+        Column { name: "person_ids", data: ColumnData::Text(
+            benunits.iter().map(|b| b.person_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(";")).collect()) },
+        bcol("on_uc", &|b| b.on_uc),
+        fcol("rent_monthly", &|b| b.rent_monthly),
+        bcol("is_lone_parent", &|b| b.is_lone_parent),
+        bcol("claims_uc_if_eligible", &|b| b.claims_uc_if_eligible),
     ];
+
+    let res_fcol = |name, results: &SimulationResults, f: &dyn Fn(&crate::engine::simulation::BenUnitResult) -> f64| Column {
+        name, data: ColumnData::Float {
+            vals: benunits.iter().map(|b| f(&results.benunit_results[b.id])).collect(), dp: 2 },
+    };
+    let outputs = |r: &SimulationResults, names: [&'static str; 15]| -> Vec<Column> {
+        vec![
+            res_fcol(names[0], r, &|x| x.universal_credit),
+            res_fcol(names[1], r, &|x| x.child_benefit),
+            res_fcol(names[2], r, &|x| x.state_pension),
+            res_fcol(names[3], r, &|x| x.pension_credit),
+            res_fcol(names[4], r, &|x| x.housing_benefit),
+            res_fcol(names[5], r, &|x| x.child_tax_credit),
+            res_fcol(names[6], r, &|x| x.working_tax_credit),
+            res_fcol(names[7], r, &|x| x.income_support),
+            res_fcol(names[8], r, &|x| x.esa_income_related),
+            res_fcol(names[9], r, &|x| x.jsa_income_based),
+            res_fcol(names[10], r, &|x| x.carers_allowance),
+            res_fcol(names[11], r, &|x| x.scottish_child_payment),
+            res_fcol(names[12], r, &|x| x.benefit_cap_reduction),
+            res_fcol(names[13], r, &|x| x.passthrough_benefits),
+            res_fcol(names[14], r, &|x| x.total_benefits),
+        ]
+    };
+
     if return_baselines {
-        header.extend_from_slice(&[
+        columns.extend(outputs(baseline, [
             "baseline_universal_credit", "baseline_child_benefit",
             "baseline_state_pension", "baseline_pension_credit",
             "baseline_housing_benefit",
@@ -522,6 +619,8 @@ fn write_microdata_csv_benunits<W: std::io::Write>(
             "baseline_carers_allowance", "baseline_scottish_child_payment",
             "baseline_benefit_cap_reduction", "baseline_passthrough_benefits",
             "baseline_total_benefits",
+        ]));
+        columns.extend(outputs(reformed, [
             "reform_universal_credit", "reform_child_benefit",
             "reform_state_pension", "reform_pension_credit",
             "reform_housing_benefit",
@@ -531,9 +630,9 @@ fn write_microdata_csv_benunits<W: std::io::Write>(
             "reform_carers_allowance", "reform_scottish_child_payment",
             "reform_benefit_cap_reduction", "reform_passthrough_benefits",
             "reform_total_benefits",
-        ]);
+        ]));
     } else {
-        header.extend_from_slice(&[
+        columns.extend(outputs(reformed, [
             "universal_credit", "child_benefit",
             "state_pension", "pension_credit",
             "housing_benefit",
@@ -543,84 +642,10 @@ fn write_microdata_csv_benunits<W: std::io::Write>(
             "carers_allowance", "scottish_child_payment",
             "benefit_cap_reduction", "passthrough_benefits",
             "total_benefits",
-        ]);
-    }
-    wtr.write_record(&header)?;
-
-    for bu in &dataset.benunits {
-        let bl = &baseline.benunit_results[bu.id];
-        let rf = &reformed.benunit_results[bu.id];
-        let ids: String = bu.person_ids.iter()
-            .map(|id| id.to_string())
-            .collect::<Vec<_>>()
-            .join(";");
-
-        let mut row: Vec<String> = vec![
-            bu.id.to_string(),
-            bu.household_id.to_string(),
-            ids,
-            bu.on_uc.to_string(),
-            format!("{:.2}", bu.rent_monthly),
-            bu.is_lone_parent.to_string(),
-            bu.claims_uc_if_eligible.to_string(),
-        ];
-        if return_baselines {
-            row.extend_from_slice(&[
-                format!("{:.2}", bl.universal_credit),
-                format!("{:.2}", bl.child_benefit),
-                format!("{:.2}", bl.state_pension),
-                format!("{:.2}", bl.pension_credit),
-                format!("{:.2}", bl.housing_benefit),
-                format!("{:.2}", bl.child_tax_credit),
-                format!("{:.2}", bl.working_tax_credit),
-                format!("{:.2}", bl.income_support),
-                format!("{:.2}", bl.esa_income_related),
-                format!("{:.2}", bl.jsa_income_based),
-                format!("{:.2}", bl.carers_allowance),
-                format!("{:.2}", bl.scottish_child_payment),
-                format!("{:.2}", bl.benefit_cap_reduction),
-                format!("{:.2}", bl.passthrough_benefits),
-                format!("{:.2}", bl.total_benefits),
-                format!("{:.2}", rf.universal_credit),
-                format!("{:.2}", rf.child_benefit),
-                format!("{:.2}", rf.state_pension),
-                format!("{:.2}", rf.pension_credit),
-                format!("{:.2}", rf.housing_benefit),
-                format!("{:.2}", rf.child_tax_credit),
-                format!("{:.2}", rf.working_tax_credit),
-                format!("{:.2}", rf.income_support),
-                format!("{:.2}", rf.esa_income_related),
-                format!("{:.2}", rf.jsa_income_based),
-                format!("{:.2}", rf.carers_allowance),
-                format!("{:.2}", rf.scottish_child_payment),
-                format!("{:.2}", rf.benefit_cap_reduction),
-                format!("{:.2}", rf.passthrough_benefits),
-                format!("{:.2}", rf.total_benefits),
-            ]);
-        } else {
-            row.extend_from_slice(&[
-                format!("{:.2}", rf.universal_credit),
-                format!("{:.2}", rf.child_benefit),
-                format!("{:.2}", rf.state_pension),
-                format!("{:.2}", rf.pension_credit),
-                format!("{:.2}", rf.housing_benefit),
-                format!("{:.2}", rf.child_tax_credit),
-                format!("{:.2}", rf.working_tax_credit),
-                format!("{:.2}", rf.income_support),
-                format!("{:.2}", rf.esa_income_related),
-                format!("{:.2}", rf.jsa_income_based),
-                format!("{:.2}", rf.carers_allowance),
-                format!("{:.2}", rf.scottish_child_payment),
-                format!("{:.2}", rf.benefit_cap_reduction),
-                format!("{:.2}", rf.passthrough_benefits),
-                format!("{:.2}", rf.total_benefits),
-            ]);
-        }
-        wtr.write_record(&row)?;
+        ]));
     }
 
-    wtr.flush()?;
-    Ok(())
+    Table { columns }
 }
 
 fn write_microdata_households(
@@ -675,8 +700,18 @@ fn write_microdata_csv_households<W: std::io::Write>(
     year: u32,
     return_baselines: bool,
 ) -> anyhow::Result<()> {
-    let mut wtr = csv::Writer::from_writer(writer);
+    build_microdata_households_table(dataset, baseline, reformed, year, return_baselines).write_csv(writer)
+}
 
+/// Build the typed households microdata table. Poverty flags depend on
+/// year-specific CPI and the person-weighted median equivalised income.
+pub fn build_microdata_households_table(
+    dataset: &Dataset,
+    baseline: &SimulationResults,
+    reformed: &SimulationResults,
+    year: u32,
+    return_baselines: bool,
+) -> Table {
     let (median_equiv_bhc, median_equiv_ahc) =
         person_weighted_median_equiv(dataset, baseline);
     let rel_line_bhc = 0.60 * median_equiv_bhc;
@@ -685,12 +720,57 @@ fn write_microdata_csv_households<W: std::io::Write>(
     let abs_line_bhc = 14_400.0 * cpi;
     let abs_line_ahc = 11_600.0 * cpi;
 
-    let mut header: Vec<&str> = vec![
-        "household_id", "weight", "region",
-        "rent_annual", "council_tax_annual", "tenure_type", "council_tax_band",
+    let households = &dataset.households;
+    let icol = |name, f: &dyn Fn(&Household) -> i64| Column {
+        name, data: ColumnData::Int(households.iter().map(f).collect()),
+    };
+    let fcol = |name, dp, f: &dyn Fn(&Household) -> f64| Column {
+        name, data: ColumnData::Float { vals: households.iter().map(f).collect(), dp },
+    };
+
+    let mut columns = vec![
+        icol("household_id", &|h| h.id as i64),
+        fcol("weight", 4, &|h| h.weight),
+        Column { name: "region", data: ColumnData::Text(
+            households.iter().map(|h| h.region.name().to_string()).collect()) },
+        fcol("rent_annual", 2, &|h| h.rent),
+        fcol("council_tax_annual", 2, &|h| h.council_tax),
+        icol("tenure_type", &|h| h.tenure_type.to_rf_code() as i64),
+        icol("council_tax_band", &|h| h.council_tax_band as i64),
     ];
+
+    type HR = crate::engine::simulation::HouseholdResult;
+    let res_fcol = |name, dp, results: &SimulationResults, f: &dyn Fn(&HR) -> f64| Column {
+        name, data: ColumnData::Float {
+            vals: households.iter().map(|h| f(&results.household_results[h.id])).collect(), dp },
+    };
+    let res_bcol = |name, results: &SimulationResults, f: &dyn Fn(&HR) -> bool| Column {
+        name, data: ColumnData::Bool {
+            vals: households.iter().map(|h| f(&results.household_results[h.id])).collect(), csv_word: false },
+    };
+    let outputs = |r: &SimulationResults, names: [&'static str; 16]| -> Vec<Column> {
+        vec![
+            res_fcol(names[0], 2, r, &|x| x.net_income),
+            res_fcol(names[1], 2, r, &|x| x.gross_income),
+            res_fcol(names[2], 2, r, &|x| x.total_tax),
+            res_fcol(names[3], 2, r, &|x| x.total_benefits),
+            res_fcol(names[4], 2, r, &|x| x.council_tax_calculated),
+            res_fcol(names[5], 2, r, &|x| x.stamp_duty),
+            res_fcol(names[6], 2, r, &|x| x.vat),
+            res_fcol(names[7], 2, r, &|x| x.fuel_duty),
+            res_fcol(names[8], 4, r, &|x| x.equivalisation_factor),
+            res_fcol(names[9], 2, r, &|x| x.equivalised_net_income),
+            res_fcol(names[10], 2, r, &|x| x.net_income_ahc),
+            res_fcol(names[11], 2, r, &|x| x.equivalised_net_income_ahc),
+            res_bcol(names[12], r, &|x| x.equivalised_net_income < rel_line_bhc),
+            res_bcol(names[13], r, &|x| x.equivalised_net_income_ahc < rel_line_ahc),
+            res_bcol(names[14], r, &|x| x.equivalised_net_income < abs_line_bhc),
+            res_bcol(names[15], r, &|x| x.equivalised_net_income_ahc < abs_line_ahc),
+        ]
+    };
+
     if return_baselines {
-        header.extend_from_slice(&[
+        columns.extend(outputs(baseline, [
             "baseline_net_income", "baseline_gross_income",
             "baseline_total_tax", "baseline_total_benefits",
             "baseline_council_tax_calculated",
@@ -700,6 +780,8 @@ fn write_microdata_csv_households<W: std::io::Write>(
             "baseline_net_income_ahc", "baseline_equivalised_net_income_ahc",
             "baseline_in_relative_poverty_bhc", "baseline_in_relative_poverty_ahc",
             "baseline_in_absolute_poverty_bhc", "baseline_in_absolute_poverty_ahc",
+        ]));
+        columns.extend(outputs(reformed, [
             "reform_net_income", "reform_gross_income",
             "reform_total_tax", "reform_total_benefits",
             "reform_council_tax_calculated",
@@ -709,9 +791,9 @@ fn write_microdata_csv_households<W: std::io::Write>(
             "reform_net_income_ahc", "reform_equivalised_net_income_ahc",
             "reform_in_relative_poverty_bhc", "reform_in_relative_poverty_ahc",
             "reform_in_absolute_poverty_bhc", "reform_in_absolute_poverty_ahc",
-        ]);
+        ]));
     } else {
-        header.extend_from_slice(&[
+        columns.extend(outputs(reformed, [
             "net_income", "gross_income",
             "total_tax", "total_benefits",
             "council_tax_calculated",
@@ -721,85 +803,10 @@ fn write_microdata_csv_households<W: std::io::Write>(
             "net_income_ahc", "equivalised_net_income_ahc",
             "in_relative_poverty_bhc", "in_relative_poverty_ahc",
             "in_absolute_poverty_bhc", "in_absolute_poverty_ahc",
-        ]);
-    }
-    wtr.write_record(&header)?;
-
-    let flag = |b: bool| if b { "1" } else { "0" }.to_string();
-
-    for hh in &dataset.households {
-        let bl = &baseline.household_results[hh.id];
-        let rf = &reformed.household_results[hh.id];
-
-        let mut row: Vec<String> = vec![
-            hh.id.to_string(),
-            format!("{:.4}", hh.weight),
-            hh.region.name().to_string(),
-            format!("{:.2}", hh.rent),
-            format!("{:.2}", hh.council_tax),
-            (hh.tenure_type.to_rf_code() as i32).to_string(),
-            hh.council_tax_band.to_string(),
-        ];
-        if return_baselines {
-            row.extend_from_slice(&[
-                format!("{:.2}", bl.net_income),
-                format!("{:.2}", bl.gross_income),
-                format!("{:.2}", bl.total_tax),
-                format!("{:.2}", bl.total_benefits),
-                format!("{:.2}", bl.council_tax_calculated),
-                format!("{:.2}", bl.stamp_duty),
-                format!("{:.2}", bl.vat),
-                format!("{:.2}", bl.fuel_duty),
-                format!("{:.4}", bl.equivalisation_factor),
-                format!("{:.2}", bl.equivalised_net_income),
-                format!("{:.2}", bl.net_income_ahc),
-                format!("{:.2}", bl.equivalised_net_income_ahc),
-                flag(bl.equivalised_net_income < rel_line_bhc),
-                flag(bl.equivalised_net_income_ahc < rel_line_ahc),
-                flag(bl.equivalised_net_income < abs_line_bhc),
-                flag(bl.equivalised_net_income_ahc < abs_line_ahc),
-                format!("{:.2}", rf.net_income),
-                format!("{:.2}", rf.gross_income),
-                format!("{:.2}", rf.total_tax),
-                format!("{:.2}", rf.total_benefits),
-                format!("{:.2}", rf.council_tax_calculated),
-                format!("{:.2}", rf.stamp_duty),
-                format!("{:.2}", rf.vat),
-                format!("{:.2}", rf.fuel_duty),
-                format!("{:.4}", rf.equivalisation_factor),
-                format!("{:.2}", rf.equivalised_net_income),
-                format!("{:.2}", rf.net_income_ahc),
-                format!("{:.2}", rf.equivalised_net_income_ahc),
-                flag(rf.equivalised_net_income < rel_line_bhc),
-                flag(rf.equivalised_net_income_ahc < rel_line_ahc),
-                flag(rf.equivalised_net_income < abs_line_bhc),
-                flag(rf.equivalised_net_income_ahc < abs_line_ahc),
-            ]);
-        } else {
-            row.extend_from_slice(&[
-                format!("{:.2}", rf.net_income),
-                format!("{:.2}", rf.gross_income),
-                format!("{:.2}", rf.total_tax),
-                format!("{:.2}", rf.total_benefits),
-                format!("{:.2}", rf.council_tax_calculated),
-                format!("{:.2}", rf.stamp_duty),
-                format!("{:.2}", rf.vat),
-                format!("{:.2}", rf.fuel_duty),
-                format!("{:.4}", rf.equivalisation_factor),
-                format!("{:.2}", rf.equivalised_net_income),
-                format!("{:.2}", rf.net_income_ahc),
-                format!("{:.2}", rf.equivalised_net_income_ahc),
-                flag(rf.equivalised_net_income < rel_line_bhc),
-                flag(rf.equivalised_net_income_ahc < rel_line_ahc),
-                flag(rf.equivalised_net_income < abs_line_bhc),
-                flag(rf.equivalised_net_income_ahc < abs_line_ahc),
-            ]);
-        }
-        wtr.write_record(&row)?;
+        ]));
     }
 
-    wtr.flush()?;
-    Ok(())
+    Table { columns }
 }
 
 /// Remap entity IDs to contiguous 0..N so they can be used as Vec indices.

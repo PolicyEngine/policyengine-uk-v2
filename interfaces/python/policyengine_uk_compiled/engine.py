@@ -148,6 +148,35 @@ def _parse_microdata_stdout(raw: str) -> MicrodataResult:
     )
 
 
+def _columns_to_df(columns):
+    """Reconstruct a DataFrame from the native columnar payload.
+
+    Each column is (name, kind, payload): numeric/bool kinds carry a raw
+    little-endian byte buffer wrapped zero-copy via np.frombuffer; "str" carries
+    a Python list. This avoids the CSV text round-trip entirely.
+    """
+    import numpy as np
+    import pandas as pd
+
+    _DTYPE = {"i8": "<i8", "f8": "<f8", "b1": "|b1"}
+    data = {}
+    for name, kind, payload in columns:
+        if kind == "str":
+            data[name] = payload
+        else:
+            data[name] = np.frombuffer(payload, dtype=_DTYPE[kind])
+    return pd.DataFrame(data)
+
+
+def _native_microdata(native_cols) -> MicrodataResult:
+    """Build a MicrodataResult from the native run_microdata dict."""
+    return MicrodataResult(
+        persons=_columns_to_df(native_cols["persons"]),
+        benunits=_columns_to_df(native_cols["benunits"]),
+        households=_columns_to_df(native_cols["households"]),
+    )
+
+
 def _aggregate_persons_only(records: list[dict], year: int) -> SimulationResult:
     """Aggregate person-level records (from --persons-only) into a SimulationResult.
 
@@ -374,10 +403,6 @@ class Simulation:
         households=None,
         data_dir: Optional[Union[str, Path]] = None,
         dataset: Optional[str] = None,
-        # Legacy FRS interface
-        clean_frs_base: Optional[str] = None,
-        clean_frs: Optional[str] = None,
-        frs_raw: Optional[str] = None,
         binary_path: Optional[str] = None,
     ):
         self.year = year
@@ -386,9 +411,6 @@ class Simulation:
         # Determine data mode
         self._stdin_payload = None
         self._data_dir = None
-        self._clean_frs_base = clean_frs_base
-        self._clean_frs = clean_frs
-        self._frs_raw = frs_raw
         self._dataset = dataset
         self._persons_only = dataset in ("spi",)
         # Lazily-constructed in-process engine (loads the dataset once)
@@ -467,10 +489,6 @@ class Simulation:
         """Return the base data directory for the current configuration."""
         if self._data_dir:
             return self._data_dir
-        if self._clean_frs_base:
-            return self._clean_frs_base
-        if self._clean_frs:
-            return self._clean_frs
         if self._dataset is not None:
             from policyengine_uk_compiled.data import ensure_dataset
             return ensure_dataset(self._dataset, self.year)
@@ -484,12 +502,6 @@ class Simulation:
             cmd.append("--stdin-data")
         elif self._data_dir:
             cmd += ["--data", self._data_dir]
-        elif self._clean_frs_base:
-            cmd += ["--data", self._clean_frs_base]
-        elif self._clean_frs:
-            cmd += ["--data", self._clean_frs]
-        elif self._frs_raw:
-            cmd += ["--frs", self._frs_raw]
         elif self._dataset is not None:
             from policyengine_uk_compiled.data import ensure_dataset
             data_path = ensure_dataset(self._dataset, self.year)
@@ -546,7 +558,6 @@ class Simulation:
             _native is not None
             and structural is None
             and self._stdin_payload is None
-            and self._frs_raw is None
             and not self._persons_only
         ):
             if self._native_sim is None:
@@ -598,6 +609,30 @@ class Simulation:
         """
         if return_baselines is None:
             return_baselines = policy is not None
+
+        # In-process fast path: file-based data, no structural reform. Mirrors
+        # run()'s guard. Returns typed columns directly, skipping the subprocess
+        # spawn, CSV serialise and CSV re-parse (the dominant costs on large
+        # datasets like EFRS).
+        if (
+            _native is not None
+            and structural is None
+            and self._stdin_payload is None
+            and not self._persons_only
+        ):
+            if self._native_sim is None:
+                params_dir = str(Path(_find_cwd(self.binary_path)) / "parameters")
+                self._native_sim = _native.Simulation(
+                    self._resolve_data_path(), params_dir, self.year
+                )
+            policy_json = None
+            if policy:
+                overlay = policy.model_dump(exclude_none=True)
+                if overlay:
+                    policy_json = json.dumps(overlay)
+            native_cols = self._native_sim.run_microdata(policy_json, return_baselines)
+            return _native_microdata(native_cols)
+
         extra_args = ["--output-microdata-stdout"]
         if return_baselines:
             extra_args.append("--microdata-return-baselines")
