@@ -534,7 +534,7 @@ class Simulation:
         """
         # If a post-hook is present we must go through microdata and re-aggregate
         if structural is not None and structural.post is not None:
-            microdata = self.run_microdata(policy=policy, structural=structural, timeout=timeout)
+            microdata = self.run_microdata(policy=policy, structural=structural, timeout=timeout, return_baselines=True)
             return aggregate_microdata(
                 microdata.persons, microdata.benunits, microdata.households, self.year
             )
@@ -587,14 +587,17 @@ class Simulation:
         policy: Optional[Parameters] = None,
         structural: Optional[StructuralReform] = None,
         timeout: int = 120,
-        return_baselines: bool = False,
+        return_baselines: Optional[bool] = None,
     ) -> MicrodataResult:
         """Run the simulation and return per-entity microdata as DataFrames.
 
-        When neither policy nor return_baselines is set, output columns have
-        plain names (e.g. net_income, income_tax). Pass return_baselines=True
-        to get both baseline_* and reform_* columns side by side.
+        When no policy is provided (and return_baselines is not set), output
+        columns use plain names (e.g. net_income, income_tax).  When a policy
+        is provided, or return_baselines=True is passed explicitly, both
+        baseline_* and reform_* columns are returned side by side.
         """
+        if return_baselines is None:
+            return_baselines = policy is not None
         extra_args = ["--output-microdata-stdout"]
         if return_baselines:
             extra_args.append("--microdata-return-baselines")
