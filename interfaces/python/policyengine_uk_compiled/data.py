@@ -166,13 +166,8 @@ def ensure_year(year: int) -> Path:
     return ensure_dataset_year("frs", year)
 
 
-def ensure_frs(year: int, clean_frs_base: str | None = None) -> str:
+def ensure_frs(year: int) -> str:
     """Return a path to FRS data base dir, downloading the needed year if missing."""
-    if clean_frs_base:
-        year_dir = Path(clean_frs_base) / str(year)
-        if year_dir.is_dir():
-            return clean_frs_base
-
     local_base = LOCAL_CACHE / "frs"
     year_dir = local_base / str(year)
     expected = ["persons.csv", "benunits.csv", "households.csv"]
@@ -195,7 +190,7 @@ def ensure_frs(year: int, clean_frs_base: str | None = None) -> str:
 
     if not os.environ.get(ENV_TOKEN):
         raise FileNotFoundError(
-            f"No FRS data found for {year}. Either pass clean_frs_base= pointing to "
+            f"No FRS data found for {year}. Either pass data_dir= pointing to "
             f"a directory with a {year}/ subdirectory, or set {ENV_TOKEN} to "
             f"auto-download from GCS."
         )
