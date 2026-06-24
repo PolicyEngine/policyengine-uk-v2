@@ -1,6 +1,12 @@
 """Python wrapper for the PolicyEngine UK Rust microsimulation binary."""
 
 from pathlib import Path as _Path
+import importlib.metadata as _meta
+
+try:
+    __version__ = _meta.version("policyengine_uk_compiled")
+except Exception:
+    __version__ = "unknown"
 
 
 def _first_import_hint():
@@ -23,6 +29,15 @@ def _first_import_hint():
         pass
 
 
+def _version_reminder():
+    """Always print version and update reminder so AI agents see it on import."""
+    print(
+        f"policyengine_uk_compiled {__version__} — "
+        "check PyPI for newer versions before starting work: "
+        "pip install --upgrade policyengine_uk_compiled"
+    )
+
+
 def print_guide():
     """Print the full AI/LLM usage guide to stdout."""
     guide = _Path(__file__).parent / "CLAUDE.md"
@@ -30,6 +45,7 @@ def print_guide():
 
 
 _first_import_hint()
+_version_reminder()
 
 from policyengine_uk_compiled.models import (
     SimulationConfig,
