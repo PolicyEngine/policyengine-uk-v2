@@ -50,50 +50,6 @@ SPI_BLOCK_YEAR = max(YEARS)
 console = Console()
 
 
-def warm_start_weights(out_dir: Path, year: int, work_dir: Path) -> None:
-    """Write a `start_weight` column seeded from the previous year's calibrated
-    solution, matched by the cross-year `provenance` key.
-
-    Each EFRS year pools a 3-year FRS window, so ~2/3 of households recur from
-    year to year (same provenance key); the SPI block is identical every year.
-    Calibration is underdetermined in the decile dimension — deciles aren't
-    targets, so the solver is free to wander the null space, and solving each
-    year cold from the survey weights lands on a different null-space point,
-    churning decile composition into a spurious year-on-year sawtooth. Starting
-    the optimiser from last year's solution makes it converge to a nearby point,
-    so unchanged records keep their weight and only genuine target moves shift it.
-
-    This only sets the optimiser's STARTING POINT (calibrate's `start_weights`).
-    The survey `weight` column is left untouched so it still anchors the
-    deviation penalty and the max-weight-ratio clamp — otherwise a record needing
-    a big shift would be boxed to within 10× of last year's value instead of its
-    survey value, which blows up the fit. Records with no prior match (the freshly
-    rotated-in FRS year, plus dropped high earners) fall back to the survey weight.
-    """
-    import pandas as pd
-
-    from uprate import cumulative_factor
-
-    prev_path = work_dir / "clean" / "efrs" / str(year - 1) / "households.csv"
-    if not prev_path.exists():
-        return
-    cur = pd.read_csv(out_dir / "households.csv")
-    prev = pd.read_csv(prev_path)
-    if "provenance" not in cur.columns or "provenance" not in prev.columns:
-        return
-
-    # Scale prior calibrated weights to this year's population so the warm start
-    # starts at the right grossed total (calibration then fine-tunes).
-    pop = cumulative_factor(year - 1, year, "population")
-    prev_w = dict(zip(prev["provenance"], prev["weight"].to_numpy(float) * pop))
-    matched = cur["provenance"].map(prev_w)
-    n_matched = int(matched.notna().sum())
-    cur["start_weight"] = matched.fillna(cur["weight"]).to_numpy(float)
-    cur.to_csv(out_dir / "households.csv", index=False)
-    console.print(
-        f"  warm-started {n_matched}/{len(cur)} weights from EFRS {year - 1}"
-    )
-
 
 def _has_targets(year: int) -> bool:
     import json
@@ -179,7 +135,6 @@ def build_forecast(year: int, work_dir: Path, upload: bool = True, calibrate: bo
     pd.read_csv(base_dir / "benunits.csv").to_csv(out_dir / "benunits.csv", index=False)
 
     if calibrate and _has_targets(year):
-        warm_start_weights(out_dir, year, work_dir)
         console.print(f"  calibrating weights for EFRS {year}")
         from calibrate import CalibrateConfig
         from calibrate import run as run_calibration
@@ -274,7 +229,6 @@ def build(year: int, work_dir: Path, upload: bool = True, calibrate: bool = True
            spi_block_dir=spi_block_dir, spi_block_year=SPI_BLOCK_YEAR)
 
     if calibrate and _has_targets(year):
-        warm_start_weights(efrs_out, year, work_dir)
         console.print(f"  calibrating weights for EFRS {year}")
         from calibrate import CalibrateConfig
         from calibrate import run as run_calibration

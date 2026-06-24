@@ -162,31 +162,19 @@ def calibrate(
     train_mask: np.ndarray,
     initial_weights: np.ndarray,
     config: CalibrateConfig,
-    start_weights: np.ndarray | None = None,
 ) -> np.ndarray:
     """CALMAR logit calibration via Newton-Raphson on Lagrange multipliers.
 
     Minimises sum_i w0_i · F(w_i/w0_i) subject to A[:, train].T @ w = t[train],
     where F is the logit distance function. Solved by NR on the residual
     r(lam) = A.T @ w(lam) - t, using the Jacobian J_kl = sum_i A_ik A_il w0_i dg_i.
-
-    `initial_weights` anchor the bounds and the logit penalty (w0).
-    `start_weights`, if given, warm-starts the NR by back-solving to an initial lam.
     """
     L, U = config.logit_l, config.logit_u
     A = matrix[:, train_mask]  # (n_hh, n_constraints)
     t = y[train_mask]
 
     w0 = np.where(initial_weights > 0.0, initial_weights, 1.0)
-
-    if start_weights is not None:
-        ws = np.where(start_weights > 0.0, start_weights, 1.0)
-        g = np.clip(ws / w0, L + 1e-6, U - 1e-6)
-        x0 = np.log((g - L) / (U - g))
-        lam, _, _, _ = np.linalg.lstsq(A, x0, rcond=None)
-        lam = np.clip(lam, -2.0, 2.0)
-    else:
-        lam = np.zeros(t.shape[0])
+    lam = np.zeros(t.shape[0])
 
     best_lam = lam.copy()
     best_rel = np.inf
@@ -331,15 +319,11 @@ def run(data_dir: Path, year: int, config: CalibrateConfig) -> None:
 
     initial_weights = households["weight"].to_numpy(dtype=float)
 
-    start_weights = None
-    if "start_weight" in input_hh.columns:
-        start_weights = input_hh["start_weight"].to_numpy(dtype=float)
-
     console.print(
         f"  CALMAR logit NR  L={config.logit_l}  U={config.logit_u}  "
         f"constraints={int(train_mask.sum())}"
     )
-    weights = calibrate(matrix, y, train_mask, initial_weights, config, start_weights)
+    weights = calibrate(matrix, y, train_mask, initial_weights, config)
     print_report(targets, matrix, y, train_mask, weights, initial_weights)
 
     preds_initial = matrix.T @ initial_weights
@@ -356,7 +340,6 @@ def run(data_dir: Path, year: int, config: CalibrateConfig) -> None:
 
     hh_path = data_dir / "households.csv"
     input_hh["weight"] = np.round(weights, 4)
-    input_hh = input_hh.drop(columns=["start_weight"], errors="ignore")
     input_hh.to_csv(hh_path, index=False)
     console.print(f"[green]Wrote calibrated weights to {hh_path}[/green]")
 
