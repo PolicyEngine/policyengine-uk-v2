@@ -87,8 +87,6 @@ pub struct HouseholdResult {
     pub stamp_duty: f64,
     /// Annual wealth tax (hypothetical)
     pub wealth_tax: f64,
-    /// Council tax (calculated from parameters, for reform modelling)
-    pub council_tax_calculated: f64,
     /// Modified OECD equivalisation factor for the household
     pub equivalisation_factor: f64,
     /// HBAI net income BHC (before housing costs)
@@ -310,16 +308,6 @@ impl Simulation {
                 .map(|p| variables::wealth_taxes::calculate_wealth_tax(hh, p))
                 .unwrap_or(0.0);
 
-            // Council tax (calculated from parameters for reform modelling).
-            // Applies the single-person discount when the household has exactly
-            // one adult (18+) — Local Government Finance Act 1992 s.11(1)(a).
-            let adult_count = hh.person_ids.iter()
-                .filter(|&&pid| self.people[pid].is_adult())
-                .count();
-            let council_tax_calculated = self.parameters.council_tax.as_ref()
-                .map(|p| variables::wealth_taxes::calculate_council_tax(hh, p, adult_count == 1))
-                .unwrap_or(hh.council_tax);
-
             let total_tax = direct_tax + vat + fuel_duty + alcohol_duty + tobacco_duty
                 + cgt + stamp_duty + wealth_tax;
             // HBAI net income: gross minus direct taxes and pension contributions, plus benefits.
@@ -360,7 +348,6 @@ impl Simulation {
                 capital_gains_tax: cgt,
                 stamp_duty,
                 wealth_tax,
-                council_tax_calculated,
                 equivalisation_factor: eq_factor,
                 equivalised_net_income: net_income / eq_factor,
                 net_income_ahc,
