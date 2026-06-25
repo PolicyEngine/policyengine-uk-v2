@@ -405,6 +405,8 @@ class Simulation:
         dataset: Optional[str] = None,
         binary_path: Optional[str] = None,
     ):
+        from policyengine_uk_compiled.data import DATASETS
+
         self.year = year
         self.binary_path = binary_path or _find_binary()
 
@@ -442,6 +444,19 @@ class Simulation:
             )
         elif data_dir is not None:
             self._data_dir = str(data_dir)
+        elif dataset is None:
+            raise ValueError(
+                "No data source specified. Pass one of:\n"
+                "  • persons=/benunits=/households= DataFrames for a hypothetical household;\n"
+                "  • data_dir= pointing to a directory of clean CSVs;\n"
+                f"  • dataset= naming a survey ({', '.join(DATASETS)}).\n"
+                "There is no default — choose 'frs' for the standard distributional "
+                "dataset, or 'efrs' when wealth/expenditure data is needed."
+            )
+        elif dataset not in DATASETS:
+            raise ValueError(
+                f"Unknown dataset {dataset!r}. Choose from: {', '.join(DATASETS)}."
+            )
 
     def _apply_pre_hook(self, structural: Optional[StructuralReform]) -> Optional[str]:
         """Apply the pre-hook if present and return a stdin payload string.

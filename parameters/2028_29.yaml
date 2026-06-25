@@ -138,6 +138,7 @@ vat:
 
 growth_factors:
   # OBR Economic and Fiscal Outlook, March 2026
+  # Table 1.7 (Inflation) and Table 1.6 (Labour Market), fiscal-year rows
   cpi_rate: 0.02036        # 2.036% CPI inflation (FY 2028/29)
   gdp_deflator: 0.01865    # 1.865% GDP deflator
   earnings_growth: 0.02121  # 2.121% average weekly earnings growth
