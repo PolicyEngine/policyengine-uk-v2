@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import urllib.request
@@ -41,9 +42,10 @@ ONS_QNA_URL = (
     "firstquarterlyestimatedatatablescorrected.xlsx"
 )
 
-# EFRS now starts at 2015 (data/efrs.py YEARS): pre-2013 clean FRS frames carry
-# no housing benefit, so years whose FRS pool reaches before 2013 are dropped.
-TARGET_YEARS = list(range(2015, 2025))
+# EFRS starts at 2016 (data/efrs.py YEARS): pre-2013 clean FRS frames carry no
+# housing benefit, so years whose FRS pool reaches before 2013 are dropped. 2015
+# (pool back to FRS 2013) is also dropped as the thinnest real year.
+TARGET_YEARS = list(range(2016, 2025))
 
 # Forecast horizon: the last year with real source data, and the OBR EFO years we
 # project onto by uprating the latest real targets (data/uprate.py indices).
@@ -52,6 +54,7 @@ FORECAST_YEARS = list(range(2025, 2030))
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────
+
 
 def _download(url: str, dest: Path) -> None:
     if dest.exists():
@@ -98,6 +101,7 @@ def _xls_col(ws, row: int, col: int):
 
 # ── HMRC receipts ────────────────────────────────────────────────────────────
 
+
 def load_hmrc_receipts(path: Path) -> dict[int, dict[str, float]]:
     """Return {fiscal_year_start: {field: £bn}}."""
     rows = _ods_rows(path, "Receipts_Annually")
@@ -108,10 +112,16 @@ def load_hmrc_receipts(path: Path) -> dict[int, dict[str, float]]:
         "income_tax": next(i for i, h in enumerate(header) if h == "Income Tax"),
         "employee_ni": next(i for i, h in enumerate(header) if "EMP'ee" in h),
         "employer_ni": next(i for i, h in enumerate(header) if "EMP'er" in h),
-        "total_nic": next(i for i, h in enumerate(header) if h == "National Insurance Contributions"),
-        "capital_gains_tax": next(i for i, h in enumerate(header) if h == "Capital Gains Tax"),
+        "total_nic": next(
+            i for i, h in enumerate(header) if h == "National Insurance Contributions"
+        ),
+        "capital_gains_tax": next(
+            i for i, h in enumerate(header) if h == "Capital Gains Tax"
+        ),
         "vat": next(i for i, h in enumerate(header) if h == "Value Added Tax"),
-        "stamp_duty": next(i for i, h in enumerate(header) if h == "Stamp Duty Land Tax"),
+        "stamp_duty": next(
+            i for i, h in enumerate(header) if h == "Stamp Duty Land Tax"
+        ),
     }
 
     out: dict[int, dict[str, float]] = {}
@@ -171,8 +181,15 @@ def load_obr_databank_receipts(path: Path) -> dict[int, dict[str, float]]:
     ws = wb["Receipts (£bn)"]
 
     # Column layout fixed by the databank header (row 4):
-    cols = {"vat": 3, "stamp_duty": 6, "cgt": 20, "nics": 28,
-            "paye": 17, "sa": 18, "other_it": 19}
+    cols = {
+        "vat": 3,
+        "stamp_duty": 6,
+        "cgt": 20,
+        "nics": 28,
+        "paye": 17,
+        "sa": 18,
+        "other_it": 19,
+    }
 
     out: dict[int, dict[str, float]] = {}
     for r in range(7, ws.max_row + 1):
@@ -246,10 +263,20 @@ _SPI_SOURCES = [  # (key, person_variable)
     ("state_pension", "state_pension"),
     ("private_pension", "private_pension_income"),
 ]
-_SPI_COLS_WIDE = {"band": 0, "self_employment": (2, 3), "employment": (6, 7),
-                  "state_pension": (10, 11), "private_pension": (14, 15)}
-_SPI_COLS_ODS = {"band": 0, "self_employment": (1, 2), "employment": (4, 5),
-                 "state_pension": (7, 8), "private_pension": (10, 11)}
+_SPI_COLS_WIDE = {
+    "band": 0,
+    "self_employment": (2, 3),
+    "employment": (6, 7),
+    "state_pension": (10, 11),
+    "private_pension": (14, 15),
+}
+_SPI_COLS_ODS = {
+    "band": 0,
+    "self_employment": (1, 2),
+    "employment": (4, 5),
+    "state_pension": (7, 8),
+    "private_pension": (10, 11),
+}
 
 
 def load_spi_table_3_6(path: Path) -> list[dict]:
@@ -314,8 +341,18 @@ _SPI37_SOURCES = [  # (key, person_variable)
     ("interest", "savings_interest"),
     ("dividends", "dividend_income"),
 ]
-_SPI37_COLS_WIDE = {"band": 0, "property": (2, 3), "interest": (6, 7), "dividends": (10, 11)}
-_SPI37_COLS_ODS = {"band": 0, "property": (1, 2), "interest": (4, 5), "dividends": (7, 8)}
+_SPI37_COLS_WIDE = {
+    "band": 0,
+    "property": (2, 3),
+    "interest": (6, 7),
+    "dividends": (10, 11),
+}
+_SPI37_COLS_ODS = {
+    "band": 0,
+    "property": (1, 2),
+    "interest": (4, 5),
+    "dividends": (7, 8),
+}
 
 
 def load_spi_table_3_7(path: Path) -> list[dict]:
@@ -426,22 +463,35 @@ def build_spi_investment_targets(
             for key, variable in _SPI37_SOURCES:
                 count, amount = r[f"{key}_n"], r[f"{key}_a"]
                 if count > 0:
-                    out.append({
-                        "name": f"spi37_{key}_count_{tag}_{yr}",
-                        "variable": variable, "entity": "person",
-                        "aggregation": "count_nonzero", "filter": band,
-                        "benunit_filter": None, "value": round(count * 1000.0, 0),
-                        "source": label, "year": yr, "holdout": False,
-                    })
+                    out.append(
+                        {
+                            "name": f"spi37_{key}_count_{tag}_{yr}",
+                            "variable": variable,
+                            "entity": "person",
+                            "aggregation": "count_nonzero",
+                            "filter": band,
+                            "benunit_filter": None,
+                            "value": round(count * 1000.0, 0),
+                            "source": label,
+                            "year": yr,
+                            "holdout": False,
+                        }
+                    )
                 if amount > 0:
-                    out.append({
-                        "name": f"spi37_{key}_amount_{tag}_{yr}",
-                        "variable": variable, "entity": "person",
-                        "aggregation": "sum", "filter": band,
-                        "benunit_filter": None,
-                        "value": round(amount * 1e6 * amt_factor, 0),
-                        "source": label, "year": yr, "holdout": False,
-                    })
+                    out.append(
+                        {
+                            "name": f"spi37_{key}_amount_{tag}_{yr}",
+                            "variable": variable,
+                            "entity": "person",
+                            "aggregation": "sum",
+                            "filter": band,
+                            "benunit_filter": None,
+                            "value": round(amount * 1e6 * amt_factor, 0),
+                            "source": label,
+                            "year": yr,
+                            "holdout": False,
+                        }
+                    )
     return out
 
 
@@ -460,7 +510,11 @@ def load_efo_earnings_index(path: Path) -> dict[int, float]:
             quarters[(int(m.group(1)), int(m.group(2)))] = float(row[16])
     out: dict[int, float] = {}
     for fy in TARGET_YEARS:
-        vals = [quarters[q] for q in [(fy, 2), (fy, 3), (fy, 4), (fy + 1, 1)] if q in quarters]
+        vals = [
+            quarters[q]
+            for q in [(fy, 2), (fy, 3), (fy, 4), (fy + 1, 1)]
+            if q in quarters
+        ]
         if len(vals) == 4:
             out[fy] = sum(vals) / 4.0
     return out
@@ -511,26 +565,40 @@ def build_spi_targets(
                 if key in ("state_pension", "private_pension") and r["lo"] >= 500_000:
                     count = 0
                 if count > 0:
-                    out.append({
-                        "name": f"spi_{key}_count_{tag}_{yr}",
-                        "variable": variable, "entity": "person",
-                        "aggregation": "count_nonzero", "filter": band,
-                        "benunit_filter": None, "value": round(count * 1000.0, 0),
-                        "source": label, "year": yr, "holdout": False,
-                    })
+                    out.append(
+                        {
+                            "name": f"spi_{key}_count_{tag}_{yr}",
+                            "variable": variable,
+                            "entity": "person",
+                            "aggregation": "count_nonzero",
+                            "filter": band,
+                            "benunit_filter": None,
+                            "value": round(count * 1000.0, 0),
+                            "source": label,
+                            "year": yr,
+                            "holdout": False,
+                        }
+                    )
                 if amount > 0:
-                    out.append({
-                        "name": f"spi_{key}_amount_{tag}_{yr}",
-                        "variable": variable, "entity": "person",
-                        "aggregation": "sum", "filter": band,
-                        "benunit_filter": None,
-                        "value": round(amount * 1e6 * amt_factor, 0),
-                        "source": label, "year": yr, "holdout": False,
-                    })
+                    out.append(
+                        {
+                            "name": f"spi_{key}_amount_{tag}_{yr}",
+                            "variable": variable,
+                            "entity": "person",
+                            "aggregation": "sum",
+                            "filter": band,
+                            "benunit_filter": None,
+                            "value": round(amount * 1e6 * amt_factor, 0),
+                            "source": label,
+                            "year": yr,
+                            "holdout": False,
+                        }
+                    )
     return out
 
 
 # ── DWP benefits ─────────────────────────────────────────────────────────────
+
 
 def load_dwp_benefits(path: Path) -> dict[int, dict[str, float]]:
     """Return {fiscal_year_start: {field: £bn}} from Table 1a (£m nominal)."""
@@ -570,7 +638,9 @@ def load_dwp_benefits(path: Path) -> dict[int, dict[str, float]]:
 
         # Child benefit is in "UK welfare " sheet
         ws_uk = wb["UK welfare "]
-        row2_uk = [ws_uk.cell(row=2, column=c).value for c in range(1, ws_uk.max_column + 1)]
+        row2_uk = [
+            ws_uk.cell(row=2, column=c).value for c in range(1, ws_uk.max_column + 1)
+        ]
         yr_cols_uk: dict[int, int] = {}
         for c, v in enumerate(row2_uk, 1):
             if isinstance(v, str) and re.match(r"\d{4}/\d{2}", v.strip()):
@@ -590,6 +660,7 @@ def load_dwp_benefits(path: Path) -> dict[int, dict[str, float]]:
 
 
 # ── COICOP consumption ───────────────────────────────────────────────────────
+
 
 def load_coicop(ons_qna_path: Path) -> dict[int, dict[str, float]]:
     """Return {calendar_year: {field: £bn}} using Eurostat + ONS QNA."""
@@ -651,6 +722,7 @@ def load_coicop(ons_qna_path: Path) -> dict[int, dict[str, float]]:
                 return None
             return estat_vals.get(str(cp * n_time + tp))
     except (requests.RequestException, ValueError, KeyError):
+
         def estat_get(code: str, year: int) -> float | None:
             return None
 
@@ -658,22 +730,24 @@ def load_coicop(ons_qna_path: Path) -> dict[int, dict[str, float]]:
     # 4=food,5=alc+tob,6=clothing,7=housing,8=furnishings,9=health,10=transport,
     # 11=comms,12=recreation,13=education,14=restaurants,15=misc
     e3_mapping = [
-        ("food_consumption",                       "CP01",  4),
-        ("clothing_consumption",                   "CP03",  6),
-        ("furnishings_consumption",                "CP05",  8),
-        ("health_consumption",                     "CP06",  9),
-        ("transport_consumption",                  "CP07",  10),
-        ("communication_consumption",              "CP08",  11),
-        ("recreation_consumption",                 "CP09",  12),
-        ("education_consumption",                  "CP10",  13),
-        ("restaurants_consumption",                "CP11",  14),
-        ("miscellaneous_consumption",              "CP12",  15),
+        ("food_consumption", "CP01", 4),
+        ("clothing_consumption", "CP03", 6),
+        ("furnishings_consumption", "CP05", 8),
+        ("health_consumption", "CP06", 9),
+        ("transport_consumption", "CP07", 10),
+        ("communication_consumption", "CP08", 11),
+        ("recreation_consumption", "CP09", 12),
+        ("education_consumption", "CP10", 13),
+        ("restaurants_consumption", "CP11", 14),
+        ("miscellaneous_consumption", "CP12", 15),
     ]
 
     out: dict[int, dict[str, float]] = {}
     for yr in TARGET_YEARS:
         row: dict[str, float] = {}
-        total_cvm = e3[yr][1] if yr in e3 and isinstance(e3[yr][1], (int, float)) else None
+        total_cvm = (
+            e3[yr][1] if yr in e3 and isinstance(e3[yr][1], (int, float)) else None
+        )
         total_cp = c1.get(yr)
 
         # The CVM-share fallback only holds near the chained-volume reference year,
@@ -688,7 +762,9 @@ def load_coicop(ons_qna_path: Path) -> dict[int, dict[str, float]]:
             elif total_cvm and total_cp and yr in e3:
                 cvm_val = e3[yr][e3_col]
                 if isinstance(cvm_val, (int, float)):
-                    row[field] = (float(cvm_val) / total_cvm) * total_cp / 1000.0  # £m -> £bn
+                    row[field] = (
+                        (float(cvm_val) / total_cvm) * total_cp / 1000.0
+                    )  # £m -> £bn
 
         # Alcohol and tobacco are one COICOP level-1 division (CP02); target the
         # combined line, not the sub-split. Eurostat nominal for 1995-2019,
@@ -701,8 +777,8 @@ def load_coicop(ons_qna_path: Path) -> dict[int, dict[str, float]]:
             cp02_cvm = e3[yr][5]
             if isinstance(cp02_cvm, (int, float)):
                 row["alcohol_and_tobacco_consumption"] = (
-                    float(cp02_cvm) / total_cvm
-                ) * total_cp / 1000.0  # £bn
+                    (float(cp02_cvm) / total_cvm) * total_cp / 1000.0
+                )  # £bn
 
         # Housing (CP04) excludes owner-occupier imputed rentals (CP042), which are
         # a national-accounts construct, not spending households actually report.
@@ -721,8 +797,8 @@ def load_coicop(ons_qna_path: Path) -> dict[int, dict[str, float]]:
             if isinstance(cp04_cvm, (int, float)) and cp04_19 and cp042_19 is not None:
                 actual_share = (cp04_19 - cp042_19) / cp04_19
                 row["housing_water_electricity_consumption"] = (
-                    float(cp04_cvm) / total_cvm
-                ) * total_cp * actual_share / 1000.0  # £bn
+                    (float(cp04_cvm) / total_cvm) * total_cp * actual_share / 1000.0
+                )  # £bn
 
         out[yr] = row
 
@@ -735,17 +811,17 @@ def load_coicop(ons_qna_path: Path) -> dict[int, dict[str, float]]:
 # header_row carries the fiscal-year column labels ("YYYY/YY Outturn");
 # data_row holds the caseload total (in thousands) for that benefit.
 _CASELOAD_SPECS = [
-    ("attendance_allowance",          "Disability benefits",              50, 74),
-    ("carers_allowance",              "Carers Allowance",                 14, 15),
-    ("disability_living_allowance",   "Disability benefits",              50, 55),
-    ("esa_income_related",            "Incapacity benefits",             119, 129),
-    ("housing_benefit",               "Housing benefits",                122, 123),
-    ("income_support",                "Income Support",                   90, 91),
-    ("jsa_income_based",              "Unemployment benefits",            24, 33),
-    ("personal_independence_payment", "Disability benefits",              50, 65),
-    ("pension_credit",                "Pension Credit",                   18, 19),
-    ("state_pension",                 "State Pension",                    28, 29),
-    ("universal_credit",              "Universal Credit and equivalent",  46, 53),
+    ("attendance_allowance", "Disability benefits", 50, 74),
+    ("carers_allowance", "Carers Allowance", 14, 15),
+    ("disability_living_allowance", "Disability benefits", 50, 55),
+    ("esa_income_related", "Incapacity benefits", 119, 129),
+    ("housing_benefit", "Housing benefits", 122, 123),
+    ("income_support", "Income Support", 90, 91),
+    ("jsa_income_based", "Unemployment benefits", 24, 33),
+    ("personal_independence_payment", "Disability benefits", 50, 65),
+    ("pension_credit", "Pension Credit", 18, 19),
+    ("state_pension", "State Pension", 28, 29),
+    ("universal_credit", "Universal Credit and equivalent", 46, 53),
 ]
 
 
@@ -781,7 +857,16 @@ def load_dwp_caseloads(path: Path) -> dict[int, dict[str, float]]:
 
 # ── FRS-grossed population targets ────────────────────────────────────────────
 
-_AGE_BANDS = [(0, 16), (16, 25), (25, 35), (35, 45), (45, 55), (55, 65), (65, 75), (75, None)]
+_AGE_BANDS = [
+    (0, 16),
+    (16, 25),
+    (25, 35),
+    (35, 45),
+    (45, 55),
+    (55, 65),
+    (65, 75),
+    (75, None),
+]
 
 
 def build_population_targets(years: list[int]) -> list[dict]:
@@ -806,12 +891,20 @@ def build_population_targets(years: list[int]) -> list[dict]:
         benunit_w = benunits["household_id"].map(w).to_numpy()
 
         def add(name, entity, value, flt=None):
-            out.append({
-                "name": f"{name}_{yr}", "variable": "household_id",
-                "entity": entity, "aggregation": "count", "filter": flt,
-                "benunit_filter": None, "value": round(float(value), 0),
-                "source": label, "year": yr, "holdout": False,
-            })
+            out.append(
+                {
+                    "name": f"{name}_{yr}",
+                    "variable": "household_id",
+                    "entity": entity,
+                    "aggregation": "count",
+                    "filter": flt,
+                    "benunit_filter": None,
+                    "value": round(float(value), 0),
+                    "source": label,
+                    "year": yr,
+                    "holdout": False,
+                }
+            )
 
         add("population_households", "household", w.sum())
         add("population_people", "person", person_w.sum())
@@ -820,13 +913,21 @@ def build_population_targets(years: list[int]) -> list[dict]:
         for region in sorted(hh["region"].dropna().unique()):
             val = w[hh.set_index("household_id")["region"] == region].sum()
             slug = re.sub(r"[^a-z0-9]+", "_", str(region).lower()).strip("_")
-            add(f"population_households_region_{slug}", "household", val,
-                {"variable": "region", "eq": region})
+            add(
+                f"population_households_region_{slug}",
+                "household",
+                val,
+                {"variable": "region", "eq": region},
+            )
 
         for sex in sorted(persons["gender"].dropna().unique()):
             val = person_w[(persons["gender"] == sex).to_numpy()].sum()
-            add(f"population_people_sex_{sex}", "person", val,
-                {"variable": "gender", "eq": sex})
+            add(
+                f"population_people_sex_{sex}",
+                "person",
+                val,
+                {"variable": "gender", "eq": sex},
+            )
 
         age = persons["age"].to_numpy()
         for lo, hi in _AGE_BANDS:
@@ -835,61 +936,393 @@ def build_population_targets(years: list[int]) -> list[dict]:
                 mask &= age < hi
             val = person_w[mask].sum()
             tag = f"{lo}_{hi}" if hi is not None else f"{lo}_plus"
-            add(f"population_people_age_{tag}", "person", val,
-                {"variable": "age", "min": lo, "max": hi})
+            add(
+                f"population_people_age_{tag}",
+                "person",
+                val,
+                {"variable": "age", "min": lo, "max": hi},
+            )
     return out
 
 
 # ── UC award-amount distribution targets ──────────────────────────────────────
 
-# Households on UC by Monthly Award Amount band (Stat-Xplore UC_Households,
-# V_F_UC_HOUSEHOLDS count), November snapshot each year. Index 0 = no payment;
-# 1..15 = £0.01-100 ... £1400.01-1500 per month; 16 = £1500.01+ catch-all (used
-# to Nov 2021); 17..27 = £1500.01-1600 ... £2500.01+ fine split (from Nov 2022,
-# with index 16 then zero). We collapse everything ≥£1500/mo into one band, so
-# the top band = index 16 + sum(17..27), robust to that mid-series split.
-_UC_AWARD_BAND_COUNTS = {
-    2016: [129503, 17858, 18321, 73888, 37739, 15760, 25830, 22105, 12086, 8390, 7527, 6396, 5015, 4111, 3371, 2629, 8108, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    2017: [158166, 25659, 29870, 89860, 58388, 31274, 45619, 42391, 26930, 22242, 20567, 16863, 13474, 11351, 8581, 6105, 16538, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    2018: [182935, 40293, 60361, 164478, 101211, 82030, 115629, 103657, 69159, 68587, 64331, 51867, 41439, 32368, 23491, 15958, 47424, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    2019: [169100, 66150, 99431, 287662, 166426, 146491, 225351, 201465, 136582, 146177, 149247, 121624, 101502, 82896, 68476, 44291, 130682, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    2020: [802377, 124189, 136197, 246176, 600631, 362331, 234686, 366594, 336284, 237386, 238638, 234041, 203015, 182719, 153674, 105579, 321623, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    2021: [761122, 149309, 189910, 423090, 345652, 208515, 297043, 440411, 242251, 240214, 274975, 243595, 200684, 179938, 145898, 107103, 346169, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    2022: [614296, 155013, 184636, 379951, 341840, 204799, 295290, 514875, 238277, 252998, 286350, 293905, 230732, 205770, 168462, 124252, 0, 95899, 74971, 61011, 47863, 37281, 26497, 20811, 16219, 12020, 9589, 28987],
-    2023: [575921, 142285, 182890, 383919, 383034, 190141, 261780, 415570, 451402, 240548, 260864, 314996, 302320, 239787, 203790, 168543, 0, 138022, 105428, 84402, 69173, 56655, 46039, 34263, 25894, 20748, 15902, 56892],
-}
+# Stat-Xplore "Households on Universal Credit" (UC_Households), V_F_UC_HOUSEHOLDS
+# count, broken down by Monthly Award Amount band, November snapshot each year.
+# Pulled live from the open-data REST API at build time (key in the env var
+# STAT_XPLORE_API_KEY); the response is cached to data/raw so offline rebuilds
+# reuse it. The band axis has 28 values: index 0 = no payment; 1..15 = £0.01-100
+# ... £1400.01-1500 per month; 16 = £1500.01+ catch-all (used to Nov 2021);
+# 17..27 = £1500.01-1600 ... £2500.01+ fine split (from Nov 2022, with index 16
+# then zero). We collapse everything ≥£1500/mo into one band, so the top band =
+# index 16 + sum(17..27), robust to that mid-series split.
+_SX_BASE = "https://stat-xplore.dwp.gov.uk/webapi/rest/v1"
+_SX_DB = "str:database:UC_Households"
+_SX_COUNT = "str:count:UC_Households:V_F_UC_HOUSEHOLDS"
+_SX_DATE = "str:field:UC_Households:F_UC_HH_DATE:DATE_NAME"
+_SX_DATE_VS = "str:valueset:UC_Households:F_UC_HH_DATE:DATE_NAME:C_UC_HH_DATE"
+_SX_BAND = "str:field:UC_Households:V_F_UC_HOUSEHOLDS:hnpayment_band"
+_SX_CACHE = RAW_DIR / "dwp" / "uc_households_award_bands.json"
 
 
-def build_uc_award_band_targets(years: list[int]) -> list[dict]:
+def load_uc_award_band_counts() -> dict[int, list[int]]:
+    """Return {calendar_year: [28 band counts]} for every November snapshot the
+    Stat-Xplore UC_Households table publishes.
+
+    Discovers the available November months from the date valueset, then pulls
+    the count by award-amount band for those months in one query. The result is
+    cached to `_SX_CACHE`; a present cache is reused without hitting the API.
+    """
+    if _SX_CACHE.exists():
+        cached = json.loads(_SX_CACHE.read_text())
+        return {int(y): v for y, v in cached.items()}
+
+    key = os.environ.get("STAT_XPLORE_API_KEY")
+    if not key:
+        raise SystemExit(
+            "STAT_XPLORE_API_KEY not set and no cache at "
+            f"{_SX_CACHE}; cannot fetch UC_Households award bands."
+        )
+    headers = {"APIKey": key, "Content-Type": "application/json"}
+
+    schema = requests.get(
+        f"{_SX_BASE}/schema/{_SX_DATE_VS}", headers=headers, timeout=60
+    )
+    schema.raise_for_status()
+    nov_ids = [c["id"] for c in schema.json()["children"] if c["id"].endswith("11")]
+
+    query = {
+        "database": _SX_DB,
+        "measures": [_SX_COUNT],
+        "dimensions": [[_SX_DATE], [_SX_BAND]],
+        "recodes": {_SX_DATE: {"map": [[m] for m in nov_ids], "total": False}},
+    }
+    resp = requests.post(f"{_SX_BASE}/table", headers=headers, json=query, timeout=120)
+    resp.raise_for_status()
+    data = resp.json()
+
+    months = [int(i["labels"][0].split()[-1]) for i in data["fields"][0]["items"]]
+    values = data["cubes"][_SX_COUNT]["values"]
+    out = {
+        yr: [int(v) if v is not None else 0 for v in row]
+        for yr, row in zip(months, values)
+    }
+    _SX_CACHE.parent.mkdir(parents=True, exist_ok=True)
+    _SX_CACHE.write_text(json.dumps(out))
+    return out
+
+
+def _extend_by_caseload(counts_by_year, years, uc_caseload, scale):
+    """Carry a per-year UC count series past its last observed snapshot.
+
+    Stat-Xplore UC_Households stops at the Nov 2023 snapshot, so for requested
+    years beyond it we hold the within-caseload composition fixed and scale the
+    last observed year by the UC caseload's relative growth (the same DWP
+    trajectory that drives the headcount). `scale(value, ratio)` applies the
+    growth factor to whatever value shape the caller stores (a count, or a list
+    of band counts).
+    """
+    out = dict(counts_by_year)
+    if not counts_by_year:
+        return out
+    anchor = max(counts_by_year)
+    base = uc_caseload.get(anchor)
+    if not base:
+        return out
+    for yr in sorted(set(years)):
+        if yr <= anchor or yr in out or yr not in uc_caseload:
+            continue
+        out[yr] = scale(counts_by_year[anchor], uc_caseload[yr] / base)
+    return out
+
+
+def build_uc_award_band_targets(
+    years: list[int], uc_caseload: dict[int, float]
+) -> list[dict]:
     """Count of UC benefit units by monthly award-amount band, calibrated to the
     DWP Households-on-UC distribution. The simulation's annual UC entitlement is
     binned into monthly £100 bands (annual edge = monthly × 12), pinning the
     *shape* of the award distribution rather than just the total caseload. The
     nil-award band is dropped (a £0 filter on UC alone can't distinguish non-
-    recipients) and everything ≥£1500/mo is collapsed into one top band.
+    recipients) and everything ≥£1500/mo is collapsed into one top band. Years
+    past the last Nov snapshot (2023) hold the band shape fixed and grow with the
+    UC caseload trajectory.
     """
+    band_counts = _extend_by_caseload(
+        load_uc_award_band_counts(),
+        years,
+        uc_caseload,
+        lambda counts, r: [c * r for c in counts],
+    )
     label = "DWP Stat-Xplore UC_Households award bands (Nov snapshot)"
     out: list[dict] = []
     for yr in years:
-        counts = _UC_AWARD_BAND_COUNTS.get(yr)
+        counts = band_counts.get(yr)
         if counts is None:
             continue
 
         def add(name, value, lo_monthly, hi_monthly):
-            flt = {"variable": "universal_credit",
-                   "min": max(lo_monthly * 12.0, 0.01),
-                   "max": None if hi_monthly is None else hi_monthly * 12.0}
-            out.append({
-                "name": f"{name}_{yr}", "variable": "universal_credit",
-                "entity": "benunit", "aggregation": "count", "filter": flt,
-                "benunit_filter": None, "value": round(float(value), 0),
-                "source": label, "year": yr, "holdout": False,
-            })
+            flt = {
+                "variable": "universal_credit",
+                "min": max(lo_monthly * 12.0, 0.01),
+                "max": None if hi_monthly is None else hi_monthly * 12.0,
+            }
+            out.append(
+                {
+                    "name": f"{name}_{yr}",
+                    "variable": "universal_credit",
+                    "entity": "benunit",
+                    "aggregation": "count",
+                    "filter": flt,
+                    "benunit_filter": None,
+                    "value": round(float(value), 0),
+                    "source": label,
+                    "year": yr,
+                    "holdout": False,
+                }
+            )
 
         for b in range(1, 16):
             lo, hi = (b - 1) * 100, b * 100
             add(f"uc_award_band_{lo}_{hi}", counts[b], lo, hi)
         add("uc_award_band_1500_plus", counts[16] + sum(counts[17:28]), 1500, None)
+    return out
+
+
+# ── UC element-entitlement counts ─────────────────────────────────────────────
+
+# Stat-Xplore UC_Households yes/no entitlement fields, November snapshot. Each
+# maps to a benunit-level UC element the engine emits (uc_<key>_element); the
+# target is the count of UC benunits with that element > 0. LCW is modelled only
+# as LCWRA in the engine, so the limited-capability target uses the LCWRA value,
+# not the LCW-or-LCWRA total.
+_SX_ELEMENT_FIELDS = {  # engine element variable -> (Stat-Xplore field id, "yes" value index)
+    "uc_carer_element": ("HCCARER_ENTITLEMENT", "1"),
+    "uc_child_element": ("HCCHILD_ENTITLEMENT", "1"),
+    "uc_disabled_child_element": ("HCDISABLED_CHILD_ENTITLEMENT", "1"),
+    "uc_housing_element": ("TENURE", "1"),
+    "uc_lcwra_element": ("HCLCW_ENTITLEMENT", "3"),  # 3 = LCWRA (not 1 = LCW-or-LCWRA)
+}
+# The disabled-child element is fetched (for the diagnostic record) but not turned
+# into a calibration target. The FRS frame carries only ~100 UC benefit units with
+# a disabled child (1.7k grossed in 2019, 9k in 2023), far below the DWP counts
+# (76k / 318k), so reaching the target needs the 10x weight clamp and still falls
+# 11-36% short — a thin-cell survey limit, not an optimiser failure. Chasing it
+# would distort the housing/child/LCWRA elements those same records feed, so we
+# emit the other four elements and leave disabled-child out of the loss.
+_UC_ELEMENT_TARGETS = [
+    v for v in _SX_ELEMENT_FIELDS if v != "uc_disabled_child_element"
+]
+_SX_ELEMENT_CACHE = RAW_DIR / "dwp" / "uc_households_elements.json"
+
+
+def load_uc_element_counts() -> dict[str, dict[int, int]]:
+    """Return {engine_element_var: {calendar_year: count}} of UC households with
+    each entitlement, for every November snapshot UC_Households publishes.
+
+    One query per element field (the "yes"/LCWRA value picked out), all Novembers
+    at once. Cached to `_SX_ELEMENT_CACHE`; a present cache is reused offline.
+    """
+    if _SX_ELEMENT_CACHE.exists():
+        cached = json.loads(_SX_ELEMENT_CACHE.read_text())
+        return {var: {int(y): c for y, c in yrs.items()} for var, yrs in cached.items()}
+
+    key = os.environ.get("STAT_XPLORE_API_KEY")
+    if not key:
+        raise SystemExit(
+            "STAT_XPLORE_API_KEY not set and no cache at "
+            f"{_SX_ELEMENT_CACHE}; cannot fetch UC_Households elements."
+        )
+    headers = {"APIKey": key, "Content-Type": "application/json"}
+
+    schema = requests.get(
+        f"{_SX_BASE}/schema/{_SX_DATE_VS}", headers=headers, timeout=60
+    )
+    schema.raise_for_status()
+    nov_ids = [c["id"] for c in schema.json()["children"] if c["id"].endswith("11")]
+
+    out: dict[str, dict[int, int]] = {}
+    for var, (field, want) in _SX_ELEMENT_FIELDS.items():
+        field_id = f"str:field:UC_Households:V_F_UC_HOUSEHOLDS:{field}"
+        query = {
+            "database": _SX_DB,
+            "measures": [_SX_COUNT],
+            "dimensions": [[_SX_DATE], [field_id]],
+            "recodes": {_SX_DATE: {"map": [[m] for m in nov_ids], "total": False}},
+        }
+        resp = requests.post(
+            f"{_SX_BASE}/table", headers=headers, json=query, timeout=120
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        months = [int(i["labels"][0].split()[-1]) for i in data["fields"][0]["items"]]
+        # Locate the wanted value's column on the entitlement axis by its value id.
+        col_ids = [i["uris"][0].split(":")[-1] for i in data["fields"][1]["items"]]
+        ci = col_ids.index(want)
+        values = data["cubes"][_SX_COUNT]["values"]
+        out[var] = {
+            yr: int(row[ci]) if row[ci] is not None else 0
+            for yr, row in zip(months, values)
+        }
+    _SX_ELEMENT_CACHE.parent.mkdir(parents=True, exist_ok=True)
+    _SX_ELEMENT_CACHE.write_text(json.dumps(out))
+    return out
+
+
+def build_uc_element_targets(
+    years: list[int], uc_caseload: dict[int, float]
+) -> list[dict]:
+    """Count of UC benefit units claiming each UC element, calibrated to the DWP
+    Households-on-UC entitlement breakdown. Each element maps to the benunit-level
+    uc_<key>_element the engine emits; the target counts benunits with it > 0.
+    Pins the *composition* of the UC caseload (how many get the child, housing,
+    carer, disability and LCWRA additions) on top of the headcount and award-band
+    shape. Years past the last Nov snapshot (2023) hold each element's share of
+    the caseload fixed and grow with the UC caseload trajectory.
+    """
+    raw_counts = load_uc_element_counts()
+    element_counts = {
+        var: _extend_by_caseload(
+            raw_counts[var], years, uc_caseload, lambda v, r: v * r
+        )
+        for var in _UC_ELEMENT_TARGETS
+    }
+    label = "DWP Stat-Xplore UC_Households elements (Nov snapshot)"
+    out: list[dict] = []
+    for yr in years:
+        for var in _UC_ELEMENT_TARGETS:
+            value = element_counts[var].get(yr)
+            if value is None:
+                continue
+            out.append(
+                {
+                    "name": f"{var}_claimants_{yr}",
+                    "variable": var,
+                    "entity": "benunit",
+                    "aggregation": "count_nonzero",
+                    "filter": None,
+                    "benunit_filter": None,
+                    "value": round(float(value), 0),
+                    "source": label,
+                    "year": yr,
+                    "holdout": False,
+                }
+            )
+    return out
+
+
+# ── UC in-work caseload ───────────────────────────────────────────────────────
+
+# Stat-Xplore "People on Universal Credit" (UC_Monthly) employment indicator,
+# banded to in-work vs not. This database is frozen at August 2021 (latest
+# November snapshot Nov 2019 once the COVID surge is excluded), so we take the
+# Nov-2019 in-work people count as the anchor and carry it forward by the UC
+# caseload's relative growth (the same DWP-trajectory series used for the
+# headcount). Mapping: in-work people on UC = persons in a UC benefit unit with
+# positive earned income (children carry zero earnings and drop out), so the
+# engine target is a person-level count_nonzero of earned income filtered to UC
+# recipients.
+_SX_UCM_DB = "str:database:UC_Monthly"
+_SX_UCM_COUNT = "str:count:UC_Monthly:V_F_UC_CASELOAD_FULL"
+_SX_UCM_DATE = "str:field:UC_Monthly:F_UC_DATE:DATE_NAME"
+_SX_UCM_DATE_VS = "str:valueset:UC_Monthly:F_UC_DATE:DATE_NAME:C_UC_DATE"
+_SX_UCM_EMP_VS = "str:valueset:UC_Monthly:V_F_UC_CASELOAD_FULL:EMPLOYMENT_CODE:C_UC_EMPLOYMENT_2023_BAND"
+_SX_UCM_CACHE = RAW_DIR / "dwp" / "uc_monthly_inwork.json"
+# Anchor on Nov 2019: the latest pre-pandemic November (Aug-2021 freeze means
+# Nov 2020 is the last snapshot, but its 49% in-work share is COVID-inflated).
+UC_INWORK_ANCHOR = 2019
+
+
+def load_uc_inwork_counts() -> dict[int, int]:
+    """Return {calendar_year: in-work people on UC} for each November snapshot
+    UC_Monthly publishes (in-work = the "In employment (PAYE) or self-employment"
+    band). Cached to `_SX_UCM_CACHE`; a present cache is reused offline.
+    """
+    if _SX_UCM_CACHE.exists():
+        cached = json.loads(_SX_UCM_CACHE.read_text())
+        return {int(y): v for y, v in cached.items()}
+
+    key = os.environ.get("STAT_XPLORE_API_KEY")
+    if not key:
+        raise SystemExit(
+            "STAT_XPLORE_API_KEY not set and no cache at "
+            f"{_SX_UCM_CACHE}; cannot fetch UC_Monthly in-work counts."
+        )
+    headers = {"APIKey": key, "Content-Type": "application/json"}
+
+    schema = requests.get(
+        f"{_SX_BASE}/schema/{_SX_UCM_DATE_VS}", headers=headers, timeout=60
+    )
+    schema.raise_for_status()
+    nov_ids = [c["id"] for c in schema.json()["children"] if c["id"].endswith("11")]
+
+    query = {
+        "database": _SX_UCM_DB,
+        "measures": [_SX_UCM_COUNT],
+        "dimensions": [[_SX_UCM_DATE], [_SX_UCM_EMP_VS]],
+        "recodes": {_SX_UCM_DATE: {"map": [[m] for m in nov_ids], "total": False}},
+    }
+    resp = requests.post(f"{_SX_BASE}/table", headers=headers, json=query, timeout=120)
+    resp.raise_for_status()
+    data = resp.json()
+    months = [int(i["labels"][0].split()[-1]) for i in data["fields"][0]["items"]]
+    emp_labels = [i["labels"][0] for i in data["fields"][1]["items"]]
+    in_work_col = next(
+        i for i, lbl in enumerate(emp_labels) if lbl.startswith("In employment")
+    )
+    values = data["cubes"][_SX_UCM_COUNT]["values"]
+    out = {
+        yr: int(row[in_work_col])
+        for yr, row in zip(months, values)
+        if row[in_work_col] is not None and row[in_work_col] > 0
+    }
+    _SX_UCM_CACHE.parent.mkdir(parents=True, exist_ok=True)
+    _SX_UCM_CACHE.write_text(json.dumps(out))
+    return out
+
+
+def build_uc_inwork_targets(
+    years: list[int], uc_caseload: dict[int, float]
+) -> list[dict]:
+    """Count of people on UC who are in work, calibrated to the DWP UC_Monthly
+    employment indicator. Actuals run to the anchor (Nov 2019); later years take
+    the anchor scaled by the UC caseload's relative growth, so the in-work count
+    tracks the headcount trajectory while holding the in-work share at its last
+    pre-pandemic level. Maps to a person-level count of earned income > 0 filtered
+    to UC recipients.
+    """
+    inwork = load_uc_inwork_counts()
+    label = "DWP Stat-Xplore UC_Monthly in-work caseload"
+    actuals = {y: v for y, v in inwork.items() if y <= UC_INWORK_ANCHOR}
+    if not actuals:
+        return []
+    anchor_year = max(actuals)
+    anchor = actuals[anchor_year]
+    series: dict[int, float] = dict(actuals)
+    base_caseload = uc_caseload.get(anchor_year)
+    if base_caseload:
+        for yr in sorted(y for y in uc_caseload if y > anchor_year):
+            series[yr] = anchor * uc_caseload[yr] / base_caseload
+
+    out: list[dict] = []
+    for yr in years:
+        value = series.get(yr)
+        if value is None:
+            continue
+        out.append(
+            {
+                "name": f"uc_in_work_people_{yr}",
+                "variable": "earned_income",
+                "entity": "person",
+                "aggregation": "count_nonzero",
+                "filter": {"variable": "universal_credit", "min": 0.01, "max": None},
+                "benunit_filter": None,
+                "value": round(float(value), 0),
+                "source": label,
+                "year": yr,
+                "holdout": False,
+            }
+        )
     return out
 
 
@@ -905,13 +1338,18 @@ _FORECAST_INDEX = {
     "FRS grossed population": "population",
     "OBR EFO economy table 1.6 (labour market)": "population",
     "DWP Stat-Xplore UC_Households award bands (Nov snapshot)": "population",
+    "DWP Stat-Xplore UC_Households elements (Nov snapshot)": "population",
     "Eurostat/ONS HHFCE COICOP": "cpi",
 }
 # DWP benefit expenditure carries both £ sums (CPI) and claimant counts
 # (population), distinguished by aggregation. HMRC receipts vary by tax.
 _HMRC_RECEIPT_INDEX = {
-    "income_tax": "earnings", "employee_ni": "earnings", "employer_ni": "earnings",
-    "stamp_duty": "earnings", "vat": "cpi", "capital_gains_tax": "gdp_pc",
+    "income_tax": "earnings",
+    "employee_ni": "earnings",
+    "employer_ni": "earnings",
+    "stamp_duty": "earnings",
+    "vat": "cpi",
+    "capital_gains_tax": "gdp_pc",
 }
 
 
@@ -929,7 +1367,9 @@ def _retag_name(name: str, base_year: int, forecast_year: int) -> str:
     return name[: -len(suffix)] + f"_{forecast_year}" if name.endswith(suffix) else name
 
 
-def build_forecast_targets(real_targets: list[dict], forecast_years: list[int]) -> list[dict]:
+def build_forecast_targets(
+    real_targets: list[dict], forecast_years: list[int]
+) -> list[dict]:
     """Project the latest real year's targets onto OBR forecast years.
 
     Non-SPI targets are scaled by the cumulative growth of their source index
@@ -942,7 +1382,17 @@ def build_forecast_targets(real_targets: list[dict], forecast_years: list[int]) 
         "HMRC SPI Table 3.6 (income distribution)",
         "HMRC SPI Table 3.7 (investment income distribution)",
     )
-    base_targets = [t for t in real_targets if t["year"] == base]
+    # The UC Stat-Xplore breakdowns (award bands, elements, in-work) are built
+    # directly for every year from the caseload-anchored series, so they must not
+    # be re-projected here (would duplicate the target).
+    _uc_direct = (
+        "DWP Stat-Xplore UC_Households award bands (Nov snapshot)",
+        "DWP Stat-Xplore UC_Households elements (Nov snapshot)",
+        "DWP Stat-Xplore UC_Monthly in-work caseload",
+    )
+    base_targets = [
+        t for t in real_targets if t["year"] == base and t["source"] not in _uc_direct
+    ]
     out: list[dict] = []
 
     for yr in forecast_years:
@@ -959,20 +1409,30 @@ def build_forecast_targets(real_targets: list[dict], forecast_years: list[int]) 
                 # in the name to the uprated lower threshold.
                 tag = 0 if new_flt["min"] is None else int(new_flt["min"])
                 stem = t["name"].rsplit("_", 2)[0]  # spi_<key>_<count|amount>
-                value = t["value"] if t["aggregation"] == "count_nonzero" else round(t["value"] * ef, 0)
+                value = (
+                    t["value"]
+                    if t["aggregation"] == "count_nonzero"
+                    else round(t["value"] * ef, 0)
+                )
                 nt = dict(t)
-                nt.update(name=f"{stem}_{tag}_{yr}", filter=new_flt, value=value, year=yr)
+                nt.update(
+                    name=f"{stem}_{tag}_{yr}", filter=new_flt, value=value, year=yr
+                )
                 out.append(nt)
             else:
                 f = cumulative_factor(base, yr, _forecast_index_for(t))
                 nt = dict(t)
-                nt.update(name=_retag_name(t["name"], base, yr),
-                          value=round(t["value"] * f, 0), year=yr)
+                nt.update(
+                    name=_retag_name(t["name"], base, yr),
+                    value=round(t["value"] * f, 0),
+                    year=yr,
+                )
                 out.append(nt)
     return out
 
 
 # ── Assemble targets ─────────────────────────────────────────────────────────
+
 
 def build_targets(years: list[int]) -> list[dict]:
     hmrc_path = RAW_DIR / "hmrc" / "NS_Table.ods"
@@ -991,6 +1451,31 @@ def build_targets(years: list[int]) -> list[dict]:
     dwp = load_dwp_benefits(dwp_path)
     coicop = load_coicop(qna_path)
     caseloads = load_dwp_caseloads(dwp_path)
+    # UC caseload: use the Stat-Xplore UC_Households paying-household count (the
+    # award-band sum over index 1+, dropping the nil-award band 0) as the actual
+    # series up to its latest November snapshot, then carry it forward by the
+    # *relative* growth of the DWP outturn-and-forecast caseload table. The DWP
+    # table carries no UC before 2019 (UC was pilot-scale) and reports it on a
+    # different basis, so taking only its year-on-year growth ratios — anchored
+    # on the latest Stat-Xplore actual — keeps the level survey-consistent while
+    # following the published forecast trajectory (legacy-benefit migration keeps
+    # UC growing well above population through the late 2020s).
+    uc_band_counts = load_uc_award_band_counts()
+    uc_paying = {yr: float(sum(c[1:])) for yr, c in uc_band_counts.items()}
+    uc_anchor_year = max(uc_paying)
+    dwp_uc = {
+        yr: d["universal_credit"]
+        for yr, d in caseloads.items()
+        if "universal_credit" in d
+    }
+    for yr, val in uc_paying.items():
+        caseloads.setdefault(yr, {})["universal_credit"] = val
+    anchor = uc_paying[uc_anchor_year]
+    for yr in sorted(y for y in dwp_uc if y > uc_anchor_year):
+        if dwp_uc.get(uc_anchor_year):
+            caseloads.setdefault(yr, {})["universal_credit"] = (
+                anchor * dwp_uc[yr] / dwp_uc[uc_anchor_year]
+            )
     labour = load_efo_labour_market(RAW_DIR / "obr" / "efo_economy.xlsx")
     spi = load_spi_distributions(RAW_DIR / "hmrc" / "spi")
     spi37 = load_spi_investment(RAW_DIR / "hmrc" / "spi")
@@ -1002,16 +1487,19 @@ def build_targets(years: list[int]) -> list[dict]:
     # summing over households. But since benefit/tax values on Person/BenUnit are annual £,
     # the target should be the national annual total in £.)
     INCOME_TAX_SPECS = [
-        ("income_tax_total",          "person", "income_tax",         "sum", "hmrc", "income_tax"),
-        ("employee_ni_total",         "person", "employee_ni",        "sum", "hmrc", "employee_ni"),
+        ("income_tax_total", "person", "income_tax", "sum", "hmrc", "income_tax"),
+        ("employee_ni_total", "person", "employee_ni", "sum", "hmrc", "employee_ni"),
         # Employer NI is intentionally not a calibration target: the engine
         # computes gross statutory liability (15% above the secondary threshold)
         # with no reliefs, while the HMRC receipts figure is net of the
         # Employment Allowance, under-21/apprentice exemptions and the per-job
         # (not per-person) threshold. The ~28% gap is structural, so reweighting
         # cannot close it and only distorts the weight vector chasing it.
-        ("capital_gains_tax_total",   "person", "capital_gains_tax",  "sum", "hmrc", "capital_gains_tax"),
-        ("vat_total",                 "household", "vat",             "sum", "hmrc", "vat"),
+        # Capital gains tax is intentionally not a calibration target: the FRS
+        # carries no realised-gains data, so the engine predicts ~£0 and the
+        # target has no survey representation to reweight against — it only ever
+        # showed as an untrained -100% miss.
+        ("vat_total", "household", "vat", "sum", "hmrc", "vat"),
         # Stamp duty is intentionally not a calibration target: the engine
         # under-predicts receipts by ~15-19% every year (missing higher-rate
         # surcharges on additional/non-resident dwellings, plus survey under-
@@ -1019,68 +1507,330 @@ def build_targets(years: list[int]) -> list[dict]:
         # so reweighting only distorts the weight vector chasing it.
     ]
     BENEFIT_SPECS = [
-        ("child_benefit_total",         "benunit", "child_benefit",         "sum", "dwp", "child_benefit"),
-        ("attendance_allowance_total",  "person",  "attendance_allowance",  "sum", "dwp", "attendance_allowance"),
-        ("carers_allowance_total",      "person",  "carers_allowance",      "sum", "dwp", "carers_allowance"),
-        ("disability_living_allowance_total",       "person", "disability_living_allowance",   "sum", "dwp", "disability_living_allowance"),
-        ("personal_independence_payment_total",     "person", "personal_independence_payment", "sum", "dwp", "personal_independence_payment"),
-        ("esa_income_related_total",    "benunit", "esa_income_related",    "sum", "dwp", "esa_income_related"),
-        ("housing_benefit_total",       "benunit", "housing_benefit",       "sum", "dwp", "housing_benefit"),
-        ("income_support_total",        "benunit", "income_support",        "sum", "dwp", "income_support"),
+        (
+            "child_benefit_total",
+            "benunit",
+            "child_benefit",
+            "sum",
+            "dwp",
+            "child_benefit",
+        ),
+        (
+            "attendance_allowance_total",
+            "person",
+            "attendance_allowance",
+            "sum",
+            "dwp",
+            "attendance_allowance",
+        ),
+        (
+            "carers_allowance_total",
+            "person",
+            "carers_allowance",
+            "sum",
+            "dwp",
+            "carers_allowance",
+        ),
+        (
+            "disability_living_allowance_total",
+            "person",
+            "disability_living_allowance",
+            "sum",
+            "dwp",
+            "disability_living_allowance",
+        ),
+        (
+            "personal_independence_payment_total",
+            "person",
+            "personal_independence_payment",
+            "sum",
+            "dwp",
+            "personal_independence_payment",
+        ),
+        (
+            "esa_income_related_total",
+            "benunit",
+            "esa_income_related",
+            "sum",
+            "dwp",
+            "esa_income_related",
+        ),
+        (
+            "housing_benefit_total",
+            "benunit",
+            "housing_benefit",
+            "sum",
+            "dwp",
+            "housing_benefit",
+        ),
+        (
+            "income_support_total",
+            "benunit",
+            "income_support",
+            "sum",
+            "dwp",
+            "income_support",
+        ),
         # Income-based JSA expenditure is intentionally not a calibration target,
         # for the same reason as its caseload (below): the benefit is wound down
         # into UC, and the engine under-predicts spend by 64-97% every year. The
         # gap is structural — the FRS frame can't carry the residual legacy
         # caseload — so reweighting only thrashes the weight vector chasing it.
-        ("pension_credit_total",        "benunit", "pension_credit",        "sum", "dwp", "pension_credit"),
-        ("state_pension_total",         "person",  "state_pension",         "sum", "dwp", "state_pension"),
-        ("universal_credit_total",      "benunit", "universal_credit",      "sum", "dwp", "universal_credit"),
-        ("tax_credits_total",           "benunit", "tax_credits",           "sum", "dwp", "tax_credits"),
+        (
+            "pension_credit_total",
+            "benunit",
+            "pension_credit",
+            "sum",
+            "dwp",
+            "pension_credit",
+        ),
+        (
+            "state_pension_total",
+            "person",
+            "state_pension",
+            "sum",
+            "dwp",
+            "state_pension",
+        ),
+        (
+            "universal_credit_total",
+            "benunit",
+            "universal_credit",
+            "sum",
+            "dwp",
+            "universal_credit",
+        ),
+        ("tax_credits_total", "benunit", "tax_credits", "sum", "dwp", "tax_credits"),
     ]
     COICOP_SPECS = [
-        ("food_consumption_total",                        "household", "food_consumption",                        "sum", "coicop", "food_consumption"),
-        ("alcohol_and_tobacco_consumption_total",         "household", "alcohol_and_tobacco_consumption",         "sum", "coicop", "alcohol_and_tobacco_consumption"),
-        ("clothing_consumption_total",                    "household", "clothing_consumption",                    "sum", "coicop", "clothing_consumption"),
-        ("housing_water_electricity_consumption_total",   "household", "housing_water_electricity_consumption",   "sum", "coicop", "housing_water_electricity_consumption"),
-        ("furnishings_consumption_total",                 "household", "furnishings_consumption",                 "sum", "coicop", "furnishings_consumption"),
-        ("health_consumption_total",                      "household", "health_consumption",                      "sum", "coicop", "health_consumption"),
-        ("transport_consumption_total",                   "household", "transport_consumption",                   "sum", "coicop", "transport_consumption"),
-        ("communication_consumption_total",               "household", "communication_consumption",               "sum", "coicop", "communication_consumption"),
-        ("recreation_consumption_total",                  "household", "recreation_consumption",                  "sum", "coicop", "recreation_consumption"),
-        ("education_consumption_total",                   "household", "education_consumption",                   "sum", "coicop", "education_consumption"),
-        ("restaurants_consumption_total",                 "household", "restaurants_consumption",                 "sum", "coicop", "restaurants_consumption"),
-        ("miscellaneous_consumption_total",               "household", "miscellaneous_consumption",               "sum", "coicop", "miscellaneous_consumption"),
+        (
+            "food_consumption_total",
+            "household",
+            "food_consumption",
+            "sum",
+            "coicop",
+            "food_consumption",
+        ),
+        (
+            "alcohol_and_tobacco_consumption_total",
+            "household",
+            "alcohol_and_tobacco_consumption",
+            "sum",
+            "coicop",
+            "alcohol_and_tobacco_consumption",
+        ),
+        (
+            "clothing_consumption_total",
+            "household",
+            "clothing_consumption",
+            "sum",
+            "coicop",
+            "clothing_consumption",
+        ),
+        (
+            "housing_water_electricity_consumption_total",
+            "household",
+            "housing_water_electricity_consumption",
+            "sum",
+            "coicop",
+            "housing_water_electricity_consumption",
+        ),
+        (
+            "furnishings_consumption_total",
+            "household",
+            "furnishings_consumption",
+            "sum",
+            "coicop",
+            "furnishings_consumption",
+        ),
+        (
+            "health_consumption_total",
+            "household",
+            "health_consumption",
+            "sum",
+            "coicop",
+            "health_consumption",
+        ),
+        (
+            "transport_consumption_total",
+            "household",
+            "transport_consumption",
+            "sum",
+            "coicop",
+            "transport_consumption",
+        ),
+        (
+            "communication_consumption_total",
+            "household",
+            "communication_consumption",
+            "sum",
+            "coicop",
+            "communication_consumption",
+        ),
+        (
+            "recreation_consumption_total",
+            "household",
+            "recreation_consumption",
+            "sum",
+            "coicop",
+            "recreation_consumption",
+        ),
+        (
+            "education_consumption_total",
+            "household",
+            "education_consumption",
+            "sum",
+            "coicop",
+            "education_consumption",
+        ),
+        (
+            "restaurants_consumption_total",
+            "household",
+            "restaurants_consumption",
+            "sum",
+            "coicop",
+            "restaurants_consumption",
+        ),
+        (
+            "miscellaneous_consumption_total",
+            "household",
+            "miscellaneous_consumption",
+            "sum",
+            "coicop",
+            "miscellaneous_consumption",
+        ),
     ]
 
     CASELOAD_SPECS = [
-        ("attendance_allowance_claimants", "person", "attendance_allowance", "count_nonzero", "caseloads", "attendance_allowance"),
-        ("carers_allowance_claimants",   "person",  "carers_allowance",   "count_nonzero", "caseloads", "carers_allowance"),
-        ("disability_living_allowance_claimants",   "person", "disability_living_allowance",   "count_nonzero", "caseloads", "disability_living_allowance"),
-        ("personal_independence_payment_claimants", "person", "personal_independence_payment", "count_nonzero", "caseloads", "personal_independence_payment"),
-        ("esa_income_related_claimants", "benunit", "esa_income_related", "count_nonzero", "caseloads", "esa_income_related"),
-        ("housing_benefit_claimants",    "benunit", "housing_benefit",    "count_nonzero", "caseloads", "housing_benefit"),
-        ("income_support_claimants",     "benunit", "income_support",     "count_nonzero", "caseloads", "income_support"),
+        (
+            "attendance_allowance_claimants",
+            "person",
+            "attendance_allowance",
+            "count_nonzero",
+            "caseloads",
+            "attendance_allowance",
+        ),
+        (
+            "carers_allowance_claimants",
+            "person",
+            "carers_allowance",
+            "count_nonzero",
+            "caseloads",
+            "carers_allowance",
+        ),
+        (
+            "disability_living_allowance_claimants",
+            "person",
+            "disability_living_allowance",
+            "count_nonzero",
+            "caseloads",
+            "disability_living_allowance",
+        ),
+        (
+            "personal_independence_payment_claimants",
+            "person",
+            "personal_independence_payment",
+            "count_nonzero",
+            "caseloads",
+            "personal_independence_payment",
+        ),
+        (
+            "esa_income_related_claimants",
+            "benunit",
+            "esa_income_related",
+            "count_nonzero",
+            "caseloads",
+            "esa_income_related",
+        ),
+        (
+            "housing_benefit_claimants",
+            "benunit",
+            "housing_benefit",
+            "count_nonzero",
+            "caseloads",
+            "housing_benefit",
+        ),
+        (
+            "income_support_claimants",
+            "benunit",
+            "income_support",
+            "count_nonzero",
+            "caseloads",
+            "income_support",
+        ),
         # Income-based JSA caseload is intentionally not a calibration target:
         # the benefit is wound down into UC, leaving a residual legacy caseload
         # the FRS frame can't represent, so the engine under-predicts it every
         # year. The expenditure target is dropped for the same reason (see
         # BENEFIT_SPECS above). Reweighting only thrashes the weights chasing it.
-        ("pension_credit_claimants",     "benunit", "pension_credit",     "count_nonzero", "caseloads", "pension_credit"),
-        ("state_pension_claimants",      "person",  "state_pension",      "count_nonzero", "caseloads", "state_pension"),
-        ("universal_credit_claimants",   "benunit", "universal_credit",   "count_nonzero", "caseloads", "universal_credit"),
+        (
+            "pension_credit_claimants",
+            "benunit",
+            "pension_credit",
+            "count_nonzero",
+            "caseloads",
+            "pension_credit",
+        ),
+        # State-pension caseload is intentionally not a calibration target. Receipt
+        # is near-universal among the survey's over-66s (only ~0.2-0.3% carry no
+        # state pension from 2021), so the recipient set and the over-State-Pension-
+        # age population are almost the same households. The DWP caseload sits ~1%
+        # above the FRS-grossed count (it includes overseas pensioners the GB survey
+        # frame can't carry), so chasing it fights the FRS age-band population
+        # anchors: the optimiser can't lift claimants without pushing the 65-75/75+
+        # bands over. We keep the age bands and the state_pension expenditure target
+        # (which fits cleanly) and drop the headcount.
+        (
+            "universal_credit_claimants",
+            "benunit",
+            "universal_credit",
+            "count_nonzero",
+            "caseloads",
+            "universal_credit",
+        ),
     ]
 
+    # is_employed/is_unemployed are 0/1 person flags, so the target value is a
+    # headcount, not a £ amount. Tag the aggregation as count_nonzero (not sum)
+    # so calibrate.py applies the people sub-threshold floor (1e4) rather than
+    # the £50m sum floor — otherwise a 1.5m-person unemployment target is dropped
+    # as "sub-threshold £50m" and never trained.
     LABOUR_SPECS = [
-        ("employed_count",   "person", "is_employed",   "sum", "labour", "employed"),
-        ("unemployed_count", "person", "is_unemployed", "sum", "labour", "unemployed"),
+        (
+            "employed_count",
+            "person",
+            "is_employed",
+            "count_nonzero",
+            "labour",
+            "employed",
+        ),
+        (
+            "unemployed_count",
+            "person",
+            "is_unemployed",
+            "count_nonzero",
+            "labour",
+            "unemployed",
+        ),
     ]
 
-    all_specs = INCOME_TAX_SPECS + BENEFIT_SPECS + COICOP_SPECS + CASELOAD_SPECS + LABOUR_SPECS
-    source_map = {"hmrc": hmrc, "dwp": dwp, "coicop": coicop, "caseloads": caseloads, "labour": labour}
-    source_label = {"hmrc": "HMRC receipts", "dwp": "DWP benefit expenditure",
-                    "coicop": "Eurostat/ONS HHFCE COICOP",
-                    "caseloads": "DWP benefit expenditure",
-                    "labour": "OBR EFO economy table 1.6 (labour market)"}
+    all_specs = (
+        INCOME_TAX_SPECS + BENEFIT_SPECS + COICOP_SPECS + CASELOAD_SPECS + LABOUR_SPECS
+    )
+    source_map = {
+        "hmrc": hmrc,
+        "dwp": dwp,
+        "coicop": coicop,
+        "caseloads": caseloads,
+        "labour": labour,
+    }
+    source_label = {
+        "hmrc": "HMRC receipts",
+        "dwp": "DWP benefit expenditure",
+        "coicop": "Eurostat/ONS HHFCE COICOP",
+        "caseloads": "DWP benefit expenditure",
+        "labour": "OBR EFO economy table 1.6 (labour market)",
+    }
 
     real_years = [y for y in years if y <= LATEST_REAL_YEAR]
     targets = []
@@ -1092,38 +1842,73 @@ def build_targets(years: list[int]) -> list[dict]:
                 continue
             # caseloads and labour levels are raw counts; everything else is £bn -> £
             val = raw if source_key in ("caseloads", "labour") else raw * 1e9
-            targets.append({
-                "name": f"{name}_{yr}",
-                "variable": variable,
-                "entity": entity,
-                "aggregation": aggregation,
-                "filter": None,
-                "benunit_filter": None,
-                "value": round(val, 0),
-                "source": source_label[source_key],
-                "year": yr,
-                "holdout": False,
-            })
+            targets.append(
+                {
+                    "name": f"{name}_{yr}",
+                    "variable": variable,
+                    "entity": entity,
+                    "aggregation": aggregation,
+                    "filter": None,
+                    "benunit_filter": None,
+                    "value": round(val, 0),
+                    "source": source_label[source_key],
+                    "year": yr,
+                    "holdout": False,
+                }
+            )
 
     targets += build_spi_targets(spi, earnings_index, real_years)
     targets += build_spi_investment_targets(spi37, earnings_index, real_years)
     targets += build_population_targets(real_years)
-    targets += build_uc_award_band_targets(real_years)
+    # The UC Stat-Xplore tables stop at the Nov 2023 snapshot, but UC is still
+    # absorbing legacy-benefit migration through the late 2020s, so the band,
+    # element and in-work breakdowns are carried forward by the DWP UC caseload
+    # trajectory (holding within-caseload composition fixed) rather than left to
+    # the generic forecast uprating. They are produced for every requested year
+    # here and excluded from the generic forecast pass below.
+    uc_caseload = {
+        yr: d["universal_credit"]
+        for yr, d in caseloads.items()
+        if "universal_credit" in d
+    }
+    targets += build_uc_award_band_targets(years, uc_caseload)
+    targets += build_uc_element_targets(years, uc_caseload)
+    targets += build_uc_inwork_targets(years, uc_caseload)
 
     forecast_years = [y for y in years if y > LATEST_REAL_YEAR]
     if forecast_years:
         # Forecast targets project the latest real year forward; build that base
         # even if the caller didn't request it.
-        base = targets if LATEST_REAL_YEAR in real_years else build_targets([LATEST_REAL_YEAR])
+        base = (
+            targets
+            if LATEST_REAL_YEAR in real_years
+            else build_targets([LATEST_REAL_YEAR])
+        )
         targets += build_forecast_targets(base, forecast_years)
+
+    # The generic forecast uprating grows the UC caseload by population, but UC is
+    # still absorbing legacy-benefit migration through the late 2020s, so the DWP
+    # table projects it well above population. Override the UC caseload target in
+    # every year with the Stat-Xplore-anchored, DWP-trajectory series built above.
+    for t in targets:
+        if (
+            t["variable"] == "universal_credit"
+            and t["aggregation"] == "count_nonzero"
+            and t["year"] in caseloads
+            and "universal_credit" in caseloads[t["year"]]
+        ):
+            t["value"] = round(caseloads[t["year"]]["universal_credit"], 0)
     return targets
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--years", nargs="+", type=int, default=TARGET_YEARS + FORECAST_YEARS)
+    parser.add_argument(
+        "--years", nargs="+", type=int, default=TARGET_YEARS + FORECAST_YEARS
+    )
     args = parser.parse_args()
 
     print(f"Building calibration targets for {len(args.years)} years...")
@@ -1131,6 +1916,7 @@ def main() -> None:
 
     from rich.console import Console
     from rich.table import Table as RichTable
+
     console = Console()
 
     by_year: dict[int, int] = {}
@@ -1147,7 +1933,9 @@ def main() -> None:
 
     out = {"targets": targets}
     OUT_PATH.write_text(json.dumps(out, indent=2))
-    console.print(f"[green]Wrote {len(targets)} targets to {OUT_PATH.relative_to(REPO_ROOT)}[/green]")
+    console.print(
+        f"[green]Wrote {len(targets)} targets to {OUT_PATH.relative_to(REPO_ROOT)}[/green]"
+    )
 
 
 if __name__ == "__main__":

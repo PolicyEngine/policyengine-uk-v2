@@ -5,6 +5,7 @@ import ParametersSection from './sections/ParametersSection'
 import ResultsSection from './sections/ResultsSection'
 import StructuralSection from './sections/StructuralSection'
 import DatasetsSection from './sections/DatasetsSection'
+import CalibrationSection from './sections/CalibrationSection'
 
 const NAV = [
   { id: 'getting-started', label: 'Getting started' },
@@ -13,6 +14,7 @@ const NAV = [
   { id: 'results', label: 'Results' },
   { id: 'structural', label: 'Structural reforms' },
   { id: 'datasets', label: 'Datasets' },
+  { id: 'calibration', label: 'Calibration' },
 ]
 
 export default function App() {
@@ -89,6 +91,8 @@ export default function App() {
         <StructuralSection id="structural" />
         <hr className="divider" />
         <DatasetsSection id="datasets" />
+        <hr className="divider" />
+        <CalibrationSection id="calibration" />
       </main>
     </div>
   )

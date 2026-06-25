@@ -329,9 +329,11 @@ def extract(raw_dir: Path, year: int, out_dir: Path) -> None:
     weight = num(hh["gross3"]) if era == "early" else num(hh["gross4"])
     if era == "early":
         ridx = num(hh["stdregn"]).astype("int64").map(region_idx_from_stdregn)
-    elif era in ("mid", "late"):
+    elif era == "mid":
         ridx = num(hh["gvtregn"]).astype("int64").map(region_idx_from_gvtregno)
     else:
+        # late (2008-2021) and current (2022+): GVTREGN here holds GSS area codes
+        # (e.g. 112000008), not the 1-13 region index — that lives in GVTREGNO.
         ridx = num(hh["gvtregno"]).astype("int64").map(region_idx_from_gvtregno)
     ct = num(hh["ctannual"])
     hh = hh.assign(
