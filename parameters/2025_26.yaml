@@ -62,6 +62,10 @@ national_insurance:
   class4_upper_profits_limit: 50270.0
   class4_main_rate: 0.06
   class4_additional_rate: 0.02
+  # Class 3 voluntary contributions: SSCBA 1992 s.13. Standard rate £17.75/week
+  # in 2025/26. Carried for parity with the Python parameter tree; not charged by
+  # the engine (no FRS input identifies voluntary contributors).
+  class3_flat_rate_weekly: 17.75
 
 universal_credit:
   # UC Regs 2013 (SI 2013/376) reg.36, as amended by SI 2025/295 art.32

@@ -667,7 +667,7 @@ mod tests {
 
         // Reform: cut employee NI main rate by 2pp (8% → 6%), matching OBR NI example
         let mut policy_params = baseline_params.clone();
-        policy_params.national_insurance.main_rate -= 0.02;
+        policy_params.national_insurance.class_1.main_rate -= 0.02;
 
         // Basic-rate male worker earning £35k — should see a positive substitution response
         let (people, benunits, households) = make_worker(35_000.0, 40.0, crate::engine::entities::Gender::Male);
