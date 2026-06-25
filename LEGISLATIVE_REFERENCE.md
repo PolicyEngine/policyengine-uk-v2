@@ -740,8 +740,10 @@ lock (max of CPI, earnings, 2.5%); income tax thresholds frozen until 2027/28 th
 
 **Known issues in confirmed years** (to be fixed separately):
 - 2023/24 NI `main_rate` 0.115 is blended — the underlying rates are 12% and 10% (mid-year cut)
-- 2025/26 Scottish Child Payment `weekly_amount` should be £27.15 (SSI 2025/100), not £26.70
-- 2026/27 onward: Scottish Child Payment not uprated (still showing £26.70 — needs correction)
+
+**Fixed:**
+- 2025/26 Scottish Child Payment `weekly_amount` now £27.15 (SSI 2025/100), previously £26.70
+- 2026/27 Scottish Child Payment now £28.20 (April 2026 uprating); 2027/28+ projected ~CPI
 
 ---
 
@@ -952,8 +954,9 @@ Actual 2023/24 values (from SI 2023/233):
 |------|--------|--------|
 | 2023/24 | £25.00 | SSI 2022/336 reg.4(6)(a) (raised from £20 to £25, extended to under-16s) |
 | 2024/25 | £26.70 | SSI 2023/354 reg.5 |
-| 2025/26 | **£27.15** | SSI 2025/100 reg.8 (current code shows £26.70 — **bug**) |
-| 2026/27+ | £27.15 | Assumed unchanged (no SSI available yet); model uses £26.70 — **needs update** |
+| 2025/26 | £27.15 | SSI 2025/100 reg.8 |
+| 2026/27 | £28.20 | April 2026 uprating (Social Security Scotland) |
+| 2027/28+ | £28.75 → £29.93 | Projected ~CPI uprating from £28.20, consistent with other benefit projections |
 
 ---
 
