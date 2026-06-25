@@ -1550,6 +1550,110 @@ mod tests {
         assert!(without_housing > with_housing,
             "no-housing rate {without_housing} should exceed has-housing rate {with_housing}");
     }
+
+    // ── Disability benefit amount tests ───────────────────────────────────
+    //
+    // These exercise the disability-benefit amount functions (PIP/DLA/AA) and
+    // the Carer's Allowance earnings test in isolation. Amounts are the weekly
+    // rate × 52 (codebase annualisation convention), computed from the rate-band
+    // flags when no FRS-recorded amount is present.
+
+    #[test]
+    fn pip_enhanced_both_components() {
+        // Enhanced daily living + enhanced mobility = (110.40 + 77.05) × 52.
+        let params = Parameters::for_year(2025).unwrap();
+        let mut p = Person::default();
+        p.pip_dl_enh = true;
+        p.pip_mob_enh = true;
+        let pip = params.pip.as_ref().unwrap();
+        let expected = (pip.daily_living_enhanced_weekly + pip.mobility_enhanced_weekly) * 52.0;
+        let got = pip_daily_living_amount(&p, &params) + pip_mobility_amount(&p, &params);
+        assert!((got - expected).abs() < 1e-6, "Expected £{expected}, got £{got}");
+    }
+
+    #[test]
+    fn pip_standard_daily_living_only() {
+        let params = Parameters::for_year(2025).unwrap();
+        let mut p = Person::default();
+        p.pip_dl_std = true;
+        let pip = params.pip.as_ref().unwrap();
+        let expected = pip.daily_living_standard_weekly * 52.0;
+        assert!((pip_daily_living_amount(&p, &params) - expected).abs() < 1e-6);
+        // No mobility flag → no mobility component.
+        assert_eq!(pip_mobility_amount(&p, &params), 0.0);
+    }
+
+    #[test]
+    fn pip_recorded_amount_preserved() {
+        // A recorded FRS amount overrides the rate-band computation.
+        let params = Parameters::for_year(2025).unwrap();
+        let mut p = Person::default();
+        p.pip_dl_enh = true;
+        p.pip_daily_living = 1234.0;
+        assert!((pip_daily_living_amount(&p, &params) - 1234.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn dla_care_and_mobility_rates() {
+        // Highest-rate care + higher-rate mobility for an under-16.
+        let params = Parameters::for_year(2025).unwrap();
+        let mut p = Person::default();
+        p.age = 10.0;
+        p.dla_care_high = true;
+        p.dla_mob_high = true;
+        let dla = params.dla.as_ref().unwrap();
+        let expected = (dla.care_high_weekly + dla.mobility_high_weekly) * 52.0;
+        let got = dla_care_amount(&p, &params) + dla_mobility_amount(&p, &params);
+        assert!((got - expected).abs() < 1e-6, "Expected £{expected}, got £{got}");
+    }
+
+    #[test]
+    fn attendance_allowance_high_rate() {
+        let params = Parameters::for_year(2025).unwrap();
+        let mut p = Person::default();
+        p.age = 80.0;
+        p.aa_high = true;
+        let aa = params.aa.as_ref().unwrap();
+        let expected = aa.high_weekly * 52.0;
+        assert!((attendance_allowance_amount(&p, &params) - expected).abs() < 1e-6);
+    }
+
+    /// Carer's Allowance earnings test boundary — SS (CA) Regs 2002 reg.8.
+    /// At/below the weekly disregard CA is paid; just above it is withdrawn.
+    #[test]
+    fn carers_allowance_earnings_test_boundary() {
+        let params = Parameters::for_year(2025).unwrap();
+        let irb = params.income_related_benefits.as_ref().unwrap();
+        let disregard_weekly = irb.ca_earnings_disregard_weekly;
+
+        // Helper: build a single-adult carer benunit at a given annual employment income.
+        let build = |annual_income: f64| {
+            let mut p = Person::default();
+            p.age = 40.0;
+            p.is_carer = true;
+            p.carers_allowance = 1.0; // reported claimant → take-up gate passes
+            p.employment_income = annual_income;
+            let people = vec![p];
+            let bu = BenUnit {
+                id: 0, household_id: 0, person_ids: vec![0],
+                ..BenUnit::default()
+            };
+            let pr: Vec<PersonResult> = people.iter()
+                .map(|p| crate::variables::income_tax::calculate(p, &params, p.state_pension))
+                .collect();
+            calculate_carers_allowance(&bu, &people, &pr, &params)
+        };
+
+        // Just below the disregard (NI/pension = 0 here) → CA paid in full.
+        let below = build((disregard_weekly - 1.0) * 52.0);
+        let expected_ca = irb.carers_allowance_weekly * 52.0;
+        assert!((below - expected_ca).abs() < 1.0,
+            "Below disregard should pay full CA £{expected_ca}, got £{below}");
+
+        // Comfortably above the disregard (even after NI) → CA withdrawn.
+        let above = build((disregard_weekly + 200.0) * 52.0);
+        assert_eq!(above, 0.0, "Above earnings disregard should withdraw CA, got £{above}");
+    }
 }
 
 /// Tests asserting that every parameter has a measurable impact on simulation output.
