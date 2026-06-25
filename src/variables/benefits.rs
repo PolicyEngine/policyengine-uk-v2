@@ -161,8 +161,10 @@ fn calculate_child_benefit(
 /// Universal Credit calculation.
 ///
 /// MaxUC = standard_allowance + child_elements + housing + disability + LCWRA + carer
+///         + childcare element.
 /// Earned income (after work allowance, tax, pension contribs) tapered at 55%.
-/// Unearned income reduces UC pound-for-pound.
+/// Unearned income and capital tariff income reduce UC pound-for-pound.
+/// Capital at or above the upper limit (£16,000) extinguishes entitlement entirely.
 ///
 /// Returns (uc_amount, max_amount, income_reduction) — all annual.
 fn calculate_universal_credit(
@@ -177,32 +179,29 @@ fn calculate_universal_credit(
         return (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
     }
 
-    // Maximum amount = sum of all elements at the per-month rate.
-    let standard_allowance = uc_standard_allowance_monthly(bu, people, params);
-    let child_element = uc_child_element_monthly(bu, people, params);
-    let disabled_child_element = uc_disabled_child_element_monthly(bu, people, params);
+    // Capital test (UC Regs 2013 reg.18): capital at or above the upper limit (£16,000)
+    // extinguishes entitlement entirely. The max amount is still reported for transparency.
+    let capital = uc_capital(bu, people, household);
+    let max_amount_annual = uc_max_amount_monthly(bu, people, household, params) * 12.0;
+    let uc = &params.universal_credit;
+    if uc.capital_upper_limit > 0.0 && capital >= uc.capital_upper_limit {
+        return (0.0, max_amount_annual, max_amount_annual);
+    }
+
     let has_lcwra = uc_has_lcwra(bu, people);
-    let lcwra_element = uc_lcwra_element_monthly(has_lcwra, params);
-    let carer_element = uc_carer_element_monthly(bu, people, params);
-    let housing_element = uc_housing_element_monthly(bu, people, household, params);
 
-    let max_amount_monthly = standard_allowance
-        + child_element
-        + disabled_child_element
-        + lcwra_element
-        + carer_element
-        + housing_element;
-    let max_amount_annual = max_amount_monthly * 12.0;
-
-    // Reductions: earned income via taper after a work allowance, unearned income £-for-£.
+    // Reductions: earned income via taper after a work allowance, unearned income £-for-£,
+    // plus assumed (tariff) income on capital between the lower and upper limits.
     let work_allowance_annual = uc_work_allowance_annual(bu, people, has_lcwra, params);
     let earned_after_allowance = (uc_net_earned_income(bu, people, person_results)
         - work_allowance_annual)
         .max(0.0);
-    let earned_income_reduction = earned_after_allowance * params.universal_credit.taper_rate;
+    let earned_income_reduction = earned_after_allowance * uc.taper_rate;
     let unearned_income = uc_unearned_income(bu, people);
+    let tariff_income = uc_tariff_income_annual(capital, params);
 
-    let total_reduction = (earned_income_reduction + unearned_income).min(max_amount_annual);
+    let total_reduction =
+        (earned_income_reduction + unearned_income + tariff_income).min(max_amount_annual);
     let uc_amount = (max_amount_annual - total_reduction).max(0.0);
 
     (
@@ -323,6 +322,90 @@ pub(crate) fn uc_housing_element_monthly(
     } else {
         bu.rent_monthly
     }
+}
+
+/// UC childcare element (monthly) — UC Regs 2013 reg.31–35.
+///
+/// Reimburses `childcare_coverage_rate` (85%) of registered childcare costs, capped at a
+/// monthly maximum that depends on the number of children (`childcare_max_one_child` for
+/// one child, `childcare_max_multiple_children` for two or more). Only payable where the
+/// responsible carer(s) are in paid work; we proxy this with positive earned income in the
+/// benunit. Returns 0 when no childcare parameters are loaded.
+pub(crate) fn uc_childcare_element_monthly(
+    bu: &BenUnit, people: &[Person], params: &Parameters,
+) -> f64 {
+    let uc = &params.universal_credit;
+    if uc.childcare_coverage_rate <= 0.0 {
+        return 0.0;
+    }
+    let num_children = bu.num_children(people);
+    if num_children == 0 {
+        return 0.0;
+    }
+    // Work condition: at least one adult with earnings.
+    let in_work = bu.person_ids.iter()
+        .filter(|&&pid| people[pid].is_adult())
+        .any(|&pid| people[pid].employment_income + people[pid].self_employment_income > 0.0);
+    if !in_work {
+        return 0.0;
+    }
+    // Childcare costs are recorded annually on people; convert to monthly.
+    let monthly_costs: f64 = bu.person_ids.iter()
+        .map(|&pid| people[pid].childcare_expenses)
+        .sum::<f64>() / 12.0;
+    if monthly_costs <= 0.0 {
+        return 0.0;
+    }
+    let cap = if num_children >= 2 {
+        uc.childcare_max_multiple_children
+    } else {
+        uc.childcare_max_one_child
+    };
+    (monthly_costs * uc.childcare_coverage_rate).min(cap)
+}
+
+/// UC maximum amount (monthly) — UC Regs 2013 reg.23, sum of all elements.
+pub(crate) fn uc_max_amount_monthly(
+    bu: &BenUnit, people: &[Person], household: &Household, params: &Parameters,
+) -> f64 {
+    let has_lcwra = uc_has_lcwra(bu, people);
+    uc_standard_allowance_monthly(bu, people, params)
+        + uc_child_element_monthly(bu, people, params)
+        + uc_disabled_child_element_monthly(bu, people, params)
+        + uc_lcwra_element_monthly(has_lcwra, params)
+        + uc_carer_element_monthly(bu, people, params)
+        + uc_housing_element_monthly(bu, people, household, params)
+        + uc_childcare_element_monthly(bu, people, params)
+}
+
+/// Capital (savings stock) attributed to the benunit — UC Regs 2013 reg.18, reg.46.
+///
+/// The FRS savings stock is carried at the household level, so for benunit-level UC we
+/// attribute the whole household savings figure to the benunit (a documented simplification;
+/// most benunits are co-extensive with their household).
+pub(crate) fn uc_capital(_bu: &BenUnit, _people: &[Person], household: &Household) -> f64 {
+    household.savings.max(0.0)
+}
+
+/// UC assumed (tariff) income on capital (annual) — UC Regs 2013 reg.72.
+///
+/// Capital below the lower limit (£6,000) is disregarded. Between the lower and upper
+/// limits, every complete `tariff_income_increment` (£250) of capital above the lower
+/// limit produces `tariff_income_per_increment` (£4.35/month) of assumed income, which is
+/// treated as unearned income and reduces UC pound-for-pound. At or above the upper limit
+/// entitlement is nil (handled by the caller).
+pub(crate) fn uc_tariff_income_annual(capital: f64, params: &Parameters) -> f64 {
+    let uc = &params.universal_credit;
+    if uc.capital_lower_limit <= 0.0 || uc.tariff_income_increment <= 0.0 {
+        return 0.0;
+    }
+    let excess = (capital - uc.capital_lower_limit).max(0.0);
+    if excess <= 0.0 {
+        return 0.0;
+    }
+    // Each complete increment (round up — DWP counts any part-increment as a full £250).
+    let increments = (excess / uc.tariff_income_increment).ceil();
+    increments * uc.tariff_income_per_increment * 12.0
 }
 
 /// UC work allowance (annual) — UC Regs 2013 reg.22.
@@ -1342,6 +1425,132 @@ mod tests {
         let result = calculate_benunit(&bu, &people, &person_results, &hh, &params, 2025);
         assert!(result.uc_income_reduction >= 5000.0,
             "£5000 unearned income should reduce UC by at least £5000, got {}", result.uc_income_reduction);
+    }
+
+    /// Build a couple benunit with `num_children` children. First adult has the given
+    /// employment income; both adults aged 30. No rent unless set by the caller.
+    fn make_couple_bu(employment_income: f64, num_children: usize) -> (Vec<Person>, BenUnit, Household) {
+        let mut people = Vec::new();
+        let mut ids = Vec::new();
+        for i in 0..2 {
+            let mut p = Person::default();
+            p.id = i;
+            p.age = 30.0;
+            if i == 0 { p.employment_income = employment_income; }
+            people.push(p);
+            ids.push(i);
+        }
+        for i in 0..num_children {
+            let mut child = Person::default();
+            child.id = 2 + i;
+            child.age = 5.0;
+            people.push(child);
+            ids.push(2 + i);
+        }
+        let bu = BenUnit {
+            id: 0, household_id: 0, person_ids: ids,
+            migration_seed: 0.0, on_uc: true, on_legacy: false,
+            rent_monthly: 0.0, is_lone_parent: false,
+            would_claim_uc: true, would_claim_cb: true,
+            ..BenUnit::default()
+        };
+        let hh = Household {
+            id: 0, benunit_ids: vec![0],
+            person_ids: (0..(2 + num_children)).collect(),
+            weight: 1.0, region: Region::NorthEast, rent: 0.0, council_tax: 1500.0,
+            ..Household::default()
+        };
+        (people, bu, hh)
+    }
+
+    /// Worked DWP example: couple, both over 25, 2 children, no housing, no earnings.
+    /// MaxUC = couple_over25 (628.10) + first child (339.00) + second child (292.81)
+    ///       = 1259.91/month → annual ×12. No reductions, so UC = MaxUC.
+    #[test]
+    fn test_uc_couple_two_children_no_earnings() {
+        let params = Parameters::for_year(2025).unwrap();
+        let (people, bu, hh) = make_couple_bu(0.0, 2);
+        let pr: Vec<PersonResult> = people.iter()
+            .map(|p| crate::variables::income_tax::calculate(p, &params, p.state_pension))
+            .collect();
+        let uc = &params.universal_credit;
+        let expected = (uc.standard_allowance_couple_over25
+            + uc.child_element_first + uc.child_element_subsequent) * 12.0;
+        let (amount, max, reduction) = calculate_universal_credit(&bu, &people, &pr, &hh, &params);
+        assert!((max - expected).abs() < 1.0, "max expected {}, got {}", expected, max);
+        assert!(reduction.abs() < 1.0, "no reductions expected, got {}", reduction);
+        assert!((amount - expected).abs() < 1.0, "amount expected {}, got {}", expected, amount);
+    }
+
+    /// Worked taper example: couple, 2 children, £12,000/year earnings, no housing.
+    /// Below NI/tax thresholds so net earnings = gross. Work allowance (higher, no
+    /// housing) = £684/month = £8,208/year. Taper 55% on (12000 − 8208) = 3792 → 2085.60.
+    #[test]
+    fn test_uc_couple_earnings_taper() {
+        let params = Parameters::for_year(2025).unwrap();
+        let (people, bu, hh) = make_couple_bu(12000.0, 2);
+        let pr: Vec<PersonResult> = people.iter()
+            .map(|p| crate::variables::income_tax::calculate(p, &params, p.state_pension))
+            .collect();
+        let uc = &params.universal_credit;
+        let max = (uc.standard_allowance_couple_over25
+            + uc.child_element_first + uc.child_element_subsequent) * 12.0;
+        let wa = uc.work_allowance_higher * 12.0;
+        let expected_reduction = (12000.0 - wa) * uc.taper_rate;
+        let (amount, got_max, reduction) = calculate_universal_credit(&bu, &people, &pr, &hh, &params);
+        assert!((got_max - max).abs() < 1.0);
+        assert!((reduction - expected_reduction).abs() < 1.0,
+            "reduction expected {}, got {}", expected_reduction, reduction);
+        assert!((amount - (max - expected_reduction)).abs() < 1.0);
+    }
+
+    /// Capital cliff: household savings >= £16,000 extinguishes UC.
+    #[test]
+    fn test_uc_capital_cliff() {
+        let params = Parameters::for_year(2025).unwrap();
+        let (people, bu, mut hh) = make_couple_bu(0.0, 1);
+        hh.savings = 16000.0;
+        let pr: Vec<PersonResult> = people.iter()
+            .map(|p| crate::variables::income_tax::calculate(p, &params, p.state_pension))
+            .collect();
+        let (amount, max, _) = calculate_universal_credit(&bu, &people, &pr, &hh, &params);
+        assert!(max > 0.0, "max amount should still be reported");
+        assert!(amount.abs() < 1e-6, "capital >= £16k should give nil UC, got {}", amount);
+    }
+
+    /// Tariff income: £6,500 capital → £500 over lower limit → 2 increments of £250 →
+    /// 2 × £4.35/month × 12 = £104.40/year reduction.
+    #[test]
+    fn test_uc_capital_tariff_income() {
+        let params = Parameters::for_year(2025).unwrap();
+        let tariff = uc_tariff_income_annual(6500.0, &params);
+        assert!((tariff - 2.0 * 4.35 * 12.0).abs() < 1e-6, "tariff expected 104.40, got {}", tariff);
+        // Below lower limit → no tariff income.
+        assert!(uc_tariff_income_annual(5999.0, &params).abs() < 1e-6);
+        // Part-increment rounds up: £6,001 → 1 increment.
+        assert!((uc_tariff_income_annual(6001.0, &params) - 4.35 * 12.0).abs() < 1e-6);
+    }
+
+    /// Childcare element: lone parent in work, £500/month childcare for one child.
+    /// 85% × 500 = £425/month, below the one-child cap, so the element = £425/month.
+    #[test]
+    fn test_uc_childcare_element() {
+        let params = Parameters::for_year(2025).unwrap();
+        let (mut people, bu, _hh) = make_single_bu(15000.0, 1);
+        people[0].childcare_expenses = 6000.0; // £500/month
+        let element = uc_childcare_element_monthly(&bu, &people, &params);
+        assert!((element - 0.85 * 500.0).abs() < 1e-6, "expected 425, got {}", element);
+
+        // Cap binds: very high costs are capped at the one-child maximum.
+        people[0].childcare_expenses = 24000.0; // £2,000/month → 85% = £1,700 > cap
+        let capped = uc_childcare_element_monthly(&bu, &people, &params);
+        assert!((capped - params.universal_credit.childcare_max_one_child).abs() < 1e-6);
+
+        // No work → no childcare element.
+        let (people_nw, bu_nw, _) = make_single_bu(0.0, 1);
+        let mut people_nw = people_nw;
+        people_nw[0].childcare_expenses = 6000.0;
+        assert!(uc_childcare_element_monthly(&bu_nw, &people_nw, &params).abs() < 1e-6);
     }
 
     #[test]
