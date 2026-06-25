@@ -1,0 +1,7 @@
+description: Universal Credit monthly standard allowance, single over 25.
+values:
+  2024-04-08: 393.45
+  2025-04-07: 400.14
+metadata:
+  unit: currency-GBP
+  label: UC standard allowance (single, 25+)

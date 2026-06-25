@@ -5,6 +5,10 @@ mod tree;
 #[allow(unused_imports)]
 pub use tree::ParameterTree;
 
+mod param_tree;
+#[allow(unused_imports)]
+pub use param_tree::{Bracket, Date, Node, ParamTree, ValueMap};
+
 /// UK tax-benefit system parameters for a given fiscal year.
 ///
 /// All monetary values are annual unless noted otherwise.
