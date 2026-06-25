@@ -361,7 +361,7 @@ labour_supply:
 
 growth_factors:
   # OBR Economic and Fiscal Outlook, March 2026
-  # Table 1.7 (Inflation) and Table 1.6 (Labour Market)
+  # Table 1.7 (Inflation) and Table 1.6 (Labour Market), fiscal-year rows
   cpi_rate: 0.03438        # 3.438% CPI inflation (FY 2025/26)
   gdp_deflator: 0.03239    # 3.239% GDP deflator
   earnings_growth: 0.04585  # 4.585% average weekly earnings growth

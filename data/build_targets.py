@@ -41,7 +41,9 @@ ONS_QNA_URL = (
     "firstquarterlyestimatedatatablescorrected.xlsx"
 )
 
-TARGET_YEARS = list(range(2010, 2025))
+# EFRS now starts at 2015 (data/efrs.py YEARS): pre-2013 clean FRS frames carry
+# no housing benefit, so years whose FRS pool reaches before 2013 are dropped.
+TARGET_YEARS = list(range(2015, 2025))
 
 # Forecast horizon: the last year with real source data, and the OBR EFO years we
 # project onto by uprating the latest real targets (data/uprate.py indices).
@@ -364,6 +366,30 @@ def load_spi_investment(spi_dir: Path) -> dict[int, list[dict]]:
     return out
 
 
+# Total-income floor below which the SPI 3.7 bands are pooled into one combined
+# band per source. Each sub-floor band holds only a few hundred £m of investment
+# income spread over thin survey cells, so the engine's small absolute
+# misallocation there becomes a huge relative error (dividends in the personal-
+# allowance band ran +170% to +3700%) that the magnitude-blind RMSRE squares.
+# Pooling below £30k lifts the denominator: combined dividend/property errors
+# fall to single digits while interest (already fitting) is unaffected.
+_SPI37_POOL_FLOOR = 30000.0
+
+
+def _pool_spi37_rows(rows: list[dict]) -> list[dict]:
+    """Collapse all bands with lo < _SPI37_POOL_FLOOR into one combined band,
+    summing each source's count and amount; bands above the floor pass through."""
+    low = [r for r in rows if r["lo"] < _SPI37_POOL_FLOOR]
+    high = [r for r in rows if r["lo"] >= _SPI37_POOL_FLOOR]
+    if len(low) <= 1:
+        return rows
+    merged = {"lo": min(r["lo"] for r in low), "hi": max(r["hi"] for r in low)}
+    for key, _ in _SPI37_SOURCES:
+        merged[f"{key}_n"] = sum(r[f"{key}_n"] for r in low)
+        merged[f"{key}_a"] = sum(r[f"{key}_a"] for r in low)
+    return [merged, *high]
+
+
 def build_spi_investment_targets(
     spi37: dict[int, list[dict]], earnings_index: dict[int, float], years: list[int]
 ) -> list[dict]:
@@ -371,7 +397,8 @@ def build_spi_investment_targets(
     count (count_nonzero) and an amount (sum), filtered on baseline_total_income.
 
     Mirrors build_spi_targets: years beyond the latest vintage reuse its bands
-    with counts held and amounts grown by the EFO average-earnings ratio.
+    with counts held and amounts grown by the EFO average-earnings ratio. Bands
+    below _SPI37_POOL_FLOOR are pooled (see _pool_spi37_rows).
     """
     label = "HMRC SPI Table 3.7 (investment income distribution)"
     avail = sorted(spi37)
@@ -385,7 +412,7 @@ def build_spi_investment_targets(
             amt_factor = earnings_index[yr] / earnings_index[base]
         else:
             continue
-        for r in rows:
+        for r in _pool_spi37_rows(rows):
             # Beyond the latest vintage the band edges uprate with earnings too,
             # not just the amounts (see build_spi_targets).
             lo = r["lo"] * amt_factor
@@ -600,23 +627,32 @@ def load_coicop(ons_qna_path: Path) -> dict[int, dict[str, float]]:
             break
 
     # --- Eurostat: UK nominal COICOP £m 2010-2019 ---
-    r = requests.get(
-        "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/nama_10_co3_p3",
-        params={"geo": "UK", "unit": "CP_MNAC", "freq": "A", "format": "JSON"},
-        timeout=30,
-    )
-    estat = r.json()
-    coicop_idx = estat["dimension"]["coicop"]["category"]["index"]
-    time_idx = estat["dimension"]["time"]["category"]["index"]
-    n_time = estat["size"][4]
-    estat_vals = estat["value"]
+    # The Eurostat API is occasionally unavailable; if the fetch or parse fails,
+    # fall back to a no-op reader so pre-2020 years simply get no consumption
+    # target (rather than aborting the whole target build). 2020+ years use the
+    # CVM-share path below regardless.
+    try:
+        r = requests.get(
+            "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/nama_10_co3_p3",
+            params={"geo": "UK", "unit": "CP_MNAC", "freq": "A", "format": "JSON"},
+            timeout=30,
+        )
+        r.raise_for_status()
+        estat = r.json()
+        coicop_idx = estat["dimension"]["coicop"]["category"]["index"]
+        time_idx = estat["dimension"]["time"]["category"]["index"]
+        n_time = estat["size"][4]
+        estat_vals = estat["value"]
 
-    def estat_get(code: str, year: int) -> float | None:
-        cp = coicop_idx.get(code)
-        tp = time_idx.get(str(year))
-        if cp is None or tp is None:
+        def estat_get(code: str, year: int) -> float | None:
+            cp = coicop_idx.get(code)
+            tp = time_idx.get(str(year))
+            if cp is None or tp is None:
+                return None
+            return estat_vals.get(str(cp * n_time + tp))
+    except (requests.RequestException, ValueError, KeyError):
+        def estat_get(code: str, year: int) -> float | None:
             return None
-        return estat_vals.get(str(cp * n_time + tp))
 
     # col indices in E3 row (0-based from row list): 0=yr,1=national,2=net_tourism,3=domestic,
     # 4=food,5=alc+tob,6=clothing,7=housing,8=furnishings,9=health,10=transport,
@@ -968,10 +1004,19 @@ def build_targets(years: list[int]) -> list[dict]:
     INCOME_TAX_SPECS = [
         ("income_tax_total",          "person", "income_tax",         "sum", "hmrc", "income_tax"),
         ("employee_ni_total",         "person", "employee_ni",        "sum", "hmrc", "employee_ni"),
-        ("employer_ni_total",         "person", "employer_ni",        "sum", "hmrc", "employer_ni"),
+        # Employer NI is intentionally not a calibration target: the engine
+        # computes gross statutory liability (15% above the secondary threshold)
+        # with no reliefs, while the HMRC receipts figure is net of the
+        # Employment Allowance, under-21/apprentice exemptions and the per-job
+        # (not per-person) threshold. The ~28% gap is structural, so reweighting
+        # cannot close it and only distorts the weight vector chasing it.
         ("capital_gains_tax_total",   "person", "capital_gains_tax",  "sum", "hmrc", "capital_gains_tax"),
         ("vat_total",                 "household", "vat",             "sum", "hmrc", "vat"),
-        ("stamp_duty_total",          "household", "stamp_duty",      "sum", "hmrc", "stamp_duty"),
+        # Stamp duty is intentionally not a calibration target: the engine
+        # under-predicts receipts by ~15-19% every year (missing higher-rate
+        # surcharges on additional/non-resident dwellings, plus survey under-
+        # capture of high-value transactions). The gap is structural and stable,
+        # so reweighting only distorts the weight vector chasing it.
     ]
     BENEFIT_SPECS = [
         ("child_benefit_total",         "benunit", "child_benefit",         "sum", "dwp", "child_benefit"),
@@ -982,7 +1027,11 @@ def build_targets(years: list[int]) -> list[dict]:
         ("esa_income_related_total",    "benunit", "esa_income_related",    "sum", "dwp", "esa_income_related"),
         ("housing_benefit_total",       "benunit", "housing_benefit",       "sum", "dwp", "housing_benefit"),
         ("income_support_total",        "benunit", "income_support",        "sum", "dwp", "income_support"),
-        ("jsa_income_based_total",      "benunit", "jsa_income_based",      "sum", "dwp", "jsa_income_based"),
+        # Income-based JSA expenditure is intentionally not a calibration target,
+        # for the same reason as its caseload (below): the benefit is wound down
+        # into UC, and the engine under-predicts spend by 64-97% every year. The
+        # gap is structural — the FRS frame can't carry the residual legacy
+        # caseload — so reweighting only thrashes the weight vector chasing it.
         ("pension_credit_total",        "benunit", "pension_credit",        "sum", "dwp", "pension_credit"),
         ("state_pension_total",         "person",  "state_pension",         "sum", "dwp", "state_pension"),
         ("universal_credit_total",      "benunit", "universal_credit",      "sum", "dwp", "universal_credit"),
@@ -1011,7 +1060,11 @@ def build_targets(years: list[int]) -> list[dict]:
         ("esa_income_related_claimants", "benunit", "esa_income_related", "count_nonzero", "caseloads", "esa_income_related"),
         ("housing_benefit_claimants",    "benunit", "housing_benefit",    "count_nonzero", "caseloads", "housing_benefit"),
         ("income_support_claimants",     "benunit", "income_support",     "count_nonzero", "caseloads", "income_support"),
-        ("jsa_income_based_claimants",   "benunit", "jsa_income_based",   "count_nonzero", "caseloads", "jsa_income_based"),
+        # Income-based JSA caseload is intentionally not a calibration target:
+        # the benefit is wound down into UC, leaving a residual legacy caseload
+        # the FRS frame can't represent, so the engine under-predicts it every
+        # year. The expenditure target is dropped for the same reason (see
+        # BENEFIT_SPECS above). Reweighting only thrashes the weights chasing it.
         ("pension_credit_claimants",     "benunit", "pension_credit",     "count_nonzero", "caseloads", "pension_credit"),
         ("state_pension_claimants",      "person",  "state_pension",      "count_nonzero", "caseloads", "state_pension"),
         ("universal_credit_claimants",   "benunit", "universal_credit",   "count_nonzero", "caseloads", "universal_credit"),

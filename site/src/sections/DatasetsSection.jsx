@@ -21,7 +21,7 @@ print(avail)`
 const useCode = `from policyengine_uk_compiled import Simulation
 
 # FRS (default — most detailed household survey)
-sim = Simulation(year=2025)
+sim = Simulation(year=2025, dataset="frs")  # a dataset must be chosen explicitly — there is no default
 
 # SPI — self-assessment income data (persons only; no household structure)
 sim_spi = Simulation(year=2025, dataset="spi")
@@ -36,8 +36,8 @@ sim_was = Simulation(year=2025, dataset="was")
 sim_efrs = Simulation(year=2025, dataset="efrs")`
 
 const yearCode = `# Any year 1994–2029
-sim_past   = Simulation(year=2010)  # historical
-sim_future = Simulation(year=2028)  # OBR-forecast uprated
+sim_past   = Simulation(year=2010, dataset="frs")  # historical
+sim_future = Simulation(year=2028, dataset="frs")  # OBR-forecast uprated
 
 result = sim_past.run()
 result = sim_future.run()`

@@ -11,12 +11,18 @@ monetary fields and are passed through unchanged.
 
 from __future__ import annotations
 
+from functools import lru_cache
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
+import yaml
 
-# ── Year-on-year growth rates by index (OBR EFO Nov 2025). Each (year, rate)
-# applies to the transition *into* that fiscal year. Outside the table, the
-# default long-run rate is used. Mirrors src/data/mod.rs::yoy_rates. ──
+REPO_ROOT = Path(__file__).resolve().parent.parent
+PARAMS_DIR = REPO_ROOT / "parameters"
+
+# ── Fallback hardcoded rates (used when a YAML is unavailable or for indices
+# not carried in growth_factors). Mirrors src/data/mod.rs::yoy_rates. ──
 _YOY: dict[str, list[tuple[int, float]]] = {
     "earnings": [
         (2022, 0.0614), (2023, 0.0622), (2024, 0.0493), (2025, 0.0517),
@@ -64,27 +70,54 @@ _DEFAULT_RATE: dict[str, float] = {
 }
 
 
+@lru_cache(maxsize=32)
+def _yaml_growth_factors(year: int) -> dict[str, float]:
+    """Read growth_factors from the parameter YAML for the transition into `year`.
+
+    The YAML for fiscal year Y/Y+1 carries the OBR rates for the transition
+    *into* year Y, so year=2026 reads 2026_27.yaml. This matches the fallback
+    `_YOY` table, which keys rates on the entered fiscal year.
+    Returns an empty dict when the file is missing or has no growth_factors block.
+    """
+    fname = f"{year}_{(year + 1) % 100:02d}.yaml"
+    path = PARAMS_DIR / fname
+    if not path.exists():
+        return {}
+    with path.open() as f:
+        data = yaml.safe_load(f)
+    return data.get("growth_factors") or {}
+
+
+def _rate_for(year: int, index: str) -> float:
+    """Year-on-year rate for `index` entering fiscal year `year`.
+
+    Prefers the YAML growth_factors value for earnings/cpi; falls back to the
+    hardcoded table for all other indices and unavailable years.
+    """
+    gf = _yaml_growth_factors(year)
+    if index == "earnings" and gf.get("earnings_growth", 0.0) != 0.0:
+        return gf["earnings_growth"]
+    if index == "cpi" and gf.get("cpi_rate", 0.0) != 0.0:
+        return gf["cpi_rate"]
+    rates = dict(_YOY[index])
+    return rates.get(year, _DEFAULT_RATE[index])
+
+
 def cumulative_factor(base_year: int, target_year: int, index: str) -> float:
     """Cumulative growth factor from base_year to target_year for an index.
 
-    Mirrors src/data/mod.rs::cumulative_factor — compounds the per-year rates
-    forward (or divides them backward) over the fiscal years crossed.
+    Reads earnings and CPI rates from parameter YAMLs; falls back to the
+    hardcoded table for other indices and missing years.
     """
-    rates = dict(_YOY[index])
-    default = _DEFAULT_RATE[index]
-
-    def rate_for(y: int) -> float:
-        return rates.get(y, default)
-
     if target_year == base_year:
         return 1.0
     factor = 1.0
     if target_year > base_year:
         for y in range(base_year + 1, target_year + 1):
-            factor *= 1.0 + rate_for(y)
+            factor *= 1.0 + _rate_for(y, index)
     else:
         for y in range(target_year + 1, base_year + 1):
-            factor /= 1.0 + rate_for(y)
+            factor /= 1.0 + _rate_for(y, index)
     return factor
 
 

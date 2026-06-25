@@ -48,9 +48,6 @@ pub struct Parameters {
     /// Tobacco duty (effective rate on household tobacco spending).
     #[serde(default)]
     pub tobacco_duty: Option<TobaccoDutyParams>,
-    /// Council tax (calculated). Allows reform modelling via band_d rate override.
-    #[serde(default)]
-    pub council_tax: Option<CouncilTaxParams>,
     /// Capital gains tax. TCGA 1992; 18%/24% from October 2024 Budget.
     #[serde(default)]
     pub capital_gains_tax: Option<CapitalGainsTaxParams>,
@@ -90,8 +87,26 @@ pub struct Parameters {
     /// Defaults to enabled (elasticities on).
     #[serde(default = "LabourSupplyParams::default")]
     pub labour_supply: LabourSupplyParams,
+    /// OBR EFO growth factors for this fiscal year — used to uprate FRS data
+    /// to the target year. Source: OBR March 2026 EFO.
+    #[serde(default)]
+    pub growth_factors: Option<GrowthFactors>,
 }
 
+
+/// OBR EFO year-on-year growth rates for a single fiscal year.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GrowthFactors {
+    /// CPI inflation rate for this fiscal year.
+    #[serde(default)]
+    pub cpi_rate: f64,
+    /// GDP deflator for this fiscal year.
+    #[serde(default)]
+    pub gdp_deflator: f64,
+    /// Average weekly earnings growth for this fiscal year.
+    #[serde(default)]
+    pub earnings_growth: f64,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaxBracket {
@@ -382,35 +397,6 @@ pub struct TobaccoDutyParams {
 /// Council tax parameters (for reform modelling).
 ///
 /// Local Government Finance Act 1992. Council tax is currently reported from the FRS.
-/// These parameters allow modelling reforms (e.g. changing the Band D rate) while
-/// keeping the baseline as the reported amount.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CouncilTaxParams {
-    /// Average Band D rate (£/year). England average £2,280 for 2025/26.
-    pub average_band_d: f64,
-    /// Band multipliers as fractions of Band D: A=6/9, B=7/9, ... H=18/9.
-    #[serde(default = "default_band_multipliers")]
-    pub band_multipliers: Vec<f64>,
-    /// Property value thresholds for bands A–H (1991 values, England).
-    #[serde(default = "default_band_thresholds")]
-    pub band_thresholds: Vec<f64>,
-    /// Single-person discount: fraction subtracted from council tax when only
-    /// one adult (18+) is resident. 25% in England/Wales/Scotland — Local
-    /// Government Finance Act 1992 s.11(1)(a).
-    #[serde(default = "default_single_person_discount")]
-    pub single_person_discount_rate: f64,
-}
-
-fn default_single_person_discount() -> f64 { 0.25 }
-
-fn default_band_multipliers() -> Vec<f64> {
-    vec![6.0/9.0, 7.0/9.0, 8.0/9.0, 1.0, 11.0/9.0, 13.0/9.0, 15.0/9.0, 18.0/9.0]
-}
-
-fn default_band_thresholds() -> Vec<f64> {
-    vec![0.0, 40001.0, 52001.0, 68001.0, 88001.0, 120001.0, 160001.0, 320001.0]
-}
-
 /// Capital gains tax parameters.
 ///
 /// Taxation of Chargeable Gains Act 1992. Rates raised to 18%/24% from October 2024.
@@ -780,8 +766,8 @@ impl Parameters {
     /// Available fiscal years (hardcoded list of embedded parameter files).
     #[allow(dead_code)]
     pub fn available_years() -> Vec<u32> {
-        // 1994/95 through 2029/30
-        (1994..=2029).collect()
+        // 1994/95 through 2030/31
+        (1994..=2030).collect()
     }
 }
 
@@ -819,12 +805,21 @@ mod tests {
     fn test_load_2029_30() {
         let params = Parameters::for_year(2029).unwrap();
         assert_eq!(params.fiscal_year, "2029/30");
-        assert!(params.income_tax.personal_allowance > 12570.0); // Should be uprated
+        // Personal allowance threshold freeze continues through 2029/30.
+        assert!((params.income_tax.personal_allowance - 12570.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_load_2030_31() {
+        let params = Parameters::for_year(2030).unwrap();
+        assert_eq!(params.fiscal_year, "2030/31");
+        // Threshold freeze assumed to continue into 2030/31.
+        assert!((params.income_tax.personal_allowance - 12570.0).abs() < 0.01);
     }
 
     #[test]
     fn test_load_all_years() {
-        for year in 1994..=2029 {
+        for year in 1994..=2030 {
             let params = Parameters::for_year(year);
             assert!(params.is_ok(), "Failed to load parameters for {}/{}", year, year + 1);
         }

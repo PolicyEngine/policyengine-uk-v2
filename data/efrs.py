@@ -30,8 +30,12 @@ _LCFS_DONOR = "lcfs/2022"
 _SPI_DONOR = "spi/2022"
 # Number of consecutive FRS years pooled per EFRS year (target + preceding).
 POOL_N_YEARS = 3
+# Start at 2015: EFRS year Y pools FRS years Y-2..Y, so 2015 is the first year
+# whose pool (FRS 2013-2015) is entirely free of the stale pre-2013 clean FRS
+# frames, which carry no housing benefit (HB sits on the renter record before
+# benefit code 94 appears in FRS 2013, and the GCS clean FRS predates that fix).
 YEARS: dict[int, tuple[int, str, str, str]] = {
-    y: (y, _WAS_DONOR, _LCFS_DONOR, _SPI_DONOR) for y in range(2010, 2025)
+    y: (y, _WAS_DONOR, _LCFS_DONOR, _SPI_DONOR) for y in range(2015, 2025)
 }
 
 # Forecast years have no FRS/WAS/LCFS data: they uprate the latest real EFRS year

@@ -140,18 +140,6 @@ class IncomeRelatedBenefitParams(BaseModel):
     ca_care_recipient_min_age: Optional[float] = None
 
 
-class CouncilTaxParams(BaseModel):
-    """Council tax parameters.
-
-    Local Government Finance Act 1992. Used for reform modelling — baseline
-    runs use the FRS-recorded `council_tax` amount per household. Set
-    `single_person_discount_rate` to model reforms to the s.11(1)(a) discount.
-    """
-    average_band_d: Optional[float] = None
-    band_multipliers: Optional[list[float]] = None
-    band_thresholds: Optional[list[float]] = None
-    single_person_discount_rate: Optional[float] = None
-
 
 class StampDutyBand(BaseModel):
     rate: float
@@ -267,7 +255,7 @@ class Parameters(BaseModel):
     scottish_child_payment: Optional[ScottishChildPaymentParams] = None
     disability_premiums: Optional[DisabilityPremiumParams] = None
     income_related_benefits: Optional[IncomeRelatedBenefitParams] = None
-    council_tax: Optional[CouncilTaxParams] = None
+
     capital_gains_tax: Optional[CapitalGainsTaxParams] = None
     stamp_duty: Optional[StampDutyParams] = None
     dla:  Optional["DlaParams"] = None
@@ -389,6 +377,14 @@ class HbaiIncomes(BaseModel):
     median_equiv_bhc: float
     median_equiv_ahc: float
 
+    def deflate(self, factor: float) -> "HbaiIncomes":
+        """Return a copy with every monetary field scaled by ``factor``.
+
+        ``factor`` is the nominal-to-real multiplier (see
+        SimulationResult.real_factor).
+        """
+        return HbaiIncomes(**{k: v * factor for k, v in self.model_dump().items()})
+
 
 class PovertyHeadcounts(BaseModel):
     relative_bhc_children: float
@@ -418,6 +414,28 @@ class SimulationResult(BaseModel):
     baseline_poverty: PovertyHeadcounts
     reform_poverty: PovertyHeadcounts
     cpi_index: float
+
+    def real_factor(self, base_year: int) -> float:
+        """Nominal-to-real multiplier to convert this result's figures into
+        ``base_year`` prices.
+
+        The result's monetary outputs (HBAI incomes, budgetary impact, program
+        totals) are in nominal prices for the simulation year. ``cpi_index`` is
+        that year's CPI rebased to 2010/11 = 100. Multiplying a nominal figure
+        by this factor expresses it in ``base_year`` prices, so figures from
+        different simulation years become directly comparable.
+        """
+        from policyengine_uk_compiled.realterms import cpi_index_for_year
+
+        return cpi_index_for_year(base_year) / self.cpi_index
+
+    def real_hbai_incomes(self, base_year: int) -> tuple[HbaiIncomes, HbaiIncomes]:
+        """Return (baseline, reform) HBAI incomes deflated to ``base_year`` prices."""
+        factor = self.real_factor(base_year)
+        return (
+            self.baseline_hbai_incomes.deflate(factor),
+            self.reform_hbai_incomes.deflate(factor),
+        )
 
 
 class MicrodataResult(BaseModel):

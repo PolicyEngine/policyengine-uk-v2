@@ -39,7 +39,7 @@ fn to_py_err(e: impl std::fmt::Display) -> PyErr {
 impl Simulation {
     #[new]
     fn new(data_dir: &str, params_dir: &str, year: u32) -> PyResult<Self> {
-        let dataset = run::load_dataset_dir(Path::new(data_dir), year).map_err(to_py_err)?;
+        let dataset = run::load_dataset_dir_with_params(Path::new(data_dir), Path::new(params_dir), year).map_err(to_py_err)?;
         let baseline_params =
             Parameters::for_year_in(Path::new(params_dir), year).map_err(to_py_err)?;
         Ok(Self { dataset, year, baseline_params, baseline: None, ls_baseline: None })

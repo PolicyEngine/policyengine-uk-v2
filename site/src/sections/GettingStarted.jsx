@@ -39,7 +39,7 @@ const quickstartOutput = `13580.66
 const populationCode = `from policyengine_uk_compiled import Simulation, Parameters, UniversalCreditParams
 
 # Full FRS population (requires POLICYENGINE_UK_DATA_TOKEN)
-sim = Simulation(year=2025)
+sim = Simulation(year=2025, dataset="frs")
 
 # Reduce UC taper rate from 55% to 50%
 reform = Parameters(universal_credit=UniversalCreditParams(taper_rate=0.50))

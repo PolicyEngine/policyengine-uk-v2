@@ -95,6 +95,7 @@ pub fn cpi_index_for_year(year: u32) -> f64 {
         (2018, 117.802559), (2019, 119.851492), (2020, 120.557502), (2021, 125.368849),
         (2022, 137.951381), (2023, 145.773765), (2024, 149.171329), (2025, 153.921493),
         (2026, 156.889890), (2027, 160.021436), (2028, 163.222508), (2029, 166.486583),
+        (2030, 169.815982),  // 2029 chained by OBR Mar-2026 table 1.7 CPI 1.9998%
     ];
     table.iter()
         .find(|(y, _)| *y == year)
@@ -763,24 +764,23 @@ pub fn build_microdata_households_table(
         name, data: ColumnData::Bool {
             vals: households.iter().map(|h| f(&results.household_results[h.id])).collect(), csv_word: false },
     };
-    let outputs = |r: &SimulationResults, names: [&'static str; 16]| -> Vec<Column> {
+    let outputs = |r: &SimulationResults, names: [&'static str; 15]| -> Vec<Column> {
         vec![
             res_fcol(names[0], 2, r, &|x| x.net_income),
             res_fcol(names[1], 2, r, &|x| x.gross_income),
             res_fcol(names[2], 2, r, &|x| x.total_tax),
             res_fcol(names[3], 2, r, &|x| x.total_benefits),
-            res_fcol(names[4], 2, r, &|x| x.council_tax_calculated),
-            res_fcol(names[5], 2, r, &|x| x.stamp_duty),
-            res_fcol(names[6], 2, r, &|x| x.vat),
-            res_fcol(names[7], 2, r, &|x| x.fuel_duty),
-            res_fcol(names[8], 4, r, &|x| x.equivalisation_factor),
-            res_fcol(names[9], 2, r, &|x| x.equivalised_net_income),
-            res_fcol(names[10], 2, r, &|x| x.net_income_ahc),
-            res_fcol(names[11], 2, r, &|x| x.equivalised_net_income_ahc),
-            res_bcol(names[12], r, &|x| x.equivalised_net_income < rel_line_bhc),
-            res_bcol(names[13], r, &|x| x.equivalised_net_income_ahc < rel_line_ahc),
-            res_bcol(names[14], r, &|x| x.equivalised_net_income < abs_line_bhc),
-            res_bcol(names[15], r, &|x| x.equivalised_net_income_ahc < abs_line_ahc),
+            res_fcol(names[4], 2, r, &|x| x.stamp_duty),
+            res_fcol(names[5], 2, r, &|x| x.vat),
+            res_fcol(names[6], 2, r, &|x| x.fuel_duty),
+            res_fcol(names[7], 4, r, &|x| x.equivalisation_factor),
+            res_fcol(names[8], 2, r, &|x| x.equivalised_net_income),
+            res_fcol(names[9], 2, r, &|x| x.net_income_ahc),
+            res_fcol(names[10], 2, r, &|x| x.equivalised_net_income_ahc),
+            res_bcol(names[11], r, &|x| x.equivalised_net_income < rel_line_bhc),
+            res_bcol(names[12], r, &|x| x.equivalised_net_income_ahc < rel_line_ahc),
+            res_bcol(names[13], r, &|x| x.equivalised_net_income < abs_line_bhc),
+            res_bcol(names[14], r, &|x| x.equivalised_net_income_ahc < abs_line_ahc),
         ]
     };
 
@@ -788,7 +788,6 @@ pub fn build_microdata_households_table(
         columns.extend(outputs(baseline, [
             "baseline_net_income", "baseline_gross_income",
             "baseline_total_tax", "baseline_total_benefits",
-            "baseline_council_tax_calculated",
             "baseline_property_transaction_tax",
             "baseline_vat", "baseline_fuel_duty",
             "baseline_equivalisation_factor", "baseline_equivalised_net_income",
@@ -799,7 +798,6 @@ pub fn build_microdata_households_table(
         columns.extend(outputs(reformed, [
             "reform_net_income", "reform_gross_income",
             "reform_total_tax", "reform_total_benefits",
-            "reform_council_tax_calculated",
             "reform_property_transaction_tax",
             "reform_vat", "reform_fuel_duty",
             "reform_equivalisation_factor", "reform_equivalised_net_income",
@@ -811,7 +809,6 @@ pub fn build_microdata_households_table(
         columns.extend(outputs(reformed, [
             "net_income", "gross_income",
             "total_tax", "total_benefits",
-            "council_tax_calculated",
             "property_transaction_tax",
             "vat", "fuel_duty",
             "equivalisation_factor", "equivalised_net_income",

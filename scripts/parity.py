@@ -157,7 +157,7 @@ def run_rust(year: int) -> dict[str, dict[str, float]]:
         raise FRSUnavailable(f"policyengine_uk_compiled not importable: {exc!r}") from exc
 
     try:
-        households = c.Simulation(year=year).run_microdata().households
+        households = c.Simulation(year=year, dataset="frs").run_microdata().households
     except Exception as exc:
         raise FRSUnavailable(f"Rust run_microdata() / FRS load failed: {exc!r}") from exc
 

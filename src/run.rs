@@ -167,7 +167,16 @@ pub struct WinnersLosers {
 
 /// Load a clean dataset from a base dir with per-year subdirs, falling back
 /// to the latest available year and uprating to the requested one.
+/// Uses YAML-backed growth factors when `params_dir` is provided.
 pub fn load_dataset_dir(base: &Path, year: u32) -> anyhow::Result<Dataset> {
+    load_dataset_dir_inner(base, year, None)
+}
+
+pub fn load_dataset_dir_with_params(base: &Path, params_dir: &Path, year: u32) -> anyhow::Result<Dataset> {
+    load_dataset_dir_inner(base, year, Some(params_dir))
+}
+
+fn load_dataset_dir_inner(base: &Path, year: u32, params_dir: Option<&Path>) -> anyhow::Result<Dataset> {
     let year_dir = base.join(year.to_string());
     if year_dir.is_dir() {
         load_clean_dataset(&year_dir, year)
@@ -176,7 +185,10 @@ pub fn load_dataset_dir(base: &Path, year: u32) -> anyhow::Result<Dataset> {
             .find(|y| base.join(y.to_string()).is_dir())
             .ok_or_else(|| anyhow::anyhow!("No clean data found in {}", base.display()))?;
         let mut ds = load_clean_dataset(&base.join(latest.to_string()), latest)?;
-        ds.uprate_to(year);
+        match params_dir {
+            Some(p) => ds.uprate_to_dir(year, p),
+            None    => ds.uprate_to(year),
+        }
         Ok(ds)
     }
 }
@@ -377,7 +389,7 @@ pub fn analyse(
             cgt_total += hh.weight * hr.capital_gains_tax;
             stamp_duty_total += hh.weight * hr.stamp_duty;
             wealth_tax_total += hh.weight * hr.wealth_tax;
-            council_tax_total += hh.weight * hr.council_tax_calculated;
+            council_tax_total += hh.weight * hh.council_tax;
             for &pid in &hh.person_ids {
                 let person = &people[pid];
                 total_employment += hh.weight * person.employment_income;
