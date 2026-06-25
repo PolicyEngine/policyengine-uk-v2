@@ -34,11 +34,12 @@ console = Console()
 # ── Config ───────────────────────────────────────────────────────────────────
 
 class CalibrateConfig(BaseModel):
-    # Calibration is a quick nudge, not a fit: RMSRE plateaus by ~64 epochs and
-    # the Adam loop runs in well under a second. More epochs just overfit target
-    # noise while drifting weights away from the survey.
-    epochs: int = 64
-    lr: float = 0.1
+    # A small step over more epochs averages over the per-epoch dropout noise:
+    # at lr 0.1/64 epochs the loss random-walks around ~2% RMSRE, whereas
+    # lr 0.02/512 epochs settles near ~1.1-1.3% with a much smaller tail
+    # (share of targets >1% error roughly halves). Still cheap (<1s).
+    epochs: int = 512
+    lr: float = 0.02
     beta1: float = 0.9
     beta2: float = 0.999
     eps: float = 1e-8
