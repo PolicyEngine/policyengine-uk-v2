@@ -6,6 +6,8 @@ pub mod lcfs;
 pub mod was;
 
 use crate::engine::entities::*;
+use crate::parameters::Parameters;
+use std::path::Path;
 
 /// A complete dataset ready for microsimulation
 #[allow(dead_code)]
@@ -28,24 +30,52 @@ impl Dataset {
         self.households.iter().map(|h| h.weight).sum()
     }
 
-    /// Uprate all monetary amounts from the dataset's current year to `target_year`
-    /// using variable-specific OBR growth indices matching policyengine-uk's uprating_indices.yaml.
-    pub fn uprate_to(&mut self, target_year: u32) {
+    /// Uprate all monetary amounts from the dataset's current year to `target_year`.
+    ///
+    /// When `params_dir` is supplied, earnings and CPI growth rates are read
+    /// from the `growth_factors` block of each step year's parameter YAML.
+    /// For indices not present in the YAML (rent, population, etc.) and for any
+    /// year whose YAML is unavailable, the hardcoded fallback table is used.
+    pub fn uprate_to_dir(&mut self, target_year: u32, params_dir: &Path) {
         if target_year == self.year {
-            self.year = target_year;
             return;
         }
-
-        let earnings   = cumulative_factor(self.year, target_year, UpratingIndex::AverageEarnings);
-        let cpi        = cumulative_factor(self.year, target_year, UpratingIndex::CPI);
+        let earnings = yaml_cumulative_factor(self.year, target_year, UpratingIndex::AverageEarnings, params_dir);
+        let cpi      = yaml_cumulative_factor(self.year, target_year, UpratingIndex::CPI, params_dir);
         let gdp_pc     = cumulative_factor(self.year, target_year, UpratingIndex::GDPPerCapita);
         let mixed_pc   = cumulative_factor(self.year, target_year, UpratingIndex::MixedIncomePerCapita);
         let rent       = cumulative_factor(self.year, target_year, UpratingIndex::Rent);
         let council_tax = cumulative_factor(self.year, target_year, UpratingIndex::CouncilTaxEngland);
         let population = cumulative_factor(self.year, target_year, UpratingIndex::Population);
         let interest   = cumulative_factor(self.year, target_year, UpratingIndex::HouseholdInterestIncome);
+        self.apply_uprating(earnings, cpi, gdp_pc, mixed_pc, rent, council_tax, population, interest, target_year);
+    }
 
+    /// Uprate all monetary amounts from the dataset's current year to `target_year`
+    /// using the hardcoded OBR growth index table.
+    pub fn uprate_to(&mut self, target_year: u32) {
+        if target_year == self.year {
+            self.year = target_year;
+            return;
+        }
 
+        let earnings    = cumulative_factor(self.year, target_year, UpratingIndex::AverageEarnings);
+        let cpi         = cumulative_factor(self.year, target_year, UpratingIndex::CPI);
+        let gdp_pc      = cumulative_factor(self.year, target_year, UpratingIndex::GDPPerCapita);
+        let mixed_pc    = cumulative_factor(self.year, target_year, UpratingIndex::MixedIncomePerCapita);
+        let rent        = cumulative_factor(self.year, target_year, UpratingIndex::Rent);
+        let council_tax = cumulative_factor(self.year, target_year, UpratingIndex::CouncilTaxEngland);
+        let population  = cumulative_factor(self.year, target_year, UpratingIndex::Population);
+        let interest    = cumulative_factor(self.year, target_year, UpratingIndex::HouseholdInterestIncome);
+        self.apply_uprating(earnings, cpi, gdp_pc, mixed_pc, rent, council_tax, population, interest, target_year);
+    }
+
+    fn apply_uprating(
+        &mut self,
+        earnings: f64, cpi: f64, gdp_pc: f64, mixed_pc: f64,
+        rent: f64, council_tax: f64, population: f64, interest: f64,
+        target_year: u32,
+    ) {
         for p in &mut self.people {
             // Earnings-uprated
             p.employment_income *= earnings;
@@ -249,4 +279,43 @@ fn cumulative_factor(base_year: u32, target_year: u32, index: UpratingIndex) -> 
 #[allow(dead_code)]
 pub fn cpi_cumulative_factor(base_year: u32, target_year: u32) -> f64 {
     cumulative_factor(base_year, target_year, UpratingIndex::CPI)
+}
+
+/// Like `cumulative_factor`, but reads earnings/CPI rates from the `growth_factors`
+/// block of each step year's parameter YAML when available.
+/// Falls back to the hardcoded table for years without a YAML or for indices
+/// not carried in `GrowthFactors` (rent, population, etc.).
+fn yaml_cumulative_factor(base_year: u32, target_year: u32, index: UpratingIndex, params_dir: &Path) -> f64 {
+    if target_year == base_year {
+        return 1.0;
+    }
+
+    let rate_for_year = |y: u32| -> f64 {
+        if let Ok(p) = Parameters::for_year_in(params_dir, y) {
+            if let Some(gf) = &p.growth_factors {
+                match index {
+                    UpratingIndex::AverageEarnings if gf.earnings_growth != 0.0 => return gf.earnings_growth,
+                    UpratingIndex::CPI if gf.cpi_rate != 0.0 => return gf.cpi_rate,
+                    _ => {}
+                }
+            }
+        }
+        // Fallback to hardcoded table
+        let rates = yoy_rates(index);
+        rates.iter().find(|(yr, _)| *yr == y).map(|(_, r)| *r).unwrap_or(default_rate(index))
+    };
+
+    if target_year > base_year {
+        let mut factor = 1.0;
+        for y in (base_year + 1)..=target_year {
+            factor *= 1.0 + rate_for_year(y);
+        }
+        factor
+    } else {
+        let mut factor = 1.0;
+        for y in (target_year + 1)..=base_year {
+            factor /= 1.0 + rate_for_year(y);
+        }
+        factor
+    }
 }

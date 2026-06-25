@@ -1,26 +1,25 @@
 # UK Tax-Benefit Parameters for Fiscal Year 2028/29
 # Projected using OBR March 2026 forecasts.
-# Income tax thresholds assumed to resume CPI uprating after freeze ends.
+# Income tax and NI thresholds remain frozen (freeze continues through 2028/29).
 
 fiscal_year: "2028/29"
 
 income_tax:
-  # PA resumes CPI uprating: £12,570 × 1.0195 ≈ £12,815 (rounded)
-  personal_allowance: 12815.0
+  personal_allowance: 12570.0         # Frozen (Finance Act 2021 s.5)
   pa_taper_threshold: 100000.0
   pa_taper_rate: 0.5
   uk_brackets:
     - { rate: 0.20, threshold: 0.0 }
-    - { rate: 0.40, threshold: 38435.0 }   # £37,700 × 1.0195
-    - { rate: 0.45, threshold: 127580.0 }  # PA × 2 + £100k
-  # Scottish brackets: CPI-uprated from 2027/28 values
+    - { rate: 0.40, threshold: 37700.0 }   # Frozen
+    - { rate: 0.45, threshold: 125140.0 }  # Frozen
+  # Scottish brackets: CPI-uprated from 2027/28 values (devolved)
   scottish_brackets:
     - { rate: 0.19, threshold: 0.0 }
     - { rate: 0.20, threshold: 2943.0 }    # 2884 × 1.0204
     - { rate: 0.21, threshold: 15533.0 }   # 15222 × 1.0204
     - { rate: 0.42, threshold: 32367.0 }   # 31720 × 1.0204
     - { rate: 0.45, threshold: 64990.0 }   # 63691 × 1.0204
-    - { rate: 0.48, threshold: 127580.0 }  # Top rate threshold
+    - { rate: 0.48, threshold: 125140.0 }  # Top rate threshold (= GB additional rate)
   dividend_allowance: 500.0
   dividend_basic_rate: 0.0875
   dividend_higher_rate: 0.3375
@@ -28,14 +27,14 @@ income_tax:
   savings_starter_rate_band: 5000.0
 
 national_insurance:
-  primary_threshold_annual: 12815.0
-  upper_earnings_limit_annual: 51250.0
+  primary_threshold_annual: 12570.0   # Frozen
+  upper_earnings_limit_annual: 50270.0  # Frozen
   main_rate: 0.08
   additional_rate: 0.02
   secondary_threshold_annual: 5000.0
   employer_rate: 0.15
-  class4_lower_profits_limit: 12815.0
-  class4_upper_profits_limit: 51250.0
+  class4_lower_profits_limit: 12570.0  # Frozen
+  class4_upper_profits_limit: 50270.0  # Frozen
   class4_main_rate: 0.06
   class4_additional_rate: 0.02
 

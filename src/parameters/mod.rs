@@ -87,8 +87,26 @@ pub struct Parameters {
     /// Defaults to enabled (elasticities on).
     #[serde(default = "LabourSupplyParams::default")]
     pub labour_supply: LabourSupplyParams,
+    /// OBR EFO growth factors for this fiscal year — used to uprate FRS data
+    /// to the target year. Source: OBR March 2026 EFO.
+    #[serde(default)]
+    pub growth_factors: Option<GrowthFactors>,
 }
 
+
+/// OBR EFO year-on-year growth rates for a single fiscal year.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GrowthFactors {
+    /// CPI inflation rate for this fiscal year.
+    #[serde(default)]
+    pub cpi_rate: f64,
+    /// GDP deflator for this fiscal year.
+    #[serde(default)]
+    pub gdp_deflator: f64,
+    /// Average weekly earnings growth for this fiscal year.
+    #[serde(default)]
+    pub earnings_growth: f64,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaxBracket {
@@ -787,7 +805,8 @@ mod tests {
     fn test_load_2029_30() {
         let params = Parameters::for_year(2029).unwrap();
         assert_eq!(params.fiscal_year, "2029/30");
-        assert!(params.income_tax.personal_allowance > 12570.0); // Should be uprated
+        // Personal allowance threshold freeze continues through 2029/30.
+        assert!((params.income_tax.personal_allowance - 12570.0).abs() < 0.01);
     }
 
     #[test]
