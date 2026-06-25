@@ -1,0 +1,1 @@
+Uprate private pension and self-employment income by the YAML-backed average-earnings index rather than the hardcoded GDP-per-capita and mixed-income-per-capita indices, which over-grew real net income relative to the OBR baseline. The now-unused mixed-income factor is removed from the uprating path.

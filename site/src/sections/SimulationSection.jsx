@@ -8,8 +8,9 @@ const constructorSig = `Simulation(
     benunits  = None,
     households = None,
 
-    # Or use a named dataset (auto-downloads)
-    dataset   = None,      # "frs" | "spi" | "lcfs" | "was"
+    # Or name a dataset (auto-downloads). Required when no DataFrames
+    # are passed — there is no default dataset.
+    dataset   = None,      # "frs" | "efrs" | "spi" | "lcfs" | "was"
 )`
 
 const singlePersonCode = `persons, benunits, households = Simulation.single_person(
@@ -83,8 +84,8 @@ const customOutput = ` baseline_net_income  employment_income
 const datasetCode = `import os
 os.environ["POLICYENGINE_UK_DATA_TOKEN"] = "your-token"
 
-# FRS (default)
-sim = Simulation(year=2025)
+# A dataset must be named explicitly — there is no default
+sim = Simulation(year=2025, dataset="frs")
 
 # Other datasets
 sim_spi  = Simulation(year=2025, dataset="spi")
@@ -95,7 +96,7 @@ result = sim.run()`
 
 const runCode = `from policyengine_uk_compiled import Simulation, Parameters, UniversalCreditParams
 
-sim = Simulation(year=2025)
+sim = Simulation(year=2025, dataset="frs")
 
 # Baseline
 baseline = sim.run()

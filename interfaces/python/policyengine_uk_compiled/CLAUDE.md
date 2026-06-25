@@ -113,11 +113,13 @@ DELTA = 100  # £100 increment
 
 If `POLICYENGINE_UK_DATA_TOKEN` is set, data auto-downloads on demand to `~/.policyengine-uk-data/<dataset>/`.
 
-Available datasets: `"frs"` (default), `"spi"`, `"lcfs"`, `"was"`.
+Available datasets: `"frs"`, `"efrs"`, `"spi"`, `"lcfs"`, `"was"`. A dataset
+must be named explicitly — there is no default. Constructing a `Simulation`
+with neither DataFrames nor `dataset=` (nor `data_dir=`) raises `ValueError`.
 
 ```python
-# FRS (default — no dataset= needed)
-sim = Simulation(year=2025)
+# FRS — the standard household survey
+sim = Simulation(year=2025, dataset="frs")
 result = sim.run()
 
 # SPI, LCFS, or WAS — pass dataset=
@@ -142,7 +144,35 @@ result = sim.run()
 No extra dependencies needed — uses stdlib only.
 
 ## Available years
-1994–2029 (fiscal years, so year=2025 means 2025/26).
+1994–2030 (fiscal years, so year=2025 means 2025/26).
+
+## Nominal vs real terms
+
+All monetary outputs (HBAI incomes, budgetary impact, program totals) are
+**nominal** — expressed in the simulation year's prices. To compare figures
+across years, deflate them to a common base year using the CPI index.
+
+`SimulationResult.cpi_index` is the year's CPI rebased to 2010/11 = 100.
+
+```python
+from policyengine_uk_compiled import Simulation, deflate
+
+# Real growth in mean household income, 2025/26 prices
+base = 2025
+reals = {}
+for year in (2025, 2026, 2027, 2028, 2029):
+    res = Simulation(year=year, dataset="efrs").run()
+    real_baseline, _ = res.real_hbai_incomes(base_year=base)
+    reals[year] = real_baseline.mean_bhc
+
+# Or deflate a raw figure directly:
+real_2029 = deflate(res.baseline_hbai_incomes.mean_bhc, nominal_year=2029, base_year=2025)
+```
+
+`SimulationResult.real_factor(base_year)` returns the nominal→real multiplier;
+`real_hbai_incomes(base_year)` returns `(baseline, reform)` HBAI incomes already
+deflated. `deflate(nominal, nominal_year, base_year)` is a standalone helper for
+any figure.
 
 ## Key model classes (all from `policyengine_uk_compiled`)
 

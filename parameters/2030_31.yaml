@@ -1,0 +1,146 @@
+# UK Tax-Benefit Parameters for Fiscal Year 2030/31
+# Projected using OBR March 2026 forecasts.
+# Income tax and NI thresholds assumed frozen: the freeze is legislated through
+# 2027/28 and the OBR March 2026 EFO does not state an end year, so we extend the
+# prior years' freeze assumption into 2030/31. Revisit if a thaw is announced.
+
+fiscal_year: "2030/31"
+
+income_tax:
+  personal_allowance: 12570.0         # Frozen (Finance Act 2021 s.5)
+  pa_taper_threshold: 100000.0
+  pa_taper_rate: 0.5
+  uk_brackets:
+    - { rate: 0.20, threshold: 0.0 }
+    - { rate: 0.40, threshold: 37700.0 }   # Frozen
+    - { rate: 0.45, threshold: 125140.0 }  # Frozen
+  # Scottish brackets: CPI-uprated from 2029/30 values (devolved)
+  scottish_brackets:
+    - { rate: 0.19, threshold: 0.0 }
+    - { rate: 0.20, threshold: 3063.0 }    # 3003 × 1.0200
+    - { rate: 0.21, threshold: 16167.0 }   # 15850 × 1.0200
+    - { rate: 0.42, threshold: 33689.0 }   # 33028 × 1.0200
+    - { rate: 0.45, threshold: 67642.0 }   # 66316 × 1.0200
+    - { rate: 0.48, threshold: 125140.0 }  # Top rate threshold (= GB additional rate)
+  dividend_allowance: 500.0
+  dividend_basic_rate: 0.0875
+  dividend_higher_rate: 0.3375
+  dividend_additional_rate: 0.3935
+  savings_starter_rate_band: 5000.0
+
+national_insurance:
+  primary_threshold_annual: 12570.0   # Frozen
+  upper_earnings_limit_annual: 50270.0  # Frozen
+  main_rate: 0.08
+  additional_rate: 0.02
+  secondary_threshold_annual: 5000.0
+  employer_rate: 0.15
+  class4_lower_profits_limit: 12570.0  # Frozen
+  class4_upper_profits_limit: 50270.0  # Frozen
+  class4_main_rate: 0.06
+  class4_additional_rate: 0.02
+
+universal_credit:
+  # Projected: 2029/30 amounts uprated by 2.0% CPI
+  standard_allowance_single_under25: 354.79
+  standard_allowance_single_over25: 447.86
+  standard_allowance_couple_under25: 556.94
+  standard_allowance_couple_over25: 703.12
+  child_element_first: 379.49
+  child_element_subsequent: 327.78
+  disabled_child_lower: 177.72
+  disabled_child_higher: 555.07
+  lcwra_element: 473.81
+  carer_element: 225.77
+  taper_rate: 0.55
+  work_allowance_higher: 765.0
+  work_allowance_lower: 461.0
+  child_limit: 99  # Two-child limit repealed from April 2026
+
+child_benefit:
+  eldest_weekly: 29.15
+  additional_weekly: 19.32
+  hicbc_threshold: 60000.0
+  hicbc_taper_end: 80000.0
+
+state_pension:
+  # Triple lock: 2.5% > CPI 2.0% > earnings 2.438%, so 2.5% floor used
+  new_state_pension_weekly: 267.55  # £261.02 × 1.025
+
+pension_credit:
+  standard_minimum_single: 257.22
+  standard_minimum_couple: 392.62
+  savings_credit_threshold_single: 224.56
+  savings_credit_threshold_couple: 356.06
+
+benefit_cap:
+  single_london: 15410.0
+  single_outside_london: 13400.0
+  non_single_london: 23000.0
+  non_single_outside_london: 20000.0
+  earnings_exemption_threshold: 10152.0
+
+housing_benefit:
+  withdrawal_rate: 0.65
+  personal_allowance_single_under25: 71.70
+  personal_allowance_single_25_plus: 90.50
+  personal_allowance_couple: 142.25
+  child_allowance: 83.73
+  family_premium: 18.53
+
+tax_credits:
+  wtc_basic_element: 2435.0
+  wtc_couple_element: 2500.0
+  wtc_lone_parent_element: 2500.0
+  wtc_30_hour_element: 1015.0
+  ctc_child_element: 3455.0
+  ctc_family_element: 545.0
+  ctc_disabled_child_element: 4170.0
+  ctc_severely_disabled_child_element: 1680.0
+  income_threshold: 7455.0
+  taper_rate: 0.41
+  wtc_min_hours_single: 30.0
+  wtc_min_hours_couple: 24.0
+
+
+scottish_child_payment:
+  weekly_amount: 26.70
+  max_age: 16.0
+
+disability_premiums:
+  # SI 1987/1967 Sch.2; uprated from 2029/30 by CPI 2.000% (OBR March 2026)
+  disability_premium_single: 46.93
+  disability_premium_couple: 66.91
+  enhanced_disability_premium_single: 30.79
+  enhanced_disability_premium_couple: 43.99
+  severe_disability_premium: 89.98
+  carer_premium: 50.79
+
+income_related_benefits:
+  # ESA: SI 2008/794 Sch.4; uprated from 2029/30 by CPI 2.000%
+  esa_allowance_single_under25: 79.16
+  esa_allowance_single_25_plus: 99.92
+  esa_allowance_couple: 157.11
+  esa_wrag_component: 39.69
+  esa_support_component: 54.04
+  # JSA: SI 1996/207 Sch.1; uprated from 2029/30 by CPI 2.000%
+  jsa_allowance_single_under25: 79.16
+  jsa_allowance_single_25_plus: 99.92
+  jsa_allowance_couple: 157.11
+  # CA: SSCBA 1992 s.70; uprated from 2029/30 by CPI 2.000%
+  carers_allowance_weekly: 90.43
+  ca_earnings_disregard_weekly: 166.71
+  ca_min_hours_caring: 35.0
+  ca_care_recipient_min_age: 16.0
+
+vat:
+  standard_rate: 0.20
+  reduced_rate: 0.05
+  zero_rate: 0.0
+
+growth_factors:
+  # OBR Economic and Fiscal Outlook, March 2026
+  # Table 1.7 (Inflation) and Table 1.6 (Labour Market), fiscal-year rows
+  cpi_rate: 0.02000        # 2.000% CPI inflation (FY 2030/31)
+  gdp_deflator: 0.02016    # 2.016% GDP deflator
+  earnings_growth: 0.02438  # 2.438% average weekly earnings growth

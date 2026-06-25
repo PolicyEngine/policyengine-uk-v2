@@ -766,8 +766,8 @@ impl Parameters {
     /// Available fiscal years (hardcoded list of embedded parameter files).
     #[allow(dead_code)]
     pub fn available_years() -> Vec<u32> {
-        // 1994/95 through 2029/30
-        (1994..=2029).collect()
+        // 1994/95 through 2030/31
+        (1994..=2030).collect()
     }
 }
 
@@ -810,8 +810,16 @@ mod tests {
     }
 
     #[test]
+    fn test_load_2030_31() {
+        let params = Parameters::for_year(2030).unwrap();
+        assert_eq!(params.fiscal_year, "2030/31");
+        // Threshold freeze assumed to continue into 2030/31.
+        assert!((params.income_tax.personal_allowance - 12570.0).abs() < 0.01);
+    }
+
+    #[test]
     fn test_load_all_years() {
-        for year in 1994..=2029 {
+        for year in 1994..=2030 {
             let params = Parameters::for_year(year);
             assert!(params.is_ok(), "Failed to load parameters for {}/{}", year, year + 1);
         }

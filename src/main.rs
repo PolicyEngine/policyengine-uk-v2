@@ -76,7 +76,7 @@ struct Cli {
 
     // ── Year ──
 
-    /// Fiscal year (e.g. 2025 for 2025/26). Range: 1994-2029.
+    /// Fiscal year (e.g. 2025 for 2025/26). Range: 1994-2030.
     #[arg(short, long, default_value = "2025")]
     year: u32,
 

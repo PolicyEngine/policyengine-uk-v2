@@ -43,12 +43,11 @@ impl Dataset {
         let earnings = yaml_cumulative_factor(self.year, target_year, UpratingIndex::AverageEarnings, params_dir);
         let cpi      = yaml_cumulative_factor(self.year, target_year, UpratingIndex::CPI, params_dir);
         let gdp_pc     = cumulative_factor(self.year, target_year, UpratingIndex::GDPPerCapita);
-        let mixed_pc   = cumulative_factor(self.year, target_year, UpratingIndex::MixedIncomePerCapita);
         let rent       = cumulative_factor(self.year, target_year, UpratingIndex::Rent);
         let council_tax = cumulative_factor(self.year, target_year, UpratingIndex::CouncilTaxEngland);
         let population = cumulative_factor(self.year, target_year, UpratingIndex::Population);
         let interest   = cumulative_factor(self.year, target_year, UpratingIndex::HouseholdInterestIncome);
-        self.apply_uprating(earnings, cpi, gdp_pc, mixed_pc, rent, council_tax, population, interest, target_year);
+        self.apply_uprating(earnings, cpi, gdp_pc, rent, council_tax, population, interest, target_year);
     }
 
     /// Uprate all monetary amounts from the dataset's current year to `target_year`
@@ -62,17 +61,16 @@ impl Dataset {
         let earnings    = cumulative_factor(self.year, target_year, UpratingIndex::AverageEarnings);
         let cpi         = cumulative_factor(self.year, target_year, UpratingIndex::CPI);
         let gdp_pc      = cumulative_factor(self.year, target_year, UpratingIndex::GDPPerCapita);
-        let mixed_pc    = cumulative_factor(self.year, target_year, UpratingIndex::MixedIncomePerCapita);
         let rent        = cumulative_factor(self.year, target_year, UpratingIndex::Rent);
         let council_tax = cumulative_factor(self.year, target_year, UpratingIndex::CouncilTaxEngland);
         let population  = cumulative_factor(self.year, target_year, UpratingIndex::Population);
         let interest    = cumulative_factor(self.year, target_year, UpratingIndex::HouseholdInterestIncome);
-        self.apply_uprating(earnings, cpi, gdp_pc, mixed_pc, rent, council_tax, population, interest, target_year);
+        self.apply_uprating(earnings, cpi, gdp_pc, rent, council_tax, population, interest, target_year);
     }
 
     fn apply_uprating(
         &mut self,
-        earnings: f64, cpi: f64, gdp_pc: f64, mixed_pc: f64,
+        earnings: f64, cpi: f64, gdp_pc: f64,
         rent: f64, council_tax: f64, population: f64, interest: f64,
         target_year: u32,
     ) {
@@ -81,12 +79,15 @@ impl Dataset {
             p.employment_income *= earnings;
             p.employee_pension_contributions *= earnings;
             p.personal_pension_contributions *= earnings;
-
-            // Mixed income per capita
-            p.self_employment_income *= mixed_pc;
+            // Private pension income tracks earnings (YAML-backed), not GDP per
+            // capita: annuity/DB incomes are wage-linked, and the GDP-pc index
+            // over-grew real net income relative to the OBR baseline.
+            p.pension_income *= earnings;
+            // Self-employment income also tracks earnings: the mixed-income-per-
+            // capita index over-grew it relative to the OBR baseline.
+            p.self_employment_income *= earnings;
 
             // GDP per capita (capital/investment income)
-            p.pension_income *= gdp_pc;
             p.dividend_income *= gdp_pc;
             p.property_income *= gdp_pc;
             p.maintenance_income *= gdp_pc;

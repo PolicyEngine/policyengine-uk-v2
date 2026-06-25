@@ -59,7 +59,9 @@ console = Console()
 def _has_targets(year: int) -> bool:
     import json
 
-    targets = json.loads((REPO_ROOT / "data" / "calibration_targets.json").read_text())["targets"]
+    targets = json.loads((REPO_ROOT / "data" / "calibration_targets.json").read_text())[
+        "targets"
+    ]
     return any(t["year"] == year for t in targets)
 
 
@@ -82,7 +84,13 @@ def _ensure_frs_clean(frs_year: int, work_dir: Path) -> Path:
     console.print(f"  downloading FRS {frs_year} clean from GCS")
     for fname in ("persons.csv", "benunits.csv", "households.csv"):
         subprocess.run(
-            ["gcloud", "storage", "cp", f"{BUCKET}/frs/{frs_year}/{fname}", str(frs_clean) + "/"],
+            [
+                "gcloud",
+                "storage",
+                "cp",
+                f"{BUCKET}/frs/{frs_year}/{fname}",
+                str(frs_clean) + "/",
+            ],
             check=True,
         )
     return frs_clean
@@ -94,7 +102,9 @@ def upload_clean(year: int, clean_dir: Path) -> None:
         raise SystemExit(f"No CSVs in {clean_dir} — extraction must have failed")
     dest = f"{BUCKET}/efrs/{year}/"
     console.print(f"  uploading {len(csvs)} files → {dest}")
-    subprocess.run(["gcloud", "storage", "cp", *[str(f) for f in csvs], dest], check=True)
+    subprocess.run(
+        ["gcloud", "storage", "cp", *[str(f) for f in csvs], dest], check=True
+    )
 
 
 def _ensure_efrs_base(base_year: int, work_dir: Path) -> Path:
@@ -107,13 +117,21 @@ def _ensure_efrs_base(base_year: int, work_dir: Path) -> Path:
     console.print(f"  downloading EFRS {base_year} base from GCS")
     for fname in ("persons.csv", "benunits.csv", "households.csv"):
         subprocess.run(
-            ["gcloud", "storage", "cp", f"{BUCKET}/efrs/{base_year}/{fname}", str(base_dir) + "/"],
+            [
+                "gcloud",
+                "storage",
+                "cp",
+                f"{BUCKET}/efrs/{base_year}/{fname}",
+                str(base_dir) + "/",
+            ],
             check=True,
         )
     return base_dir
 
 
-def build_forecast(year: int, work_dir: Path, upload: bool = True, calibrate: bool = True) -> None:
+def build_forecast(
+    year: int, work_dir: Path, upload: bool = True, calibrate: bool = True
+) -> None:
     """Build a forecast-year EFRS by uprating the latest real EFRS to OBR prices.
 
     No new survey data exists past FORECAST_BASE_YEAR, so we take that year's
@@ -134,8 +152,12 @@ def build_forecast(year: int, work_dir: Path, upload: bool = True, calibrate: bo
 
     persons = pd.read_csv(base_dir / "persons.csv")
     households = pd.read_csv(base_dir / "households.csv")
-    uprate_persons(persons, FORECAST_BASE_YEAR, year).to_csv(out_dir / "persons.csv", index=False)
-    uprate_households(households, FORECAST_BASE_YEAR, year).to_csv(out_dir / "households.csv", index=False)
+    uprate_persons(persons, FORECAST_BASE_YEAR, year).to_csv(
+        out_dir / "persons.csv", index=False
+    )
+    uprate_households(households, FORECAST_BASE_YEAR, year).to_csv(
+        out_dir / "households.csv", index=False
+    )
     # benunits carry no monetary fields — copy unchanged.
     pd.read_csv(base_dir / "benunits.csv").to_csv(out_dir / "benunits.csv", index=False)
 
@@ -144,9 +166,13 @@ def build_forecast(year: int, work_dir: Path, upload: bool = True, calibrate: bo
         from calibrate import CalibrateConfig
         from calibrate import run as run_calibration
 
-        run_calibration(out_dir, year, CalibrateConfig(weight_deviation_penalty=0.0, dropout=0.0))
+        run_calibration(
+            out_dir, year, CalibrateConfig(weight_deviation_penalty=0.0, dropout=0.0)
+        )
     elif calibrate:
-        console.print(f"  [yellow]no calibration targets for {year} — leaving uprated weights[/yellow]")
+        console.print(
+            f"  [yellow]no calibration targets for {year} — leaving uprated weights[/yellow]"
+        )
 
     if upload:
         upload_clean(year, out_dir)
@@ -178,7 +204,9 @@ def _ensure_spi_block(work_dir: Path) -> Path:
             _ensure_frs_clean(y, work_dir)
 
     console.print(f"[bold]Building SPI block from {SPI_BLOCK_YEAR} pooled FRS[/bold]")
-    persons, benunits, households = pool_frs_years(frs_base, frs_year, n_years=POOL_N_YEARS)
+    persons, benunits, households = pool_frs_years(
+        frs_base, frs_year, n_years=POOL_N_YEARS
+    )
 
     # Donor families carry imputed unearned income, matching the original flow.
     earnings_index = load_efo_earnings_index(RAW_DIR / "obr" / "efo_economy.xlsx")
@@ -193,7 +221,9 @@ def _ensure_spi_block(work_dir: Path) -> Path:
     return block_dir
 
 
-def build(year: int, work_dir: Path, upload: bool = True, calibrate: bool = True) -> None:
+def build(
+    year: int, work_dir: Path, upload: bool = True, calibrate: bool = True
+) -> None:
     if year in FORECAST_YEARS:
         build_forecast(year, work_dir, upload=upload, calibrate=calibrate)
         return
@@ -204,7 +234,9 @@ def build(year: int, work_dir: Path, upload: bool = True, calibrate: bool = True
     # Pool the target FRS year with the two preceding years (uprated to the
     # target's price level) to triple the sample and smooth the calibrated
     # poverty series. The window shrinks only if earlier years are unavailable.
-    pool_years = [y for y in range(frs_year - POOL_N_YEARS + 1, frs_year + 1) if y >= 1994]
+    pool_years = [
+        y for y in range(frs_year - POOL_N_YEARS + 1, frs_year + 1) if y >= 1994
+    ]
     for y in pool_years:
         _ensure_frs_clean(y, work_dir)
 
@@ -230,17 +262,28 @@ def build(year: int, work_dir: Path, upload: bool = True, calibrate: bool = True
     from impute import impute
 
     spi_block_dir = _ensure_spi_block(work_dir)
-    impute(efrs_out, was_raw, lcfs_raw, year=year, spi_dir=spi_raw,
-           spi_block_dir=spi_block_dir, spi_block_year=SPI_BLOCK_YEAR)
+    impute(
+        efrs_out,
+        was_raw,
+        lcfs_raw,
+        year=year,
+        spi_dir=spi_raw,
+        spi_block_dir=spi_block_dir,
+        spi_block_year=SPI_BLOCK_YEAR,
+    )
 
     if calibrate and _has_targets(year):
         console.print(f"  calibrating weights for EFRS {year}")
         from calibrate import CalibrateConfig
         from calibrate import run as run_calibration
 
-        run_calibration(efrs_out, year, CalibrateConfig(weight_deviation_penalty=0.0, dropout=0.0))
+        run_calibration(
+            efrs_out, year, CalibrateConfig(weight_deviation_penalty=0.0, dropout=0.0)
+        )
     elif calibrate:
-        console.print(f"  [yellow]no calibration targets for {year} — leaving uprated weights[/yellow]")
+        console.print(
+            f"  [yellow]no calibration targets for {year} — leaving uprated weights[/yellow]"
+        )
 
     if upload:
         upload_clean(year, efrs_out)
@@ -249,7 +292,9 @@ def build(year: int, work_dir: Path, upload: bool = True, calibrate: bool = True
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     all_years = sorted(YEARS) + FORECAST_YEARS
-    parser.add_argument("--year", type=int, choices=all_years, help="Single year to build")
+    parser.add_argument(
+        "--year", type=int, choices=all_years, help="Single year to build"
+    )
     parser.add_argument("--work-dir", type=Path, default=REPO_ROOT / "data")
     parser.add_argument("--no-upload", action="store_true")
     parser.add_argument("--no-calibrate", action="store_true")
@@ -273,7 +318,12 @@ def main() -> None:
 
     for year in years:
         try:
-            build(year, args.work_dir, upload=not args.no_upload, calibrate=not args.no_calibrate)
+            build(
+                year,
+                args.work_dir,
+                upload=not args.no_upload,
+                calibrate=not args.no_calibrate,
+            )
         except subprocess.CalledProcessError as e:
             console.print(f"[red]Failed on year {year}: {e}[/red]")
             sys.exit(1)

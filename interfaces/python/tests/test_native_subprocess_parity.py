@@ -41,7 +41,7 @@ pytestmark = [
 
 
 def _run_native(policy):
-    sim = Simulation(year=YEAR)
+    sim = Simulation(year=YEAR, dataset="frs")
     assert sim._native_sim is None
     return sim.run_microdata(policy=policy)
 
@@ -49,7 +49,7 @@ def _run_native(policy):
 def _run_subprocess(policy, monkeypatch):
     # Disable the native module so run_microdata falls through to the subprocess.
     monkeypatch.setattr(engine, "_native", None)
-    sim = Simulation(year=YEAR)
+    sim = Simulation(year=YEAR, dataset="frs")
     return sim.run_microdata(policy=policy)
 
 

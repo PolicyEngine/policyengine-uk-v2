@@ -158,7 +158,7 @@ class TestRunRustMissingColumnRaises:
             households = FakeDF(["weight", "baseline_net_income", "baseline_total_tax"])
 
         class FakeSim:
-            def __init__(self, year):
+            def __init__(self, year, dataset=None):
                 pass
 
             def run_microdata(self):

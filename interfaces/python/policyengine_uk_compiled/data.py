@@ -212,6 +212,19 @@ def ensure_dataset(dataset: str, year: int) -> str:
     if all((year_dir / f).exists() for f in expected):
         return str(local_base)
 
+    # Exact year missing locally — fall back to the nearest earlier local year
+    # (the engine uprates forward at runtime), matching ensure_frs.
+    if local_base.is_dir():
+        local_years = sorted(
+            (int(p.name) for p in local_base.iterdir() if p.name.isdigit()),
+            reverse=True,
+        )
+        for y in local_years:
+            if y <= year and all(
+                (local_base / str(y) / f).exists() for f in expected
+            ):
+                return str(local_base)
+
     if not os.environ.get(ENV_TOKEN):
         raise FileNotFoundError(
             f"No {dataset.upper()} data found for {year}. Set {ENV_TOKEN} to auto-download."
@@ -243,7 +256,7 @@ def capabilities() -> dict:
         "efrs": (
             "Enhanced Family Resources Survey. Merges FRS household microdata with "
             "Wealth and Assets Survey (wealth) and Living Costs and Food Survey "
-            "(expenditure). Full tax-benefit model. Available from 1994 to 2029. "
+            "(expenditure). Full tax-benefit model. Available from 1994 to 2030. "
             "Use when wealth or expenditure data is needed (e.g. wealth tax, VAT)."
         ),
         "frs": (
@@ -269,7 +282,7 @@ def capabilities() -> dict:
 
     return {
         "engine": "PolicyEngine UK compiled microsimulation engine",
-        "fiscal_years_supported": "1994–2029 (year=2025 means 2025/26 fiscal year)",
+        "fiscal_years_supported": "1994–2030 (year=2025 means 2025/26 fiscal year)",
         "multi_year_analysis": (
             "Fully supported. Call tools once per year and collate results. "
             "Never refuse a multi-year or trend question — just loop over years."

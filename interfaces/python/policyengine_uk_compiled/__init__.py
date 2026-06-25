@@ -87,6 +87,7 @@ from policyengine_uk_compiled.engine import (
 )
 from policyengine_uk_compiled.structural import StructuralReform, aggregate_microdata, combine_microdata
 from policyengine_uk_compiled.data import download_all, ensure_year, ensure_dataset, DATASETS, capabilities
+from policyengine_uk_compiled.realterms import cpi_index_for_year, deflate, CPI_BASE_YEAR
 
 __all__ = [
     "Simulation",
@@ -101,6 +102,9 @@ __all__ = [
     "ensure_dataset",
     "DATASETS",
     "capabilities",
+    "cpi_index_for_year",
+    "deflate",
+    "CPI_BASE_YEAR",
     "SimulationConfig",
     "SimulationResult",
     "MicrodataResult",
