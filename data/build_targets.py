@@ -976,7 +976,11 @@ def build_targets(years: list[int]) -> list[dict]:
         # cannot close it and only distorts the weight vector chasing it.
         ("capital_gains_tax_total",   "person", "capital_gains_tax",  "sum", "hmrc", "capital_gains_tax"),
         ("vat_total",                 "household", "vat",             "sum", "hmrc", "vat"),
-        ("stamp_duty_total",          "household", "stamp_duty",      "sum", "hmrc", "stamp_duty"),
+        # Stamp duty is intentionally not a calibration target: the engine
+        # under-predicts receipts by ~15-19% every year (missing higher-rate
+        # surcharges on additional/non-resident dwellings, plus survey under-
+        # capture of high-value transactions). The gap is structural and stable,
+        # so reweighting only distorts the weight vector chasing it.
     ]
     BENEFIT_SPECS = [
         ("child_benefit_total",         "benunit", "child_benefit",         "sum", "dwp", "child_benefit"),
