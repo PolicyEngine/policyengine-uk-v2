@@ -1,0 +1,1 @@
+`Simulation` now requires a dataset to be named explicitly when no DataFrames are passed — there is no implicit FRS default. Constructing a `Simulation` with neither DataFrames nor `dataset=` (nor `data_dir=`) raises `ValueError`.
