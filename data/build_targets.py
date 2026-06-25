@@ -968,7 +968,12 @@ def build_targets(years: list[int]) -> list[dict]:
     INCOME_TAX_SPECS = [
         ("income_tax_total",          "person", "income_tax",         "sum", "hmrc", "income_tax"),
         ("employee_ni_total",         "person", "employee_ni",        "sum", "hmrc", "employee_ni"),
-        ("employer_ni_total",         "person", "employer_ni",        "sum", "hmrc", "employer_ni"),
+        # Employer NI is intentionally not a calibration target: the engine
+        # computes gross statutory liability (15% above the secondary threshold)
+        # with no reliefs, while the HMRC receipts figure is net of the
+        # Employment Allowance, under-21/apprentice exemptions and the per-job
+        # (not per-person) threshold. The ~28% gap is structural, so reweighting
+        # cannot close it and only distorts the weight vector chasing it.
         ("capital_gains_tax_total",   "person", "capital_gains_tax",  "sum", "hmrc", "capital_gains_tax"),
         ("vat_total",                 "household", "vat",             "sum", "hmrc", "vat"),
         ("stamp_duty_total",          "household", "stamp_duty",      "sum", "hmrc", "stamp_duty"),
