@@ -1,0 +1,1 @@
+Add `data/gen_growth_factors.py`, which generates the `growth_factors` block (CPI, GDP deflator, average weekly earnings growth) of each parameter YAML from the OBR EFO March 2026 economy detailed tables (1.6 labour market, 1.7 inflation). The source workbook is fetched from `gs://policyengine-uk-microdata/obr/` and cached locally.
