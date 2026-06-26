@@ -98,9 +98,10 @@ function Heatmap({ data, src, trained, query }) {
     const x = d3.scaleBand().domain(years).range([labelW, labelW + years.length * cell])
     const y = d3.scaleBand().domain(d3.range(rows.length)).range([top, top + rows.length * cell])
 
-    // Continuous scale on |relative error %|. Fit is sub-0.1% almost
-    // everywhere, so a sqrt transform keeps small differences visible rather
-    // than washing the whole grid green. Domain caps at the larger of 1% or the
+    // Continuous scale on |relative error %|. Most targets fit tightly but a
+    // handful miss by several percent, so a sqrt transform keeps the small
+    // differences visible rather than washing the grid green, while still
+    // separating the worst misses. Domain caps at the larger of 1% or the
     // worst visible error, clamped, with green (good) → red (bad) via RdYlGn.
     const colour = d3.scaleSequentialSqrt(d3.interpolateRdYlGn).domain([maxErr, 0]).clamp(true)
     const cellColor = (v) => v == null ? 'transparent' : colour(Math.abs(v))
@@ -277,7 +278,7 @@ export default function CalibrationSection({ id }) {
         Stat-Xplore UC award-amount, element and in-work breakdowns, ONS consumption,
         OBR labour market). The heatmap shows the final relative error for
         every target in every year on a continuous green-to-red scale (sqrt-spaced so
-        sub-0.1% differences stay visible) — green is a near-perfect fit, red the worst
+        small differences stay visible) — green is a tight fit, red the worst
         miss in view. Forecast years
         (2025–2029) uprate the 2024 base and calibrate to projected targets.
       </p>
