@@ -42,10 +42,10 @@ YEARS: dict[int, tuple[int, str, str, str]] = {
 
 # Forecast years have no FRS/WAS/LCFS data: they uprate the latest real EFRS year
 # (2024) to OBR EFO price levels and calibrate to uprated forecast targets.
-# Capped at the last fiscal year the engine has policy parameters for (2029/30);
-# 2030 has no parameters/2030_31.yaml so the baseline simulation can't run.
+# Capped at the last fiscal year the engine has policy parameters for: 2030/31
+# (parameters/2030_31.yaml), beyond which the baseline simulation can't run.
 FORECAST_BASE_YEAR = 2024
-FORECAST_YEARS = list(range(2025, 2030))
+FORECAST_YEARS = list(range(2025, 2031))
 
 # The SPI high-earner block is built ONCE from the most recent survey year's
 # pooled FRS frame, then reused verbatim every year (only amounts/weights are
