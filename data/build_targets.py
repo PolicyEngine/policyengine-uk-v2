@@ -329,6 +329,37 @@ def load_spi_distributions(spi_dir: Path) -> dict[int, list[dict]]:
     return out
 
 
+# Collapse SPI Tables 3.6/3.7 bands at/above this total-income threshold into one.
+# The public tape is disclosure-controlled in the top bands: FACT scaling inflates
+# the grossed counts so the per-band mean income the survey carries no longer
+# matches the published count/amount pair (self-employment £523k+/£1m+ sit ~14%
+# below their target mean). Reweighting can't fix a per-record mean, so the over-
+# tight sub-band constraints are unfittable. Pooling them into one band leaves a
+# single aggregate count+amount the survey can satisfy by reweighting toward its
+# highest earners. The floor is a raw SPI band edge (compared before earnings-
+# uprating); the raw bands run …£200k/£300k/£500k/£1m. It sits at £300k (one band
+# below the disclosure-control onset at £500k): the pooled £500k+£1m band alone is
+# still too thin to fit count and amount together under the 10x clamp, so the
+# well-represented £300k band is folded in to give the count constraint slack. The
+# pension count-drop below is coupled to this floor, so the inflated top-band
+# pension headcounts stay dropped.
+_SPI_TOP_POOL_FLOOR = 300_000.0
+
+
+def _pool_spi_top_rows(rows: list[dict], sources: list[tuple[str, str]]) -> list[dict]:
+    """Collapse all bands with lo >= _SPI_TOP_POOL_FLOOR into one combined band,
+    summing each source's count and amount; bands below the floor pass through."""
+    low = [r for r in rows if r["lo"] < _SPI_TOP_POOL_FLOOR]
+    high = [r for r in rows if r["lo"] >= _SPI_TOP_POOL_FLOOR]
+    if len(high) <= 1:
+        return rows
+    merged = {"lo": min(r["lo"] for r in high), "hi": max(r["hi"] for r in high)}
+    for key, _ in sources:
+        merged[f"{key}_n"] = sum(r[f"{key}_n"] for r in high)
+        merged[f"{key}_a"] = sum(r[f"{key}_a"] for r in high)
+    return [*low, merged]
+
+
 # ── SPI investment income (Table 3.7) ───────────────────────────────────────
 
 # HMRC SPI Table 3.7 by total-income band: number of individuals (thousands) and
@@ -449,7 +480,7 @@ def build_spi_investment_targets(
             amt_factor = earnings_index[yr] / earnings_index[base]
         else:
             continue
-        for r in _pool_spi37_rows(rows):
+        for r in _pool_spi_top_rows(_pool_spi37_rows(rows), _SPI37_SOURCES):
             # Beyond the latest vintage the band edges uprate with earnings too,
             # not just the amounts (see build_spi_targets).
             lo = r["lo"] * amt_factor
@@ -542,7 +573,7 @@ def build_spi_targets(
             amt_factor = earnings_index[yr] / earnings_index[base]
         else:
             continue
-        for r in rows:
+        for r in _pool_spi_top_rows(rows, _SPI_SOURCES):
             # Beyond the latest vintage the band edges uprate with earnings too,
             # not just the amounts — otherwise the £-thresholds stay frozen while
             # the amounts grow, mis-aligning the band a record's income falls in.
@@ -557,12 +588,15 @@ def build_spi_targets(
             for key, variable in _SPI_SOURCES:
                 count, amount = r[f"{key}_n"], r[f"{key}_a"]
                 # The public SPI tape is disclosure-controlled in the top bands:
-                # FACT jumps ~10→~32 per record above £500k, so its grossed
-                # pension headcount (~20k in the £1m+ band) is ~10× the published
-                # count (~2k) while the amount agrees. Injected records carry the
-                # tape's many-small-pensions shape, so a count target there is
-                # unreachable — keep only the amount for pension ≥£500k bands.
-                if key in ("state_pension", "private_pension") and r["lo"] >= 500_000:
+                # FACT jumps ~10→~32 per record, so its grossed pension headcount
+                # (~20k in the £1m+ band) is ~10× the published count (~2k) while
+                # the amount agrees. Injected records carry the tape's many-small-
+                # pensions shape, so a count target there is unreachable — keep only
+                # the amount for pension bands at/above the top-pool floor (£314k).
+                if (
+                    key in ("state_pension", "private_pension")
+                    and r["lo"] >= _SPI_TOP_POOL_FLOOR
+                ):
                     count = 0
                 if count > 0:
                     out.append(
@@ -852,6 +886,66 @@ def load_dwp_caseloads(path: Path) -> dict[int, dict[str, float]]:
             if isinstance(v, (int, float)) and v != 0:
                 out.setdefault(yr, {})[variable] = float(v) * 1000.0
 
+    return out
+
+
+# ── Carer's Allowance cases-in-payment ───────────────────────────────────────
+
+# The OBR dwp.xlsx "Carers Allowance" sheet reports CA *entitled* cases, which
+# include ~400k people entitled but not paid (the State-Pension overlap rule pays
+# the higher benefit instead). CA *expenditure* is paid-only, so pairing it with
+# the entitled headcount implies a per-recipient mean ~18% below what the engine
+# assigns. Stat-Xplore's CA_In_Payment_New gives the paid-only caseload, which is
+# the definition consistent with the expenditure; we use it to override the CA
+# caseload target. The DB only starts May 2018, so earlier fiscal years fall back
+# to the OBR entitled count scaled by the earliest observed paid share.
+_SX_CA_DB = "str:database:CA_In_Payment_New"
+_SX_CA_COUNT = "str:count:CA_In_Payment_New:V_F_CA_In_Payment_New"
+_SX_CA_DATE = "str:field:CA_In_Payment_New:F_CA_QTR_New:DATE_NAME"
+_SX_CA_CACHE = RAW_DIR / "dwp" / "ca_in_payment.json"
+
+
+def load_ca_in_payment() -> dict[int, float]:
+    """Return {fiscal_year_start: mean cases-in-payment} for Carer's Allowance.
+
+    Pulls every quarterly snapshot CA_In_Payment_New publishes (one query, all
+    dates), maps each YYYYMM to its UK fiscal year (Apr–Mar: months 1–3 belong to
+    the prior fiscal year), and averages the quarters within each year. Cached to
+    `_SX_CA_CACHE`; a present cache is reused without hitting the API.
+    """
+    if _SX_CA_CACHE.exists():
+        cached = json.loads(_SX_CA_CACHE.read_text())
+        return {int(y): float(v) for y, v in cached.items()}
+
+    key = os.environ.get("STAT_XPLORE_API_KEY")
+    if not key:
+        raise SystemExit(
+            "STAT_XPLORE_API_KEY not set and no cache at "
+            f"{_SX_CA_CACHE}; cannot fetch CA cases in payment."
+        )
+    headers = {"APIKey": key, "Content-Type": "application/json"}
+
+    query = {
+        "database": _SX_CA_DB,
+        "measures": [_SX_CA_COUNT],
+        "dimensions": [[_SX_CA_DATE]],
+    }
+    resp = requests.post(f"{_SX_BASE}/table", headers=headers, json=query, timeout=120)
+    resp.raise_for_status()
+    data = resp.json()
+
+    yyyymm = [int(i["uris"][0].split(":")[-1]) for i in data["fields"][0]["items"]]
+    values = data["cubes"][_SX_CA_COUNT]["values"]
+    by_fy: dict[int, list[float]] = {}
+    for ym, v in zip(yyyymm, values):
+        if v is None:
+            continue
+        cal_year, month = ym // 100, ym % 100
+        fy = cal_year - 1 if month <= 3 else cal_year
+        by_fy.setdefault(fy, []).append(float(v))
+    out = {fy: sum(vs) / len(vs) for fy, vs in by_fy.items()}
+    _SX_CA_CACHE.parent.mkdir(parents=True, exist_ok=True)
+    _SX_CA_CACHE.write_text(json.dumps(out))
     return out
 
 
@@ -1451,6 +1545,29 @@ def build_targets(years: list[int]) -> list[dict]:
     dwp = load_dwp_benefits(dwp_path)
     coicop = load_coicop(qna_path)
     caseloads = load_dwp_caseloads(dwp_path)
+    # Override the CA caseload (OBR entitled) with the Stat-Xplore cases-in-payment
+    # series, so the headcount matches the paid-only expenditure target. Years
+    # before the in-payment DB starts (2018) keep the OBR entitled count scaled by
+    # the earliest observed paid share; forecast years past the latest snapshot
+    # are left to the generic forecast uprating of the corrected level.
+    ca_paid = load_ca_in_payment()
+    if ca_paid:
+        first_paid_fy = min(ca_paid)
+        ca_entitled = {
+            yr: d["carers_allowance"]
+            for yr, d in caseloads.items()
+            if "carers_allowance" in d
+        }
+        paid_share = (
+            ca_paid[first_paid_fy] / ca_entitled[first_paid_fy]
+            if ca_entitled.get(first_paid_fy)
+            else 1.0
+        )
+        for yr in ca_entitled:
+            if yr in ca_paid:
+                caseloads[yr]["carers_allowance"] = ca_paid[yr]
+            elif yr < first_paid_fy:
+                caseloads[yr]["carers_allowance"] = ca_entitled[yr] * paid_share
     # UC caseload: use the Stat-Xplore UC_Households paying-household count (the
     # award-band sum over index 1+, dropping the nil-award band 0) as the actual
     # series up to its latest November snapshot, then carry it forward by the
@@ -1817,6 +1934,48 @@ def build_targets(years: list[int]) -> list[dict]:
     all_specs = (
         INCOME_TAX_SPECS + BENEFIT_SPECS + COICOP_SPECS + CASELOAD_SPECS + LABOUR_SPECS
     )
+    # Held out of the calibration loss but still scored in the diagnostics.
+    #
+    # Income Support's expenditure (£280m, DWP Table 1a) and caseload (43k) come
+    # from two independent DWP series whose implied per-recipient mean (£6.5k) is
+    # 27% below what the engine assigns (£8.3k). Reweighting scales record copies,
+    # not per-record amounts, so the optimiser can hit neither without the other
+    # drifting; at IS's tiny size it isn't worth distorting the weight vector.
+    #
+    # Income tax, employee NI and VAT receipts are held out because the engine
+    # emits statutory *liability* while the NS_Table targets are HMRC *cash
+    # receipts*; liability exceeds receipts by the tax gap (the uncollected /
+    # evaded / avoided portion). The engine over-predicts each on an income/
+    # consumption base the SPI and COICOP targets already pin to <0.1%, so there
+    # is no compositional slack left for reweighting to close the gap (income tax
+    # +3.3%, NI +5.2%, VAT +7.3% in 2024 — the published UK tax-gap ordering).
+    # This is the same liability-vs-receipts mismatch that already drops employer
+    # NI, CGT and stamp duty (see INCOME_TAX_SPECS). Kept visible (not deleted)
+    # so the gap stays in the report rather than being silently scaled away.
+    #
+    # UC and state pension *totals* are held out because each contradicts a finer
+    # target set the survey fits cleanly, so reweighting can't hit both. UC: the
+    # Stat-Xplore award-band counts already pin the UC distribution shape, so the
+    # aggregate £ total can't also be matched once the per-band amounts differ from
+    # the engine's. State pension: the total competes with the FRS-grossed 65-75 /
+    # 75+ age bands — the same pensioner households carry both, so lifting weights
+    # to reach the SP total overshoots the elderly population controls. We keep the
+    # distribution (award bands) and the population bands, holding out the totals.
+    #
+    # Carers' allowance: the in-payment caseload fix (Stat-Xplore) narrowed the
+    # count/total mean gap but a residual remains the 10x clamp can't close, so the
+    # pair splits it (~±1.3%). We hold out the *claimants* count and keep the £
+    # expenditure total, since costings read against CA spend, not headcount.
+    HOLDOUT_NAMES = {
+        "income_support_total",
+        "income_support_claimants",
+        "income_tax_total",
+        "employee_ni_total",
+        "vat_total",
+        "universal_credit_total",
+        "state_pension_total",
+        "carers_allowance_claimants",
+    }
     source_map = {
         "hmrc": hmrc,
         "dwp": dwp,
@@ -1853,7 +2012,7 @@ def build_targets(years: list[int]) -> list[dict]:
                     "value": round(val, 0),
                     "source": source_label[source_key],
                     "year": yr,
-                    "holdout": False,
+                    "holdout": name in HOLDOUT_NAMES,
                 }
             )
 

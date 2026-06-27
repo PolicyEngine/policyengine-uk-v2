@@ -28,7 +28,27 @@ from policyengine_uk_compiled import Simulation
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TARGETS_PATH = REPO_ROOT / "data" / "calibration_targets.json"
 
+# Survey-weight snapshot written by the build (efrs.py) into each year's clean
+# dir right after imputation/uprating. It is the cold-start baseline: run()
+# restores `weight` from it before optimising, so calibration can be re-run any
+# number of times — separately from the build — and always starts cold from the
+# survey weights, never warm from a previous calibration's output. A build
+# artifact (the engine reads `weight` from households.csv, never this file), so
+# it doesn't reintroduce a survey-weight column into the CSV schema.
+SURVEY_WEIGHTS_FILE = "survey_weights.npy"
+
 console = Console()
+
+
+def snapshot_survey_weights(data_dir: Path) -> None:
+    """Persist households.csv's current weight column as the cold-start baseline.
+
+    Called by the build after the survey weights are finalised (imputation for
+    real years, population-index uprating for forecast years) so a later
+    standalone calibration restores exactly these weights.
+    """
+    hh = pd.read_csv(data_dir / "households.csv")
+    np.save(data_dir / SURVEY_WEIGHTS_FILE, hh["weight"].to_numpy(dtype=float))
 
 
 # ── Config ───────────────────────────────────────────────────────────────────
@@ -424,7 +444,35 @@ def run(
         )
     train_mask = train_mask & ~too_small
 
-    initial_weights = households["weight"].to_numpy(dtype=float)
+    # Held-out targets are excluded from the loss but still scored in the report,
+    # so a structurally unfittable target (e.g. a count/total pair whose implied
+    # per-recipient mean the survey can't match) stops dragging the global RMSRE
+    # without vanishing from the diagnostics.
+    holdout = np.array([t.get("holdout", False) for t in targets])
+    n_holdout = int((train_mask & holdout).sum())
+    if n_holdout:
+        console.print(f"  [yellow]Held out {n_holdout} targets from loss[/yellow]")
+    train_mask = train_mask & ~holdout
+
+    # Cold start: restore the survey-weight snapshot the build wrote, so a
+    # standalone re-run calibrates from the survey baseline rather than warm from
+    # a previous calibration's output (which this run is about to overwrite in
+    # households.csv). Falls back to the current weight column if no snapshot
+    # exists (e.g. an externally-supplied dir built before snapshots).
+    snap_path = data_dir / SURVEY_WEIGHTS_FILE
+    if snap_path.exists():
+        initial_weights = np.load(snap_path)
+        if len(initial_weights) != len(households):
+            raise SystemExit(
+                f"Survey-weight snapshot length {len(initial_weights)} != "
+                f"household count {len(households)} in {data_dir}"
+            )
+    else:
+        console.print(
+            "  [yellow]No survey-weight snapshot; calibrating from current "
+            "weight column (may be warm)[/yellow]"
+        )
+        initial_weights = households["weight"].to_numpy(dtype=float)
 
     weights = calibrate(matrix, y, train_mask, initial_weights, config)
     print_report(targets, matrix, y, train_mask, weights, initial_weights)

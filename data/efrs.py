@@ -161,6 +161,12 @@ def build_forecast(
     # benunits carry no monetary fields — copy unchanged.
     pd.read_csv(base_dir / "benunits.csv").to_csv(out_dir / "benunits.csv", index=False)
 
+    # Snapshot the uprated survey weights as the cold-start baseline so
+    # calibration can be re-run standalone (make calibrate) without rebuilding.
+    from calibrate import snapshot_survey_weights
+
+    snapshot_survey_weights(out_dir)
+
     if calibrate and _has_targets(year):
         console.print(f"  calibrating weights for EFRS {year}")
         from calibrate import CalibrateConfig
@@ -272,6 +278,12 @@ def build(
         spi_block_year=SPI_BLOCK_YEAR,
     )
 
+    # Snapshot the post-imputation survey weights as the cold-start baseline so
+    # calibration can be re-run standalone (make calibrate) without rebuilding.
+    from calibrate import snapshot_survey_weights
+
+    snapshot_survey_weights(efrs_out)
+
     if calibrate and _has_targets(year):
         console.print(f"  calibrating weights for EFRS {year}")
         from calibrate import CalibrateConfig
@@ -289,6 +301,30 @@ def build(
         upload_clean(year, efrs_out)
 
 
+def calibrate_only(year: int, work_dir: Path) -> None:
+    """Reweight an already-built clean dir, cold from its survey-weight snapshot.
+
+    Skips pooling/imputation/uprating entirely: it reads the existing clean dir
+    (built by `efrs.py --no-calibrate`), so calibration can be iterated on
+    without rebuilding. The cold start comes from the snapshot written at build
+    time, so this is reproducible no matter how many times it is re-run.
+    """
+    efrs_out = work_dir / "clean" / "efrs" / str(year)
+    if not (efrs_out / "households.csv").exists():
+        console.print(f"[yellow]skip {year}: no clean dir at {efrs_out}[/yellow]")
+        return
+    if not _has_targets(year):
+        console.print(f"[yellow]skip {year}: no calibration targets[/yellow]")
+        return
+    console.rule(f"calibrate EFRS {year} (no rebuild)")
+    from calibrate import CalibrateConfig
+    from calibrate import run as run_calibration
+
+    run_calibration(
+        efrs_out, year, CalibrateConfig(weight_deviation_penalty=0.0, dropout=0.0)
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     all_years = sorted(YEARS) + FORECAST_YEARS
@@ -298,9 +334,21 @@ def main() -> None:
     parser.add_argument("--work-dir", type=Path, default=REPO_ROOT / "data")
     parser.add_argument("--no-upload", action="store_true")
     parser.add_argument("--no-calibrate", action="store_true")
+    parser.add_argument(
+        "--calibrate-only",
+        action="store_true",
+        help="Reweight existing clean dirs from their survey-weight snapshots "
+        "without rebuilding (pool/impute/uprate skipped).",
+    )
     args = parser.parse_args()
 
     years = [args.year] if args.year else all_years
+
+    if args.calibrate_only:
+        for year in years:
+            calibrate_only(year, args.work_dir)
+        console.print("[green]Done.[/green]")
+        return
 
     table = Table(title=f"Building EFRS for {len(years)} year(s)", show_header=True)
     table.add_column("Year", style="bold")
