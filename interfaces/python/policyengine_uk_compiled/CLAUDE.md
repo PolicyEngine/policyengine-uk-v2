@@ -5,7 +5,12 @@ Compiled Rust binary wrapped in Python. Simulates UK income tax, National Insura
 ## Quick start
 
 ```python
-from policyengine_uk_compiled import Simulation, Parameters, IncomeTaxParams
+from policyengine_uk_compiled import (
+    Simulation,
+    Parameters,
+    IncomeTaxParams,
+    get_baseline_params,
+)
 
 # Single person earning £50k
 persons, benunits, households = Simulation.single_person(employment_income=50_000)
@@ -16,6 +21,9 @@ result.budgetary_impact.net_cost  # fiscal impact
 # With a reform
 reform = Parameters(income_tax=IncomeTaxParams(personal_allowance=20_000))
 result = sim.run(policy=reform)
+
+# Parameter inspection does not require microdata
+params = get_baseline_params(year=2025)
 ```
 
 ## Two output modes
