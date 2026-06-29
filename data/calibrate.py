@@ -55,35 +55,23 @@ def snapshot_survey_weights(data_dir: Path) -> None:
 
 
 class CalibrateConfig(BaseModel):
-    # `epochs` is now a generous upper bound: with dropout off the loss is
-    # deterministic and the optimiser stops early once the training RMSRE
-    # plateaus (see `tol`). Slow-converging years (e.g. 2019-2021, where the
-    # carer's-allowance caseload only pulls in after many steps) get the extra
-    # iterations they need; easy years stop in a fraction of the cap.
     epochs: int = 4096
     lr: float = 0.02
     beta1: float = 0.9
     beta2: float = 0.999
     eps: float = 1e-8
-    dropout: float = 0.05
     log_interval: int = 16
-    # No household may exceed max_weight_ratio× its original weight (or fall
-    # below 1/ratio×). Hard backstop applied after each step. 0 disables.
-    max_weight_ratio: float = 10.0
-    # Early stopping: stop once the training RMSRE improves by less than `tol`
-    # (in %) over `patience` consecutive check intervals. Only active when
-    # dropout is 0 (otherwise the loss is noisy and the plateau test is
-    # unreliable). 5e-4 ≈ "no longer moving in the 3rd decimal place".
+    # Hard cap: no household may exceed max_weight_fraction × mean survey weight.
+    # This is the sole control on weight concentration / ESS floor.
+    # 0 disables. At 50× mean the top-1% weight share drops meaningfully with
+    # ~0.1pp RMSRE cost vs unconstrained; below 20× RMSRE degrades substantially.
+    max_weight_fraction: float = Field(default=50.0, ge=0.0)
+    # Early stopping: halt once RMSRE improves by less than `tol` (%) over
+    # `patience` consecutive log intervals.
     tol: float = Field(default=5e-4, ge=0.0)
     patience: int = Field(default=3, ge=1)
-    # Weight on the log-space deviation penalty: mean_i (log w_i - log w0_i)^2.
-    # 0.05 keeps mean abs log-weight drift ~0.07 (vs ~0.23 at 0.01) for ~1pp
-    # more RMSRE — favouring fidelity to the survey over chasing every target.
-    weight_deviation_penalty: float = Field(default=5e-2, ge=0.0)
-    # Drop targets below these magnitudes from the loss. RMSRE is magnitude-blind,
-    # so a tiny target (e.g. a £11m dividend micro-band, or transitional UC in its
-    # 2013 pilot year) the survey frame can't represent dominates the metric and
-    # the gradient. Floored by unit: £ for sum targets, people for count targets.
+    # Drop targets below these magnitudes from the loss (RMSRE is magnitude-blind
+    # so tiny targets dominate the gradient).
     min_target_value_sum: float = Field(default=5e7, ge=0.0)
     min_target_value_count: float = Field(default=1e4, ge=0.0)
 
@@ -212,13 +200,13 @@ def calibrate(
     train_mask: np.ndarray,
     initial_weights: np.ndarray,
     config: CalibrateConfig,
+    seed: int = 0,
 ) -> np.ndarray:
-    """Adam optimisation of log-weights minimising MSRE + log-deviation penalty.
+    """Adam in log-space minimising MSRE with a hard per-household weight cap.
 
-    `initial_weights` are the survey weights: they anchor the log-deviation
-    penalty and the hard max-weight-ratio clamp, and also set the optimiser's
-    starting point, so every year solves cold from the survey weights and the
-    result is reproducible.
+    The cap (max_weight_fraction × mean survey weight) is the sole regulariser:
+    no penalty term, no dropout. Starting point is always the survey weights,
+    so results are fully reproducible given the same targets and data.
     """
     n_hh = matrix.shape[0]
     n_train = int(train_mask.sum())
@@ -226,38 +214,25 @@ def calibrate(
         return initial_weights.copy()
 
     w0 = np.where(initial_weights > 0.0, initial_weights, 1.0)
-    u0 = np.log(w0)
-    u = u0.copy()
+    u = np.log(w0).copy()
 
-    if config.max_weight_ratio > 0.0:
-        u_max = u0 + np.log(config.max_weight_ratio)
-        u_min = u0 - np.log(config.max_weight_ratio)
-        np.clip(u, u_min, u_max, out=u)
+    if config.max_weight_fraction > 0.0:
+        u_max = np.full(n_hh, np.log(config.max_weight_fraction * w0.mean()))
+        np.clip(u, -np.inf, u_max, out=u)
     else:
         u_max = np.full(n_hh, np.inf)
-        u_min = np.full(n_hh, -np.inf)
 
     m = np.zeros(n_hh)
     v = np.zeros(n_hh)
-    rng = np.random.default_rng(0)
 
-    # Only training targets with non-trivial magnitude contribute to the loss.
     active = train_mask & (np.abs(y) > 1.0)
     y_safe = np.where(np.abs(y) > 1.0, y, 1.0)
-    lam = config.weight_deviation_penalty
 
-    # Early stopping only when the loss is deterministic (no dropout noise).
-    can_stop = config.dropout == 0.0 and config.tol > 0.0
     best_rmsre = np.inf
     stalls = 0
 
     for epoch in range(config.epochs):
-        if config.dropout > 0.0:
-            keep = rng.random(n_hh) >= config.dropout
-            weights = np.where(keep, np.exp(u) / (1.0 - config.dropout), 0.0)
-        else:
-            weights = np.exp(u)
-
+        weights = np.exp(u)
         predictions = matrix.T @ weights
         residuals = np.where(active, predictions / y_safe - 1.0, 0.0)
 
@@ -267,7 +242,7 @@ def calibrate(
             console.print(
                 f"  epoch {epoch:>4}/{config.epochs}: training RMSRE {rmsre:.2f}%"
             )
-            if can_stop:
+            if config.tol > 0.0:
                 if best_rmsre - rmsre < config.tol:
                     stalls += 1
                     if stalls >= config.patience:
@@ -279,10 +254,7 @@ def calibrate(
                     stalls = 0
                 best_rmsre = min(best_rmsre, rmsre)
 
-        # Gradient of MSRE wrt u_i = exp-weighted projection of residuals.
-        g_msre = (2.0 / n_train) * weights * (matrix @ (residuals / y_safe))
-        g_pen = lam * (2.0 / n_hh) * (u - u0)
-        grad = g_msre + g_pen
+        grad = (2.0 / n_train) * weights * (matrix @ (residuals / y_safe))
 
         t = epoch + 1
         m = config.beta1 * m + (1.0 - config.beta1) * grad
@@ -290,7 +262,7 @@ def calibrate(
         m_hat = m / (1.0 - config.beta1**t)
         v_hat = v / (1.0 - config.beta2**t)
         u -= config.lr * m_hat / (np.sqrt(v_hat) + config.eps)
-        np.clip(u, u_min, u_max, out=u)
+        np.clip(u, -np.inf, u_max, out=u)
 
     return np.exp(u)
 
@@ -324,6 +296,7 @@ def print_report(
     n_train = int(active.sum())
     rmsre = np.sqrt(np.sum(rel_err[active] ** 2) / n_train) * 100.0 if n_train else 0.0
 
+    ess = weights.sum() ** 2 / (weights ** 2).sum()
     console.print("\n[bold green]Calibration complete[/bold green]")
     console.print(
         f"  households: {len(weights)}  "
@@ -331,6 +304,7 @@ def print_report(
         f"calibrated weight sum: {weights.sum():,.0f}"
     )
     console.print(f"  training RMSRE: {rmsre:.2f}%")
+    console.print(f"  ESS: {ess:,.0f}  ({ess/len(weights)*100:.1f}% of n_hh)")
 
     order = np.argsort(-np.abs(rel_err))
     table = Table(show_header=True)
@@ -454,11 +428,6 @@ def run(
         console.print(f"  [yellow]Held out {n_holdout} targets from loss[/yellow]")
     train_mask = train_mask & ~holdout
 
-    # Cold start: restore the survey-weight snapshot the build wrote, so a
-    # standalone re-run calibrates from the survey baseline rather than warm from
-    # a previous calibration's output (which this run is about to overwrite in
-    # households.csv). Falls back to the current weight column if no snapshot
-    # exists (e.g. an externally-supplied dir built before snapshots).
     snap_path = data_dir / SURVEY_WEIGHTS_FILE
     if snap_path.exists():
         initial_weights = np.load(snap_path)
@@ -532,6 +501,7 @@ def run(
     console.print(f"[green]Wrote calibrated weights to {hh_path}[/green]")
 
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -545,14 +515,9 @@ def main() -> None:
         "--epochs", type=int, default=CalibrateConfig.model_fields["epochs"].default
     )
     parser.add_argument(
-        "--weight-deviation-penalty",
+        "--max-weight-fraction",
         type=float,
-        default=CalibrateConfig.model_fields["weight_deviation_penalty"].default,
-    )
-    parser.add_argument(
-        "--max-weight-ratio",
-        type=float,
-        default=CalibrateConfig.model_fields["max_weight_ratio"].default,
+        default=CalibrateConfig.model_fields["max_weight_fraction"].default,
     )
     parser.add_argument(
         "--sources",
@@ -565,8 +530,7 @@ def main() -> None:
 
     config = CalibrateConfig(
         epochs=args.epochs,
-        weight_deviation_penalty=args.weight_deviation_penalty,
-        max_weight_ratio=args.max_weight_ratio,
+        max_weight_fraction=args.max_weight_fraction,
     )
     run(args.data, args.year, config, sources=args.sources)
 
