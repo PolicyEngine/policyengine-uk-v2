@@ -81,6 +81,7 @@ from policyengine_uk_compiled.models import (
 )
 from policyengine_uk_compiled.engine import (
     Simulation,
+    get_baseline_params,
     PERSON_DEFAULTS,
     BENUNIT_DEFAULTS,
     HOUSEHOLD_DEFAULTS,
@@ -91,6 +92,7 @@ from policyengine_uk_compiled.realterms import cpi_index_for_year, deflate, CPI_
 
 __all__ = [
     "Simulation",
+    "get_baseline_params",
     "StructuralReform",
     "aggregate_microdata",
     "combine_microdata",

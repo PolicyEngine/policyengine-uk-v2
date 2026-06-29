@@ -82,6 +82,32 @@ def _find_cwd(binary_path: str) -> str:
     raise FileNotFoundError("Cannot find parameters/ directory.")
 
 
+def get_baseline_params(
+    year: int = 2025,
+    timeout: int = 10,
+    binary_path: Optional[str] = None,
+) -> dict:
+    """Export baseline parameters for a fiscal year without loading microdata."""
+    resolved_binary_path = binary_path or _find_binary()
+    cmd = [
+        resolved_binary_path,
+        "--year",
+        str(year),
+        "--export-params-json",
+    ]
+    cwd = _find_cwd(resolved_binary_path)
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        cwd=cwd,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to export params: {result.stderr}")
+    return json.loads(result.stdout)
+
+
 def _df_to_csv(df) -> str:
     """Convert a DataFrame to CSV string."""
     return df.to_csv(index=False)
@@ -679,14 +705,11 @@ class Simulation:
 
     def get_baseline_params(self, timeout: int = 10) -> dict:
         """Export the baseline parameters for the configured year as a dict."""
-        cmd = [self.binary_path, "--year", str(self.year), "--export-params-json"]
-        cwd = _find_cwd(self.binary_path)
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd,
+        return get_baseline_params(
+            year=self.year,
+            timeout=timeout,
+            binary_path=self.binary_path,
         )
-        if result.returncode != 0:
-            raise RuntimeError(f"Failed to export params: {result.stderr}")
-        return json.loads(result.stdout)
 
     # ── Convenience constructors for hypothetical households ──────────────
 
