@@ -68,12 +68,24 @@ _AGE_BAND_EDGES = (25, 35, 45, 55, 65, 75)  # → bands 1..7
 _SP_AGE = 80
 _SEX_GENDER = {1: "male", 2: "female", 0: "male"}
 
+# SPI tape GORCODE → region name. Canonical ONS Government Office Region
+# ordering (1=North East … 9=South West, 10=Wales, 11=Scotland, 12=NI),
+# confirmed against this tape: SCOT_TXP localises 11→Scotland, WELSH_TXP
+# localises 10→Wales, and mean total income localises 7→London, 8→South East.
+# Codes 13/14/-1 are residual/unknown (e.g. non-resident) — no region match,
+# so those records fall back to a same-(age,sex) donor of any region.
+_GORCODE_REGION = {
+    1: "North East", 2: "North West", 3: "Yorkshire", 4: "East Midlands",
+    5: "West Midlands", 6: "East of England", 7: "London", 8: "South East",
+    9: "South West", 10: "Wales", 11: "Scotland", 12: "Northern Ireland",
+}
+
 
 def _load_spi(spi_dir: Path) -> pd.DataFrame:
     matches = sorted(spi_dir.glob("*.tab"))
     if not matches:
         raise SystemExit(f"No SPI .tab file in {spi_dir}")
-    cols = ["FACT", "SRP", "SEX", "AGERANGE", "TI", *_INCOME_MAP.values()]
+    cols = ["FACT", "SRP", "SEX", "AGERANGE", "GORCODE", "TI", *_INCOME_MAP.values()]
     return pd.read_csv(matches[0], sep="\t", usecols=cols)
 
 
@@ -147,31 +159,46 @@ def build_spi_block(
         persons, benunits, households, threshold
     )
 
-    # Donor pool: surviving households, bucketed by their head's (age band, sex).
+    # Donor pool: surviving households, bucketed by their head's
+    # (age band, sex, region). Region is a match key so the cloned earner lands
+    # in the SPI record's OWN region (carried on GORCODE) rather than inheriting
+    # the donor's — without it, a £100k+ reform smears across regions in
+    # proportion to where the FRS donor pool sits, inverting the regional map.
     heads = persons[persons["is_household_head"]]
     head_hh = heads["household_id"].to_numpy()
     head_band = _age_to_band(heads["age"].to_numpy(float))
     head_female = (heads["gender"].to_numpy() == "female")
     hh_pos = {h: i for i, h in enumerate(households["household_id"].to_numpy())}
     head_pos = np.array([hh_pos[h] for h in head_hh])
+    head_region = households["region"].to_numpy()[head_pos]
 
-    buckets: dict[tuple[int, bool], np.ndarray] = {}
+    buckets: dict[tuple[int, bool, str], np.ndarray] = {}
+    buckets_bf: dict[tuple[int, bool], np.ndarray] = {}
     for band in range(1, 8):
         for female in (False, True):
-            sel = (head_band == band) & (head_female == female)
-            if sel.any():
-                buckets[(band, female)] = head_pos[sel]
+            bf = (head_band == band) & (head_female == female)
+            if bf.any():
+                buckets_bf[(band, female)] = head_pos[bf]
+            for region in set(head_region):
+                sel = bf & (head_region == region)
+                if sel.any():
+                    buckets[(band, female, region)] = head_pos[sel]
     any_male = head_pos[~head_female]
     any_female = head_pos[head_female]
 
-    # Match each SPI record to a donor household position.
+    # Match each SPI record to a donor household position. Region comes from the
+    # record's GORCODE; residual/unknown codes (13/14/-1) map to None and fall
+    # back to a same-(age,sex) donor of any region.
     spi_band = np.array([int(a) if a in _AGERANGE_AGE else 4 for a in spi["AGERANGE"]])
     spi_band = np.where(spi_band == -1, 4, spi_band)
     spi_female = spi["SEX"].to_numpy() == 2
+    spi_region = [_GORCODE_REGION.get(int(g)) for g in spi["GORCODE"].to_numpy()]
     picks = np.empty(n_inject, dtype=int)
     for i in range(n_inject):
-        b, f = int(spi_band[i]), bool(spi_female[i])
-        pool = buckets.get((b, f))
+        b, f, r = int(spi_band[i]), bool(spi_female[i]), spi_region[i]
+        pool = buckets.get((b, f, r)) if r is not None else None
+        if pool is None:
+            pool = buckets_bf.get((b, f))
         if pool is None:
             pool = any_female if f else any_male
         picks[i] = pool[rng.integers(len(pool))]

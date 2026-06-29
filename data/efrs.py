@@ -30,20 +30,22 @@ _LCFS_DONOR = "lcfs/2022"
 _SPI_DONOR = "spi/2022"
 # Number of consecutive FRS years pooled per EFRS year (target + preceding).
 POOL_N_YEARS = 3
-# Start at 2015: EFRS year Y pools FRS years Y-2..Y, so 2015 is the first year
-# whose pool (FRS 2013-2015) is entirely free of the stale pre-2013 clean FRS
-# frames, which carry no housing benefit (HB sits on the renter record before
-# benefit code 94 appears in FRS 2013, and the GCS clean FRS predates that fix).
+# Start at 2016: EFRS year Y pools FRS years Y-2..Y, so 2016's pool (FRS
+# 2014-2016) is entirely free of the stale pre-2013 clean FRS frames, which carry
+# no housing benefit (HB sits on the renter record before benefit code 94 appears
+# in FRS 2013, and the GCS clean FRS predates that fix). 2015 is dropped: its pool
+# reaches back to FRS 2013, the first patched year, leaving it the thinnest /
+# least reliable real year.
 YEARS: dict[int, tuple[int, str, str, str]] = {
-    y: (y, _WAS_DONOR, _LCFS_DONOR, _SPI_DONOR) for y in range(2015, 2025)
+    y: (y, _WAS_DONOR, _LCFS_DONOR, _SPI_DONOR) for y in range(2016, 2025)
 }
 
 # Forecast years have no FRS/WAS/LCFS data: they uprate the latest real EFRS year
 # (2024) to OBR EFO price levels and calibrate to uprated forecast targets.
-# Capped at the last fiscal year the engine has policy parameters for (2029/30);
-# 2030 has no parameters/2030_31.yaml so the baseline simulation can't run.
+# Capped at the last fiscal year the engine has policy parameters for: 2030/31
+# (parameters/2030_31.yaml), beyond which the baseline simulation can't run.
 FORECAST_BASE_YEAR = 2024
-FORECAST_YEARS = list(range(2025, 2030))
+FORECAST_YEARS = list(range(2025, 2031))
 
 # The SPI high-earner block is built ONCE from the most recent survey year's
 # pooled FRS frame, then reused verbatim every year (only amounts/weights are
@@ -54,55 +56,12 @@ SPI_BLOCK_YEAR = max(YEARS)
 console = Console()
 
 
-def warm_start_weights(out_dir: Path, year: int, work_dir: Path) -> None:
-    """Write a `start_weight` column seeded from the previous year's calibrated
-    solution, matched by the cross-year `provenance` key.
-
-    Each EFRS year pools a 3-year FRS window, so ~2/3 of households recur from
-    year to year (same provenance key); the SPI block is identical every year.
-    Calibration is underdetermined in the decile dimension — deciles aren't
-    targets, so the solver is free to wander the null space, and solving each
-    year cold from the survey weights lands on a different null-space point,
-    churning decile composition into a spurious year-on-year sawtooth. Starting
-    the optimiser from last year's solution makes it converge to a nearby point,
-    so unchanged records keep their weight and only genuine target moves shift it.
-
-    This only sets the optimiser's STARTING POINT (calibrate's `start_weights`).
-    The survey `weight` column is left untouched so it still anchors the
-    deviation penalty and the max-weight-ratio clamp — otherwise a record needing
-    a big shift would be boxed to within 10× of last year's value instead of its
-    survey value, which blows up the fit. Records with no prior match (the freshly
-    rotated-in FRS year, plus dropped high earners) fall back to the survey weight.
-    """
-    import pandas as pd
-
-    from uprate import cumulative_factor
-
-    prev_path = work_dir / "clean" / "efrs" / str(year - 1) / "households.csv"
-    if not prev_path.exists():
-        return
-    cur = pd.read_csv(out_dir / "households.csv")
-    prev = pd.read_csv(prev_path)
-    if "provenance" not in cur.columns or "provenance" not in prev.columns:
-        return
-
-    # Scale prior calibrated weights to this year's population so the warm start
-    # starts at the right grossed total (calibration then fine-tunes).
-    pop = cumulative_factor(year - 1, year, "population")
-    prev_w = dict(zip(prev["provenance"], prev["weight"].to_numpy(float) * pop))
-    matched = cur["provenance"].map(prev_w)
-    n_matched = int(matched.notna().sum())
-    cur["start_weight"] = matched.fillna(cur["weight"]).to_numpy(float)
-    cur.to_csv(out_dir / "households.csv", index=False)
-    console.print(
-        f"  warm-started {n_matched}/{len(cur)} weights from EFRS {year - 1}"
-    )
-
-
 def _has_targets(year: int) -> bool:
     import json
 
-    targets = json.loads((REPO_ROOT / "data" / "calibration_targets.json").read_text())["targets"]
+    targets = json.loads((REPO_ROOT / "data" / "calibration_targets.json").read_text())[
+        "targets"
+    ]
     return any(t["year"] == year for t in targets)
 
 
@@ -125,7 +84,13 @@ def _ensure_frs_clean(frs_year: int, work_dir: Path) -> Path:
     console.print(f"  downloading FRS {frs_year} clean from GCS")
     for fname in ("persons.csv", "benunits.csv", "households.csv"):
         subprocess.run(
-            ["gcloud", "storage", "cp", f"{BUCKET}/frs/{frs_year}/{fname}", str(frs_clean) + "/"],
+            [
+                "gcloud",
+                "storage",
+                "cp",
+                f"{BUCKET}/frs/{frs_year}/{fname}",
+                str(frs_clean) + "/",
+            ],
             check=True,
         )
     return frs_clean
@@ -137,7 +102,9 @@ def upload_clean(year: int, clean_dir: Path) -> None:
         raise SystemExit(f"No CSVs in {clean_dir} — extraction must have failed")
     dest = f"{BUCKET}/efrs/{year}/"
     console.print(f"  uploading {len(csvs)} files → {dest}")
-    subprocess.run(["gcloud", "storage", "cp", *[str(f) for f in csvs], dest], check=True)
+    subprocess.run(
+        ["gcloud", "storage", "cp", *[str(f) for f in csvs], dest], check=True
+    )
 
 
 def _ensure_efrs_base(base_year: int, work_dir: Path) -> Path:
@@ -150,13 +117,21 @@ def _ensure_efrs_base(base_year: int, work_dir: Path) -> Path:
     console.print(f"  downloading EFRS {base_year} base from GCS")
     for fname in ("persons.csv", "benunits.csv", "households.csv"):
         subprocess.run(
-            ["gcloud", "storage", "cp", f"{BUCKET}/efrs/{base_year}/{fname}", str(base_dir) + "/"],
+            [
+                "gcloud",
+                "storage",
+                "cp",
+                f"{BUCKET}/efrs/{base_year}/{fname}",
+                str(base_dir) + "/",
+            ],
             check=True,
         )
     return base_dir
 
 
-def build_forecast(year: int, work_dir: Path, upload: bool = True, calibrate: bool = True) -> None:
+def build_forecast(
+    year: int, work_dir: Path, upload: bool = True, calibrate: bool = True
+) -> None:
     """Build a forecast-year EFRS by uprating the latest real EFRS to OBR prices.
 
     No new survey data exists past FORECAST_BASE_YEAR, so we take that year's
@@ -177,20 +152,33 @@ def build_forecast(year: int, work_dir: Path, upload: bool = True, calibrate: bo
 
     persons = pd.read_csv(base_dir / "persons.csv")
     households = pd.read_csv(base_dir / "households.csv")
-    uprate_persons(persons, FORECAST_BASE_YEAR, year).to_csv(out_dir / "persons.csv", index=False)
-    uprate_households(households, FORECAST_BASE_YEAR, year).to_csv(out_dir / "households.csv", index=False)
+    uprate_persons(persons, FORECAST_BASE_YEAR, year).to_csv(
+        out_dir / "persons.csv", index=False
+    )
+    uprate_households(households, FORECAST_BASE_YEAR, year).to_csv(
+        out_dir / "households.csv", index=False
+    )
     # benunits carry no monetary fields — copy unchanged.
     pd.read_csv(base_dir / "benunits.csv").to_csv(out_dir / "benunits.csv", index=False)
 
+    # Snapshot the uprated survey weights as the cold-start baseline so
+    # calibration can be re-run standalone (make calibrate) without rebuilding.
+    from calibrate import snapshot_survey_weights
+
+    snapshot_survey_weights(out_dir)
+
     if calibrate and _has_targets(year):
-        warm_start_weights(out_dir, year, work_dir)
         console.print(f"  calibrating weights for EFRS {year}")
         from calibrate import CalibrateConfig
         from calibrate import run as run_calibration
 
-        run_calibration(out_dir, year, CalibrateConfig(weight_deviation_penalty=0.0))
+        run_calibration(
+            out_dir, year, CalibrateConfig(weight_deviation_penalty=0.0, dropout=0.0)
+        )
     elif calibrate:
-        console.print(f"  [yellow]no calibration targets for {year} — leaving uprated weights[/yellow]")
+        console.print(
+            f"  [yellow]no calibration targets for {year} — leaving uprated weights[/yellow]"
+        )
 
     if upload:
         upload_clean(year, out_dir)
@@ -222,7 +210,9 @@ def _ensure_spi_block(work_dir: Path) -> Path:
             _ensure_frs_clean(y, work_dir)
 
     console.print(f"[bold]Building SPI block from {SPI_BLOCK_YEAR} pooled FRS[/bold]")
-    persons, benunits, households = pool_frs_years(frs_base, frs_year, n_years=POOL_N_YEARS)
+    persons, benunits, households = pool_frs_years(
+        frs_base, frs_year, n_years=POOL_N_YEARS
+    )
 
     # Donor families carry imputed unearned income, matching the original flow.
     earnings_index = load_efo_earnings_index(RAW_DIR / "obr" / "efo_economy.xlsx")
@@ -237,7 +227,9 @@ def _ensure_spi_block(work_dir: Path) -> Path:
     return block_dir
 
 
-def build(year: int, work_dir: Path, upload: bool = True, calibrate: bool = True) -> None:
+def build(
+    year: int, work_dir: Path, upload: bool = True, calibrate: bool = True
+) -> None:
     if year in FORECAST_YEARS:
         build_forecast(year, work_dir, upload=upload, calibrate=calibrate)
         return
@@ -248,7 +240,9 @@ def build(year: int, work_dir: Path, upload: bool = True, calibrate: bool = True
     # Pool the target FRS year with the two preceding years (uprated to the
     # target's price level) to triple the sample and smooth the calibrated
     # poverty series. The window shrinks only if earlier years are unavailable.
-    pool_years = [y for y in range(frs_year - POOL_N_YEARS + 1, frs_year + 1) if y >= 1994]
+    pool_years = [
+        y for y in range(frs_year - POOL_N_YEARS + 1, frs_year + 1) if y >= 1994
+    ]
     for y in pool_years:
         _ensure_frs_clean(y, work_dir)
 
@@ -274,33 +268,87 @@ def build(year: int, work_dir: Path, upload: bool = True, calibrate: bool = True
     from impute import impute
 
     spi_block_dir = _ensure_spi_block(work_dir)
-    impute(efrs_out, was_raw, lcfs_raw, year=year, spi_dir=spi_raw,
-           spi_block_dir=spi_block_dir, spi_block_year=SPI_BLOCK_YEAR)
+    impute(
+        efrs_out,
+        was_raw,
+        lcfs_raw,
+        year=year,
+        spi_dir=spi_raw,
+        spi_block_dir=spi_block_dir,
+        spi_block_year=SPI_BLOCK_YEAR,
+    )
+
+    # Snapshot the post-imputation survey weights as the cold-start baseline so
+    # calibration can be re-run standalone (make calibrate) without rebuilding.
+    from calibrate import snapshot_survey_weights
+
+    snapshot_survey_weights(efrs_out)
 
     if calibrate and _has_targets(year):
-        warm_start_weights(efrs_out, year, work_dir)
         console.print(f"  calibrating weights for EFRS {year}")
         from calibrate import CalibrateConfig
         from calibrate import run as run_calibration
 
-        run_calibration(efrs_out, year, CalibrateConfig(weight_deviation_penalty=0.0))
+        run_calibration(
+            efrs_out, year, CalibrateConfig(weight_deviation_penalty=0.0, dropout=0.0)
+        )
     elif calibrate:
-        console.print(f"  [yellow]no calibration targets for {year} — leaving uprated weights[/yellow]")
+        console.print(
+            f"  [yellow]no calibration targets for {year} — leaving uprated weights[/yellow]"
+        )
 
     if upload:
         upload_clean(year, efrs_out)
 
 
+def calibrate_only(year: int, work_dir: Path) -> None:
+    """Reweight an already-built clean dir, cold from its survey-weight snapshot.
+
+    Skips pooling/imputation/uprating entirely: it reads the existing clean dir
+    (built by `efrs.py --no-calibrate`), so calibration can be iterated on
+    without rebuilding. The cold start comes from the snapshot written at build
+    time, so this is reproducible no matter how many times it is re-run.
+    """
+    efrs_out = work_dir / "clean" / "efrs" / str(year)
+    if not (efrs_out / "households.csv").exists():
+        console.print(f"[yellow]skip {year}: no clean dir at {efrs_out}[/yellow]")
+        return
+    if not _has_targets(year):
+        console.print(f"[yellow]skip {year}: no calibration targets[/yellow]")
+        return
+    console.rule(f"calibrate EFRS {year} (no rebuild)")
+    from calibrate import CalibrateConfig
+    from calibrate import run as run_calibration
+
+    run_calibration(
+        efrs_out, year, CalibrateConfig(weight_deviation_penalty=0.0, dropout=0.0)
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     all_years = sorted(YEARS) + FORECAST_YEARS
-    parser.add_argument("--year", type=int, choices=all_years, help="Single year to build")
+    parser.add_argument(
+        "--year", type=int, choices=all_years, help="Single year to build"
+    )
     parser.add_argument("--work-dir", type=Path, default=REPO_ROOT / "data")
     parser.add_argument("--no-upload", action="store_true")
     parser.add_argument("--no-calibrate", action="store_true")
+    parser.add_argument(
+        "--calibrate-only",
+        action="store_true",
+        help="Reweight existing clean dirs from their survey-weight snapshots "
+        "without rebuilding (pool/impute/uprate skipped).",
+    )
     args = parser.parse_args()
 
     years = [args.year] if args.year else all_years
+
+    if args.calibrate_only:
+        for year in years:
+            calibrate_only(year, args.work_dir)
+        console.print("[green]Done.[/green]")
+        return
 
     table = Table(title=f"Building EFRS for {len(years)} year(s)", show_header=True)
     table.add_column("Year", style="bold")
@@ -318,7 +366,12 @@ def main() -> None:
 
     for year in years:
         try:
-            build(year, args.work_dir, upload=not args.no_upload, calibrate=not args.no_calibrate)
+            build(
+                year,
+                args.work_dir,
+                upload=not args.no_upload,
+                calibrate=not args.no_calibrate,
+            )
         except subprocess.CalledProcessError as e:
             console.print(f"[red]Failed on year {year}: {e}[/red]")
             sys.exit(1)

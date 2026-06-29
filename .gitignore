@@ -33,3 +33,8 @@ interfaces/web/api/*.egg-info/
 
 energy_shock_consumption.py
 site/node_modules/
+
+# Local tooling / scratch artefacts
+.claude/
+.playwright-mcp/
+/heatmap-*.png

@@ -167,6 +167,41 @@ class WealthTaxParams(BaseModel):
     rate: Optional[float] = None
 
 
+class VatParams(BaseModel):
+    """Value Added Tax rates and consumption shares (VATA 1994)."""
+    standard_rate: Optional[float] = None
+    reduced_rate: Optional[float] = None
+    zero_rate: Optional[float] = None
+    standard_rated_share: Optional[float] = None
+    reduced_rated_share: Optional[float] = None
+
+
+class FuelDutyParams(BaseModel):
+    petrol_rate_per_litre: Optional[float] = None
+    diesel_rate_per_litre: Optional[float] = None
+    average_petrol_price_per_litre: Optional[float] = None
+    average_diesel_price_per_litre: Optional[float] = None
+
+
+class AlcoholDutyParams(BaseModel):
+    effective_rate: Optional[float] = None
+
+
+class TobaccoDutyParams(BaseModel):
+    effective_rate: Optional[float] = None
+
+
+class LhaParams(BaseModel):
+    enabled: Optional[bool] = None
+    private_rent_index: Optional[float] = None
+
+
+class GrowthFactorsParams(BaseModel):
+    cpi_rate: Optional[float] = None
+    gdp_deflator: Optional[float] = None
+    earnings_growth: Optional[float] = None
+
+
 class DlaParams(BaseModel):
     """Disability Living Allowance weekly rates.
 
@@ -265,6 +300,13 @@ class Parameters(BaseModel):
     pip:  Optional["PipParams"] = None
     wealth_tax: Optional[WealthTaxParams] = None
     labour_supply: Optional[LabourSupplyParams] = None
+
+    vat: Optional[VatParams] = None
+    fuel_duty: Optional[FuelDutyParams] = None
+    alcohol_duty: Optional[AlcoholDutyParams] = None
+    tobacco_duty: Optional[TobaccoDutyParams] = None
+    lha: Optional[LhaParams] = None
+    growth_factors: Optional[GrowthFactorsParams] = None
 
 
 # ── Simulation config ─────────────────────────────────────────────────────────

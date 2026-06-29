@@ -47,6 +47,8 @@ body {
 .layout {
   display: flex;
   min-height: 100vh;
+  max-width: 1180px;
+  margin: 0 auto;
 }
 
 /* ── Sidebar ── */
@@ -604,3 +606,174 @@ p code, li code, td code {
 
 /* hljs overrides */
 .hljs { background: transparent !important; padding: 0 !important; }
+
+/* ── Calibration section ── */
+.cal-controls {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin: 20px 0 8px;
+}
+.cal-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text3);
+}
+.cal-controls select,
+.cal-controls input[type="text"] {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  padding: 6px 9px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  min-width: 150px;
+}
+.cal-controls input[type="text"] { text-transform: none; letter-spacing: 0; }
+
+.cal-year-sel {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--accent);
+}
+
+.cal-hm-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 280px;
+  margin: 12px 0 4px;
+}
+.cal-hm-legend-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text3);
+}
+.cal-hm-legend-bar {
+  height: 10px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+.cal-hm-legend-ticks {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text3);
+}
+
+.cal-hm-wrap {
+  overflow: auto;
+  max-height: 620px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg2);
+  padding: 4px 8px 8px;
+  margin: 12px 0 8px;
+}
+.cal-hm-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
+.cal-hm-wrap::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+.cal-hm-col {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  fill: var(--text2);
+}
+.cal-hm-row {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  fill: var(--text2);
+}
+
+.cal-tip {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 6px 9px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text);
+  z-index: 10;
+  white-space: nowrap;
+  transition: opacity 0.1s;
+}
+
+.cal-table-wrap {
+  max-height: 560px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 12px 0;
+}
+.cal-table-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
+.cal-table-wrap::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+.cal-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.cal-table th,
+.cal-table td {
+  text-align: right;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.cal-table th:first-child,
+.cal-table td:first-child { text-align: left; }
+.cal-th {
+  position: sticky;
+  top: 0;
+  background: var(--bg3);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text3);
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+}
+.cal-th:hover { color: var(--text2); }
+.cal-th.sorted { color: var(--accent); }
+.cal-th.sorted.desc::after { content: ' ▼'; font-size: 7px; }
+.cal-th.sorted.asc::after { content: ' ▲'; font-size: 7px; }
+.cal-table tbody tr:hover td { background: var(--bg2); }
+
+.cal-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+  max-width: 24rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cal-src { color: var(--text3); font-size: 11px; }
+.cal-err { font-family: var(--font-mono); }
+.cal-good { color: var(--green); }
+.cal-warn { color: var(--warn); }
+.cal-bad { color: var(--red); }
+
+.cal-pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 99px;
+  font-size: 10px;
+  background: rgba(45, 212, 191, 0.14);
+  color: var(--accent);
+}
+.cal-pill.untrained { background: var(--bg3); color: var(--text3); }
