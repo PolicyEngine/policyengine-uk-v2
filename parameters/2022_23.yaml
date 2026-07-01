@@ -150,6 +150,14 @@ vat:
   zero_rate: 0.0
 
 growth_factors:
-  cpi_rate: 0.10067         # CPI Sept 2022: 10.067%
-  gdp_deflator: 0.04361
-  earnings_growth: 0.05848
+  # OBR Economic and Fiscal Outlook, March 2026; council tax: MHCLG council tax levels 2026-27, Table 3 (England average Band D)
+  # Rates are the year-on-year change entering FY 2022/23.
+  cpi_rate: 0.10067                 # +10.067% CPI inflation, EFO Table 1.7
+  gdp_deflator: 0.04361             # +4.361% GDP deflator, EFO Table 1.7
+  earnings_growth: 0.05848          # +5.848% average weekly earnings growth, EFO Table 1.6
+  gdp_pc_growth: 0.08656            # +8.656% nominal GDP per 16+ head, EFO Tables 1.4 (quarterly) + 1.6
+  mixed_income_pc_growth: 0.01668   # +1.668% mixed income per 16+ head, EFO Table 1.6
+  savings_interest_growth: 3.82401  # +382.401% deposit rate growth, EFO Table 1.9
+  rent_growth: 0.04058              # +4.058% actual rents for housing, EFO Table 1.7
+  population_growth: 0.01003        # +1.003% 16+ population, EFO Table 1.6
+  council_tax_growth: 0.03500       # +3.500% England average Band D, MHCLG Table 3

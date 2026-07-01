@@ -1,13 +1,18 @@
-"""Build clean EFRS microdata from FRS (clean) + WAS + LCFS raw files on GCS.
+"""Build clean EFRS microdata from a fixed pooled FRS panel + WAS/LCFS/SPI.
 
-EFRS (Enhanced FRS) merges FRS household microdata with WAS (wealth) and LCFS
-(expenditure). Imputation runs in Python (data/impute.py); the Rust binary is
-only used downstream for the baseline simulation during weight calibration.
+Fixed-panel design: pool the clean FRS years {2019, 2021-2024} (skipping the
+covid-2020 collection) at 2024 prices, impute WAS wealth, LCFS consumption and
+SPI top incomes ONCE, then shift the identical panel to every EFRS year
+2016-2030 by de-uprating/uprating monetary columns and weights (data/uprate.py)
+before calibrating each year's weights. Every year shares the same household
+rows, so year-on-year differences come only from growth indices, calibrated
+weights and policy — FRS sample rotation no longer enters the income-growth
+series.
 
 Usage:
-    python data/efrs.py                           # build all years
-    python data/efrs.py --year 2023               # single year
-    python data/efrs.py --year 2023 --no-upload   # extract only
+    python data/efrs.py                           # build panel + all years
+    python data/efrs.py --year 2023               # panel (cached) + one year
+    python data/efrs.py --year 2023 --no-upload   # build only
 """
 
 from __future__ import annotations
@@ -23,37 +28,47 @@ from rich.table import Table
 BUCKET = "gs://policyengine-uk-microdata"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# EFRS fiscal year → (frs_year, was_gcs_ref, lcfs_gcs_ref). Every FRS year is a
-# recipient; the donor pool is the most recent available WAS + LCFS for all years.
+# Imputation donors: the most recent available WAS + LCFS + SPI.
 _WAS_DONOR = "was/round_8"
 _LCFS_DONOR = "lcfs/2022"
 _SPI_DONOR = "spi/2022"
-# Number of consecutive FRS years pooled per EFRS year (target + preceding).
-POOL_N_YEARS = 3
-# Start at 2016: EFRS year Y pools FRS years Y-2..Y, so 2016's pool (FRS
-# 2014-2016) is entirely free of the stale pre-2013 clean FRS frames, which carry
-# no housing benefit (HB sits on the renter record before benefit code 94 appears
-# in FRS 2013, and the GCS clean FRS predates that fix). 2015 is dropped: its pool
-# reaches back to FRS 2013, the first patched year, leaving it the thinnest /
-# least reliable real year.
-YEARS: dict[int, tuple[int, str, str, str]] = {
-    y: (y, _WAS_DONOR, _LCFS_DONOR, _SPI_DONOR) for y in range(2016, 2025)
-}
 
-# Forecast years have no FRS/WAS/LCFS data: they uprate the latest real EFRS year
-# (2024) to OBR EFO price levels and calibrate to uprated forecast targets.
-# Capped at the last fiscal year the engine has policy parameters for: 2030/31
-# (parameters/2030_31.yaml), beyond which the baseline simulation can't run.
-FORECAST_BASE_YEAR = 2024
-FORECAST_YEARS = list(range(2025, 2031))
-
-# The SPI high-earner block is built ONCE from the most recent survey year's
-# pooled FRS frame, then reused verbatim every year (only amounts/weights are
-# rescaled). Building it once fixes the donor family wrapping each SPI earner, so
-# its equivalised-income rank is stable year to year (avoids top-decile churn).
-SPI_BLOCK_YEAR = max(YEARS)
+# FRS years pooled into the fixed panel. 2020 is dropped (covid fieldwork);
+# 2019 is included to keep pre-UC-rollout legacy-benefit claimants in the
+# sample for the earliest EFRS years.
+PANEL_FRS_YEARS = [2019, 2021, 2022, 2023, 2024]
+# Price level the panel is built at (the most recent FRS year).
+PANEL_BASE_YEAR = 2024
+# EFRS years produced by shifting the panel. Capped at the last fiscal year
+# the engine has policy parameters for: 2030/31 (parameters/2030_31.yaml).
+EFRS_YEARS = list(range(2016, 2031))
 
 console = Console()
+
+
+def chain_order(years: list[int]) -> list[int]:
+    """Order years for warm-start chaining: the panel base year first, then
+    outwards (backwards to the earliest, then forwards), so each year's
+    calibration can start from an already-calibrated neighbour."""
+    below = sorted([y for y in years if y < PANEL_BASE_YEAR], reverse=True)
+    above = sorted([y for y in years if y > PANEL_BASE_YEAR])
+    base = [PANEL_BASE_YEAR] if PANEL_BASE_YEAR in years else []
+    return base + below + above
+
+
+def _warm_start_dir(year: int, work_dir: Path) -> Path | None:
+    """Neighbouring year's clean dir to warm-start calibration from, if built.
+
+    The panel base year always starts cold from its survey-weight snapshot;
+    years below it chain from year+1, years above from year-1 (chain_order
+    guarantees the neighbour is calibrated first in a full build). Returns
+    None — a cold start — when the neighbour hasn't been built locally.
+    """
+    if year == PANEL_BASE_YEAR:
+        return None
+    neighbour = year + 1 if year < PANEL_BASE_YEAR else year - 1
+    d = work_dir / "clean" / "efrs" / str(neighbour)
+    return d if (d / "households.csv").exists() else None
 
 
 def _has_targets(year: int) -> bool:
@@ -107,61 +122,124 @@ def upload_clean(year: int, clean_dir: Path) -> None:
     )
 
 
-def _ensure_efrs_base(base_year: int, work_dir: Path) -> Path:
-    """Return the latest real EFRS clean dir, downloading from GCS if absent."""
-    base_dir = work_dir / "clean" / "efrs" / str(base_year)
-    if base_dir.exists() and (base_dir / "households.csv").exists():
-        console.print(f"  [dim]EFRS {base_year} base cached at {base_dir}[/dim]")
-        return base_dir
-    base_dir.mkdir(parents=True, exist_ok=True)
-    console.print(f"  downloading EFRS {base_year} base from GCS")
-    for fname in ("persons.csv", "benunits.csv", "households.csv"):
-        subprocess.run(
-            [
-                "gcloud",
-                "storage",
-                "cp",
-                f"{BUCKET}/efrs/{base_year}/{fname}",
-                str(base_dir) + "/",
-            ],
-            check=True,
-        )
-    return base_dir
+def _ensure_spi_block(work_dir: Path, panel_dir: Path, spi_raw: Path) -> Path:
+    """Build (once) and cache the SPI high-earner block from the pooled panel
+    frame. Injected verbatim into the panel by impute(), so each SPI earner
+    keeps the same donor family wrapper and equivalised-income rank in every
+    EFRS year."""
+    block_dir = work_dir / "clean" / "spi_block"
+    if (block_dir / "households.csv").exists():
+        console.print(f"  [dim]SPI block cached at {block_dir}[/dim]")
+        return block_dir
+
+    import pandas as pd
+
+    from build_targets import RAW_DIR, load_efo_earnings_index
+    from spi_topup import build_spi_block
+    from spi_unearned import impute_unearned_income
+
+    console.print("[bold]Building SPI block from the pooled panel frame[/bold]")
+    persons = pd.read_csv(panel_dir / "persons.csv")
+    benunits = pd.read_csv(panel_dir / "benunits.csv")
+    households = pd.read_csv(panel_dir / "households.csv")
+
+    # Donor families carry imputed unearned income, matching the original flow.
+    earnings_index = load_efo_earnings_index(RAW_DIR / "obr" / "efo_economy.xlsx")
+    impute_unearned_income(persons, spi_raw, PANEL_BASE_YEAR, earnings_index)
+
+    block_p, block_b, block_h = build_spi_block(persons, benunits, households, spi_raw)
+    block_dir.mkdir(parents=True, exist_ok=True)
+    block_p.to_csv(block_dir / "persons.csv", index=False)
+    block_b.to_csv(block_dir / "benunits.csv", index=False)
+    block_h.to_csv(block_dir / "households.csv", index=False)
+    console.print(f"  cached {len(block_h)} SPI households → {block_dir}")
+    return block_dir
 
 
-def build_forecast(
-    year: int, work_dir: Path, upload: bool = True, calibrate: bool = True
-) -> None:
-    """Build a forecast-year EFRS by uprating the latest real EFRS to OBR prices.
+def _panel_ready(panel_dir: Path) -> bool:
+    """The panel is complete once imputation has run: imputed columns (e.g.
+    net_financial_wealth) only appear in households.csv after impute()."""
+    hh = panel_dir / "households.csv"
+    if not hh.exists():
+        return False
+    with hh.open() as f:
+        return "net_financial_wealth" in f.readline()
 
-    No new survey data exists past FORECAST_BASE_YEAR, so we take that year's
-    pooled+imputed clean dir, uprate every monetary column (data/uprate.py) and
-    the weights (population index) to `year`, then calibrate to the uprated
-    forecast targets (built by data/build_targets.py).
+
+def build_panel(work_dir: Path) -> Path:
+    """Pool the panel FRS years at PANEL_BASE_YEAR prices and impute once.
+
+    Idempotent: skipped when the imputed panel already exists on disk.
     """
+    panel_dir = work_dir / "clean" / "efrs" / "panel"
+    if _panel_ready(panel_dir):
+        console.print(f"[dim]panel cached at {panel_dir}[/dim]")
+        return panel_dir
+
+    console.rule(f"EFRS panel (FRS {PANEL_FRS_YEARS} @ {PANEL_BASE_YEAR} prices)")
+    frs_base = work_dir / "clean" / "frs"
+    for y in PANEL_FRS_YEARS:
+        _ensure_frs_clean(y, work_dir)
+
+    was_raw = work_dir / "raw" / _WAS_DONOR
+    _download(_WAS_DONOR, was_raw)
+    lcfs_raw = work_dir / "raw" / _LCFS_DONOR
+    _download(_LCFS_DONOR, lcfs_raw)
+    spi_raw = work_dir / "raw" / _SPI_DONOR
+    _download(_SPI_DONOR, spi_raw)
+
+    from pool import write_pooled
+
+    used = write_pooled(frs_base, PANEL_BASE_YEAR, panel_dir, years=PANEL_FRS_YEARS)
+    console.print(f"  pooled FRS years {used} → {panel_dir}")
+
+    spi_block_dir = _ensure_spi_block(work_dir, panel_dir, spi_raw)
+
+    from impute import impute
+
+    impute(
+        panel_dir,
+        was_raw,
+        lcfs_raw,
+        year=PANEL_BASE_YEAR,
+        spi_dir=spi_raw,
+        spi_block_dir=spi_block_dir,
+        spi_block_year=PANEL_BASE_YEAR,
+    )
+    return panel_dir
+
+
+def build_year(
+    year: int,
+    work_dir: Path,
+    panel_dir: Path,
+    upload: bool = True,
+    calibrate: bool = True,
+) -> None:
+    """Shift the imputed panel to `year` prices, snapshot weights, calibrate."""
     import pandas as pd
 
     from uprate import uprate_households, uprate_persons
 
-    console.rule(f"EFRS {year} (forecast)")
-    base_dir = _ensure_efrs_base(FORECAST_BASE_YEAR, work_dir)
-
+    console.rule(f"EFRS {year} (panel shifted from {PANEL_BASE_YEAR})")
     out_dir = work_dir / "clean" / "efrs" / str(year)
     out_dir.mkdir(parents=True, exist_ok=True)
-    console.print(f"  uprating EFRS {FORECAST_BASE_YEAR} → {year} prices → {out_dir}")
+    console.print(f"  uprating panel {PANEL_BASE_YEAR} → {year} prices → {out_dir}")
 
-    persons = pd.read_csv(base_dir / "persons.csv")
-    households = pd.read_csv(base_dir / "households.csv")
-    uprate_persons(persons, FORECAST_BASE_YEAR, year).to_csv(
+    persons = pd.read_csv(panel_dir / "persons.csv")
+    households = pd.read_csv(panel_dir / "households.csv")
+    uprate_persons(persons, PANEL_BASE_YEAR, year).to_csv(
         out_dir / "persons.csv", index=False
     )
-    uprate_households(households, FORECAST_BASE_YEAR, year).to_csv(
+    uprate_households(households, PANEL_BASE_YEAR, year).to_csv(
         out_dir / "households.csv", index=False
     )
     # benunits carry no monetary fields — copy unchanged.
-    pd.read_csv(base_dir / "benunits.csv").to_csv(out_dir / "benunits.csv", index=False)
+    pd.read_csv(panel_dir / "benunits.csv").to_csv(
+        out_dir / "benunits.csv", index=False
+    )
 
-    # Snapshot the uprated survey weights as the cold-start baseline so
+    # Snapshot the shifted survey weights as the cold-start baseline so
     # calibration can be re-run standalone (make calibrate) without rebuilding.
     from calibrate import snapshot_survey_weights
 
@@ -173,141 +251,29 @@ def build_forecast(
         from calibrate import run as run_calibration
 
         run_calibration(
-            out_dir, year, CalibrateConfig(weight_deviation_penalty=0.0, dropout=0.0)
+            out_dir,
+            year,
+            CalibrateConfig(),
+            warm_start_dir=_warm_start_dir(year, work_dir),
         )
     elif calibrate:
         console.print(
-            f"  [yellow]no calibration targets for {year} — leaving uprated weights[/yellow]"
+            f"  [yellow]no calibration targets for {year} — leaving shifted weights[/yellow]"
         )
 
     if upload:
         upload_clean(year, out_dir)
 
 
-def _ensure_spi_block(work_dir: Path) -> Path:
-    """Build (once) and cache the SPI high-earner block from SPI_BLOCK_YEAR's
-    pooled FRS frame. Reused verbatim by every year's impute() call so each SPI
-    earner keeps the same donor family wrapper and equivalised-income rank.
-    """
-    block_dir = work_dir / "clean" / "spi_block"
-    if (block_dir / "households.csv").exists():
-        console.print(f"  [dim]SPI block cached at {block_dir}[/dim]")
-        return block_dir
-
-    import pandas as pd
-
-    from build_targets import RAW_DIR, load_efo_earnings_index
-    from pool import pool_frs_years
-    from spi_topup import build_spi_block
-    from spi_unearned import impute_unearned_income
-
-    frs_year = YEARS[SPI_BLOCK_YEAR][0]
-    spi_raw = work_dir / "raw" / YEARS[SPI_BLOCK_YEAR][3]
-    _download(YEARS[SPI_BLOCK_YEAR][3], spi_raw)
-    frs_base = work_dir / "clean" / "frs"
-    for y in range(frs_year - POOL_N_YEARS + 1, frs_year + 1):
-        if y >= 1994:
-            _ensure_frs_clean(y, work_dir)
-
-    console.print(f"[bold]Building SPI block from {SPI_BLOCK_YEAR} pooled FRS[/bold]")
-    persons, benunits, households = pool_frs_years(
-        frs_base, frs_year, n_years=POOL_N_YEARS
-    )
-
-    # Donor families carry imputed unearned income, matching the original flow.
-    earnings_index = load_efo_earnings_index(RAW_DIR / "obr" / "efo_economy.xlsx")
-    impute_unearned_income(persons, spi_raw, SPI_BLOCK_YEAR, earnings_index)
-
-    block_p, block_b, block_h = build_spi_block(persons, benunits, households, spi_raw)
-    block_dir.mkdir(parents=True, exist_ok=True)
-    block_p.to_csv(block_dir / "persons.csv", index=False)
-    block_b.to_csv(block_dir / "benunits.csv", index=False)
-    block_h.to_csv(block_dir / "households.csv", index=False)
-    console.print(f"  cached {len(block_h)} SPI households → {block_dir}")
-    return block_dir
-
-
-def build(
-    year: int, work_dir: Path, upload: bool = True, calibrate: bool = True
-) -> None:
-    if year in FORECAST_YEARS:
-        build_forecast(year, work_dir, upload=upload, calibrate=calibrate)
-        return
-    console.rule(f"EFRS {year}")
-    frs_year, was_ref, lcfs_ref, spi_ref = YEARS[year]
-
-    frs_base = work_dir / "clean" / "frs"
-    # Pool the target FRS year with the two preceding years (uprated to the
-    # target's price level) to triple the sample and smooth the calibrated
-    # poverty series. The window shrinks only if earlier years are unavailable.
-    pool_years = [
-        y for y in range(frs_year - POOL_N_YEARS + 1, frs_year + 1) if y >= 1994
-    ]
-    for y in pool_years:
-        _ensure_frs_clean(y, work_dir)
-
-    was_raw = work_dir / "raw" / was_ref
-    _download(was_ref, was_raw)
-
-    lcfs_raw = work_dir / "raw" / lcfs_ref
-    _download(lcfs_ref, lcfs_raw)
-
-    spi_raw = work_dir / "raw" / spi_ref
-    _download(spi_ref, spi_raw)
-
-    efrs_out = work_dir / "clean" / "efrs" / str(year)
-    efrs_out.mkdir(parents=True, exist_ok=True)
-    console.print(f"  building EFRS {year} → {efrs_out}")
-
-    # Write the pooled, uprated, re-based clean FRS frame, then impute on it.
-    from pool import write_pooled
-
-    used = write_pooled(frs_base, frs_year, efrs_out, n_years=POOL_N_YEARS)
-    console.print(f"  pooled FRS years {used} → {efrs_out}")
-
-    from impute import impute
-
-    spi_block_dir = _ensure_spi_block(work_dir)
-    impute(
-        efrs_out,
-        was_raw,
-        lcfs_raw,
-        year=year,
-        spi_dir=spi_raw,
-        spi_block_dir=spi_block_dir,
-        spi_block_year=SPI_BLOCK_YEAR,
-    )
-
-    # Snapshot the post-imputation survey weights as the cold-start baseline so
-    # calibration can be re-run standalone (make calibrate) without rebuilding.
-    from calibrate import snapshot_survey_weights
-
-    snapshot_survey_weights(efrs_out)
-
-    if calibrate and _has_targets(year):
-        console.print(f"  calibrating weights for EFRS {year}")
-        from calibrate import CalibrateConfig
-        from calibrate import run as run_calibration
-
-        run_calibration(
-            efrs_out, year, CalibrateConfig(weight_deviation_penalty=0.0, dropout=0.0)
-        )
-    elif calibrate:
-        console.print(
-            f"  [yellow]no calibration targets for {year} — leaving uprated weights[/yellow]"
-        )
-
-    if upload:
-        upload_clean(year, efrs_out)
-
-
 def calibrate_only(year: int, work_dir: Path) -> None:
-    """Reweight an already-built clean dir, cold from its survey-weight snapshot.
+    """Reweight an already-built clean dir without rebuilding.
 
     Skips pooling/imputation/uprating entirely: it reads the existing clean dir
     (built by `efrs.py --no-calibrate`), so calibration can be iterated on
-    without rebuilding. The cold start comes from the snapshot written at build
-    time, so this is reproducible no matter how many times it is re-run.
+    without rebuilding. The panel base year starts cold from the survey-weight
+    snapshot written at build time; other years warm-start from their
+    neighbour, so a full `make calibrate` pass (which runs in chain order) is
+    reproducible no matter how many times it is re-run.
     """
     efrs_out = work_dir / "clean" / "efrs" / str(year)
     if not (efrs_out / "households.csv").exists():
@@ -321,15 +287,17 @@ def calibrate_only(year: int, work_dir: Path) -> None:
     from calibrate import run as run_calibration
 
     run_calibration(
-        efrs_out, year, CalibrateConfig(weight_deviation_penalty=0.0, dropout=0.0)
+        efrs_out,
+        year,
+        CalibrateConfig(),
+        warm_start_dir=_warm_start_dir(year, work_dir),
     )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    all_years = sorted(YEARS) + FORECAST_YEARS
     parser.add_argument(
-        "--year", type=int, choices=all_years, help="Single year to build"
+        "--year", type=int, choices=EFRS_YEARS, help="Single year to build"
     )
     parser.add_argument("--work-dir", type=Path, default=REPO_ROOT / "data")
     parser.add_argument("--no-upload", action="store_true")
@@ -342,7 +310,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    years = [args.year] if args.year else all_years
+    years = chain_order([args.year] if args.year else EFRS_YEARS)
 
     if args.calibrate_only:
         for year in years:
@@ -352,29 +320,24 @@ def main() -> None:
 
     table = Table(title=f"Building EFRS for {len(years)} year(s)", show_header=True)
     table.add_column("Year", style="bold")
-    table.add_column("FRS base")
-    table.add_column("WAS")
-    table.add_column("LCFS")
-    table.add_column("SPI")
+    table.add_column("Source")
     for y in years:
-        if y in FORECAST_YEARS:
-            table.add_row(str(y), f"uprated {FORECAST_BASE_YEAR}", "—", "—", "—")
-        else:
-            frs_year, was_ref, lcfs_ref, spi_ref = YEARS[y]
-            table.add_row(str(y), str(frs_year), was_ref, lcfs_ref, spi_ref)
+        table.add_row(str(y), f"panel (FRS {PANEL_FRS_YEARS}) shifted to {y}")
     console.print(table)
 
-    for year in years:
-        try:
-            build(
+    try:
+        panel_dir = build_panel(args.work_dir)
+        for year in years:
+            build_year(
                 year,
                 args.work_dir,
+                panel_dir,
                 upload=not args.no_upload,
                 calibrate=not args.no_calibrate,
             )
-        except subprocess.CalledProcessError as e:
-            console.print(f"[red]Failed on year {year}: {e}[/red]")
-            sys.exit(1)
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]Failed: {e}[/red]")
+        sys.exit(1)
 
     console.print("[green]Done.[/green]")
 

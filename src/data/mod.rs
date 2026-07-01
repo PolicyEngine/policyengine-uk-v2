@@ -32,21 +32,21 @@ impl Dataset {
 
     /// Uprate all monetary amounts from the dataset's current year to `target_year`.
     ///
-    /// When `params_dir` is supplied, earnings and CPI growth rates are read
-    /// from the `growth_factors` block of each step year's parameter YAML.
-    /// For indices not present in the YAML (rent, population, etc.) and for any
-    /// year whose YAML is unavailable, the hardcoded fallback table is used.
+    /// Growth rates for every index are read from the `growth_factors` block
+    /// of each step year's parameter YAML. For any year whose YAML is
+    /// unavailable (or carries a zero value), the hardcoded fallback table is
+    /// used.
     pub fn uprate_to_dir(&mut self, target_year: u32, params_dir: &Path) {
         if target_year == self.year {
             return;
         }
         let earnings = yaml_cumulative_factor(self.year, target_year, UpratingIndex::AverageEarnings, params_dir);
         let cpi      = yaml_cumulative_factor(self.year, target_year, UpratingIndex::CPI, params_dir);
-        let gdp_pc     = cumulative_factor(self.year, target_year, UpratingIndex::GDPPerCapita);
-        let rent       = cumulative_factor(self.year, target_year, UpratingIndex::Rent);
-        let council_tax = cumulative_factor(self.year, target_year, UpratingIndex::CouncilTaxEngland);
-        let population = cumulative_factor(self.year, target_year, UpratingIndex::Population);
-        let interest   = cumulative_factor(self.year, target_year, UpratingIndex::HouseholdInterestIncome);
+        let gdp_pc     = yaml_cumulative_factor(self.year, target_year, UpratingIndex::GDPPerCapita, params_dir);
+        let rent       = yaml_cumulative_factor(self.year, target_year, UpratingIndex::Rent, params_dir);
+        let council_tax = yaml_cumulative_factor(self.year, target_year, UpratingIndex::CouncilTaxEngland, params_dir);
+        let population = yaml_cumulative_factor(self.year, target_year, UpratingIndex::Population, params_dir);
+        let interest   = yaml_cumulative_factor(self.year, target_year, UpratingIndex::HouseholdInterestIncome, params_dir);
         self.apply_uprating(earnings, cpi, gdp_pc, rent, council_tax, population, interest, target_year);
     }
 
@@ -167,8 +167,10 @@ impl Dataset {
 }
 
 // ── Uprating indices ────────────────────────────────────────────────────────
-// All rates from OBR EFO November 2025, matching policyengine-uk's
-// parameters/gov/economic_assumptions/yoy_growth.yaml
+// Fallback rates from OBR EFO November 2025, matching policyengine-uk's
+// parameters/gov/economic_assumptions/yoy_growth.yaml. Primary source is the
+// growth_factors block of each parameter YAML (OBR March 2026 EFO, generated
+// by data/gen_growth_factors.py).
 
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
@@ -282,10 +284,10 @@ pub fn cpi_cumulative_factor(base_year: u32, target_year: u32) -> f64 {
     cumulative_factor(base_year, target_year, UpratingIndex::CPI)
 }
 
-/// Like `cumulative_factor`, but reads earnings/CPI rates from the `growth_factors`
-/// block of each step year's parameter YAML when available.
-/// Falls back to the hardcoded table for years without a YAML or for indices
-/// not carried in `GrowthFactors` (rent, population, etc.).
+/// Like `cumulative_factor`, but reads rates from the `growth_factors` block
+/// of each step year's parameter YAML when available.
+/// Falls back to the hardcoded table for years without a YAML or with a
+/// missing (zero) value for the index.
 fn yaml_cumulative_factor(base_year: u32, target_year: u32, index: UpratingIndex, params_dir: &Path) -> f64 {
     if target_year == base_year {
         return 1.0;
@@ -294,10 +296,19 @@ fn yaml_cumulative_factor(base_year: u32, target_year: u32, index: UpratingIndex
     let rate_for_year = |y: u32| -> f64 {
         if let Ok(p) = Parameters::for_year_in(params_dir, y) {
             if let Some(gf) = &p.growth_factors {
-                match index {
-                    UpratingIndex::AverageEarnings if gf.earnings_growth != 0.0 => return gf.earnings_growth,
-                    UpratingIndex::CPI if gf.cpi_rate != 0.0 => return gf.cpi_rate,
-                    _ => {}
+                let rate = match index {
+                    UpratingIndex::AverageEarnings => gf.earnings_growth,
+                    UpratingIndex::CPI => gf.cpi_rate,
+                    UpratingIndex::GDPPerCapita => gf.gdp_pc_growth,
+                    UpratingIndex::MixedIncomePerCapita => gf.mixed_income_pc_growth,
+                    UpratingIndex::HouseholdInterestIncome => gf.savings_interest_growth,
+                    UpratingIndex::Rent => gf.rent_growth,
+                    UpratingIndex::Population => gf.population_growth,
+                    UpratingIndex::CouncilTaxEngland => gf.council_tax_growth,
+                    UpratingIndex::MortgageInterest => 0.0,
+                };
+                if rate != 0.0 {
+                    return rate;
                 }
             }
         }
@@ -318,5 +329,65 @@ fn yaml_cumulative_factor(base_year: u32, target_year: u32, index: UpratingIndex
             factor /= 1.0 + rate_for_year(y);
         }
         factor
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn params_dir() -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("parameters")
+    }
+
+    #[test]
+    fn test_yaml_factor_matches_growth_factors_block() {
+        // A single-year step should equal 1 + the YAML rate for every index.
+        let dir = params_dir();
+        for year in [2020u32, 2024] {
+            let gf = Parameters::for_year_in(&dir, year)
+                .unwrap()
+                .growth_factors
+                .expect("growth_factors block missing");
+            let cases = [
+                (UpratingIndex::AverageEarnings, gf.earnings_growth),
+                (UpratingIndex::CPI, gf.cpi_rate),
+                (UpratingIndex::GDPPerCapita, gf.gdp_pc_growth),
+                (UpratingIndex::MixedIncomePerCapita, gf.mixed_income_pc_growth),
+                (UpratingIndex::HouseholdInterestIncome, gf.savings_interest_growth),
+                (UpratingIndex::Rent, gf.rent_growth),
+                (UpratingIndex::Population, gf.population_growth),
+                (UpratingIndex::CouncilTaxEngland, gf.council_tax_growth),
+            ];
+            for (index, rate) in cases {
+                assert!(rate != 0.0, "zero rate in {}/{} YAML", year, year + 1);
+                let f = yaml_cumulative_factor(year - 1, year, index, &dir);
+                assert!(
+                    (f - (1.0 + rate)).abs() < 1e-12,
+                    "factor {} != 1 + rate {} for year {}",
+                    f,
+                    rate,
+                    year
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_yaml_factor_round_trip() {
+        let dir = params_dir();
+        for index in [
+            UpratingIndex::AverageEarnings,
+            UpratingIndex::CPI,
+            UpratingIndex::GDPPerCapita,
+            UpratingIndex::HouseholdInterestIncome,
+            UpratingIndex::Rent,
+            UpratingIndex::Population,
+            UpratingIndex::CouncilTaxEngland,
+        ] {
+            let down = yaml_cumulative_factor(2024, 2016, index, &dir);
+            let up = yaml_cumulative_factor(2016, 2024, index, &dir);
+            assert!((down * up - 1.0).abs() < 1e-9);
+        }
     }
 }

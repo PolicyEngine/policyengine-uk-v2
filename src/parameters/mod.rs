@@ -106,6 +106,24 @@ pub struct GrowthFactors {
     /// Average weekly earnings growth for this fiscal year.
     #[serde(default)]
     pub earnings_growth: f64,
+    /// Nominal GDP per (16+) capita growth for this fiscal year.
+    #[serde(default)]
+    pub gdp_pc_growth: f64,
+    /// Mixed income per (16+) capita growth for this fiscal year.
+    #[serde(default)]
+    pub mixed_income_pc_growth: f64,
+    /// Household savings interest income growth for this fiscal year.
+    #[serde(default)]
+    pub savings_interest_growth: f64,
+    /// Actual rents growth for this fiscal year.
+    #[serde(default)]
+    pub rent_growth: f64,
+    /// 16+ population growth for this fiscal year.
+    #[serde(default)]
+    pub population_growth: f64,
+    /// Average Band D council tax growth (England) for this fiscal year.
+    #[serde(default)]
+    pub council_tax_growth: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
