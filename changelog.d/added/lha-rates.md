@@ -1,0 +1,1 @@
+Region-level Local Housing Allowance rates built from DWP BRMA rates and VOA lists of rents (`data/lha.py`), written as `lha` parameter blocks for 2016/17 to 2030/31 with the cash freeze carried through forecast years.

@@ -32,6 +32,7 @@ policyengine_uk_compiled = [
     "bin/*",
     "parameters/*.yaml",
     "CLAUDE.md",
+    "SKILL.md",
     "_native.so",
 ]
 

@@ -79,9 +79,10 @@ COUNCIL_TAX_FORECAST_LABEL = "OBR EFO November 2025 (carried over)"
 DEFAULT_FROM_YEAR = 2025
 
 # First fiscal year for which the extended (non-cpi/deflator/earnings) indices
-# are written. 2017 covers every transition needed to de-uprate the 2024-based
-# EFRS panel back to 2016.
-EXTENDED_FROM_YEAR = 2017
+# are written. 2009 is the earliest transition the EFO market tables support
+# (Table 1.9 outturn starts 2008-09) and covers deflating FRS actuals back to
+# 2008 as well as de-uprating the 2024-based EFRS panel.
+EXTENDED_FROM_YEAR = 2009
 
 # Sheet / column locations, verified against the March 2026 workbook.
 INFLATION_SHEET = "1.7"
@@ -96,6 +97,7 @@ LABOUR_MIXED_INCOME_COL = 15  # mixed income, £bn
 NOMINAL_GDP_SHEET = "1.4"
 NOMINAL_GDP_COL = 2  # £bn, quarterly rows (NSA)
 MARKET_SHEET = "1.9"
+MARKET_MORTGAGE_RATE_COL = 4  # average mortgage rate, per cent
 MARKET_DEPOSIT_RATE_COL = 5  # deposit rate, per cent
 
 console = Console()
@@ -183,6 +185,7 @@ def read_obr_rates(xlsx: Path) -> dict[int, dict[str, float]]:
     mixed_pc: dict[int, float] = {}
     gdp_pc: dict[int, float] = {}
     deposit: dict[int, float] = {}
+    mortgage_rate: dict[int, float] = {}
     for year, row in lab.items():
         emp = row[LABOUR_EMPLOYMENT_COL]
         emp_rate = row[LABOUR_EMPLOYMENT_RATE_COL]
@@ -201,6 +204,11 @@ def read_obr_rates(xlsx: Path) -> dict[int, dict[str, float]]:
             and row[MARKET_DEPOSIT_RATE_COL] is not None
         ):
             deposit[year] = float(row[MARKET_DEPOSIT_RATE_COL])
+        if (
+            len(row) > MARKET_MORTGAGE_RATE_COL
+            and row[MARKET_MORTGAGE_RATE_COL] is not None
+        ):
+            mortgage_rate[year] = float(row[MARKET_MORTGAGE_RATE_COL])
 
     def growth(series: dict[int, float], year: int) -> float | None:
         if year in series and (year - 1) in series and series[year - 1]:
@@ -226,6 +234,7 @@ def read_obr_rates(xlsx: Path) -> dict[int, dict[str, float]]:
             ("gdp_pc_growth", gdp_pc),
             ("mixed_income_pc_growth", mixed_pc),
             ("savings_interest_growth", deposit),
+            ("mortgage_interest_growth", mortgage_rate),
             ("population_growth", pop16),
         ]:
             g = growth(series, year)
@@ -283,6 +292,10 @@ _FIELDS: dict[str, tuple[str, bool]] = {
     ),
     "mixed_income_pc_growth": ("mixed income per 16+ head, EFO Table 1.6", False),
     "savings_interest_growth": ("deposit rate growth, EFO Table 1.9", False),
+    "mortgage_interest_growth": (
+        "average mortgage rate growth, EFO Table 1.9",
+        False,
+    ),
     "rent_growth": ("actual rents for housing, EFO Table 1.7", False),
     "population_growth": ("16+ population, EFO Table 1.6", False),
     "council_tax_growth": ("England average Band D, MHCLG Table 3", False),
@@ -320,17 +333,17 @@ def _read_existing(year: int) -> dict[str, float]:
 
 
 def _rewrite_block(year: int, block: str) -> bool:
-    """Replace the trailing growth_factors block in the YAML. Returns True if written."""
+    """Replace the growth_factors block in the YAML (other top-level blocks,
+    e.g. lha, may follow it). Returns True if written."""
     path = _yaml_path(year)
     if not path.exists():
         return False
     text = path.read_text()
-    idx = text.find("\ngrowth_factors:")
-    if idx == -1:
-        # No existing block: append after a blank line.
-        new_text = text.rstrip("\n") + "\n\n" + block
+    pattern = re.compile(r"^growth_factors:\n(?:^(?:[ \t].*)?\n)*", re.MULTILINE)
+    if pattern.search(text):
+        new_text = pattern.sub(block + "\n", text, count=1)
     else:
-        new_text = text[: idx + 1] + block
+        new_text = text.rstrip("\n") + "\n\n" + block
     if not new_text.endswith("\n"):
         new_text += "\n"
     path.write_text(new_text)

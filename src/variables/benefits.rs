@@ -106,6 +106,32 @@ pub fn calculate_benunit(
             + p.cdp_care + p.cdp_mobility
     }).sum();
 
+    // DWP cost of living payments (2022-23 and 2023-24 only, when parameters
+    // present). Means-tested: one lump sum per benefit unit receiving any
+    // qualifying benefit (UC, PC, income-based JSA, income-related ESA, IS,
+    // tax credits). Disability: per individual receiving AA/DLA/PIP/ADP/CDP.
+    // Tax-free, disregarded for means tests, exempt from the benefit cap —
+    // so folded into the passthrough bucket after the cap.
+    let cost_of_living = match &params.cost_of_living {
+        Some(col) => {
+            let means_tested_qualifies = uc.0 > 0.0 || pension_credit > 0.0
+                || ctc > 0.0 || wtc > 0.0 || income_support > 0.0
+                || esa_ir > 0.0 || jsa_ib > 0.0;
+            let disability_recipients = bu.person_ids.iter().filter(|&&pid| {
+                let p = &people[pid];
+                pip_daily_living_amount(p, params) + pip_mobility_amount(p, params)
+                    + dla_care_amount(p, params) + dla_mobility_amount(p, params)
+                    + attendance_allowance_amount(p, params)
+                    + p.adp_daily_living + p.adp_mobility
+                    + p.cdp_care + p.cdp_mobility > 0.0
+            }).count() as f64;
+            let means_tested = if means_tested_qualifies { col.means_tested } else { 0.0 };
+            means_tested + col.disability * disability_recipients
+        }
+        None => 0.0,
+    };
+
+    let passthrough_benefits = passthrough_benefits + cost_of_living;
     let modelled_benefits = (pre_cap_benefits - benefit_cap_reduction).max(0.0);
     let total_benefits = modelled_benefits + passthrough_benefits;
 
@@ -243,14 +269,16 @@ pub(crate) fn uc_standard_allowance_monthly(
 }
 
 /// UC child element (monthly) — UC Regs 2013 reg.24 / Sch.4 para.4.
-/// Two-child limit (`uc.child_limit`, normally 2) caps the number of qualifying children;
-/// the first counts at the higher `child_element_first` rate and the rest at
+/// Two-child limit (`uc.child_limit`, normally 2) caps the number of qualifying children,
+/// exempting children born before 6 April 2017 (transitional protection); the first
+/// counts at the higher `child_element_first` rate and the rest at
 /// `child_element_subsequent`.
 pub(crate) fn uc_child_element_monthly(
     bu: &BenUnit, people: &[Person], params: &Parameters,
 ) -> f64 {
     let uc = &params.universal_credit;
-    let capped_children = bu.num_children(people).min(uc.child_limit);
+    let capped_children =
+        bu.num_qualifying_children(people, uc.child_limit, params.start_year());
     if capped_children == 0 {
         return 0.0;
     }
@@ -658,7 +686,21 @@ pub(crate) fn lha_monthly_cap(
     let lha = params.lha.as_ref()?;
     if !lha.enabled { return None; }
     if household.tenure_type != TenureType::RentPrivately { return None; }
-    let bedrooms = lha_bedroom_entitlement(bu, people, household);
+    // Shared accommodation rate (Category A): single claimants under 35
+    // without children only qualify for the shared rate, however many
+    // bedrooms their dwelling has (HB Regs 2006 reg.13D(2)(a)).
+    let adults: Vec<&Person> = bu.person_ids.iter()
+        .map(|&pid| &people[pid])
+        .filter(|p| !p.is_child())
+        .collect();
+    let bedrooms = if adults.len() == 1
+        && adults[0].age < 35.0
+        && bu.num_children(people) == 0
+    {
+        0
+    } else {
+        lha_bedroom_entitlement(bu, people, household)
+    };
     let region_idx = household.region.to_lha_region_idx();
     lha.monthly_cap(region_idx, bedrooms)
 }
@@ -751,9 +793,13 @@ fn calculate_tax_credits(
     let num_children = bu.num_children(people);
     let is_couple = bu.is_couple(people);
 
-    // CTC: available if there are children
+    // CTC: available if there are children. The two-child limit applies to CTC
+    // as it does to UC (children born before 6 April 2017 exempt).
+    let qualifying_children = bu.num_qualifying_children(
+        people, params.universal_credit.child_limit, params.start_year(),
+    );
     let max_ctc = if num_children > 0 {
-        tc.ctc_family_element + tc.ctc_child_element * num_children as f64
+        tc.ctc_family_element + tc.ctc_child_element * qualifying_children as f64
             + bu.person_ids.iter()
                 .filter(|&&pid| people[pid].is_child())
                 .map(|&pid| {
@@ -1527,6 +1573,24 @@ mod tests {
     }
 
     #[test]
+    fn uc_child_element_exempts_children_born_before_2017() {
+        // Children born before 6 April 2017 all attract the child element
+        // (transitional protection). In FY2025, ages 10/11/12 mean birth years
+        // 2013–2015, so a three-child family keeps all three elements, while
+        // three post-2017 children (age 5) are capped at two.
+        let params = Parameters::for_year(2025).unwrap();
+        let (mut people, bu, _) = make_single_bu(0.0, 3);
+        let capped = uc_child_element_monthly(&bu, &people, &params);
+        for (i, age) in [(1, 10.0), (2, 11.0), (3, 12.0)] {
+            people[i].age = age;
+        }
+        let exempt = uc_child_element_monthly(&bu, &people, &params);
+        assert!(exempt > capped,
+            "Three pre-2017 children should all be paid: {exempt} vs {capped}");
+        assert!((exempt - capped - params.universal_credit.child_element_subsequent).abs() < 1e-6);
+    }
+
+    #[test]
     fn uc_child_element_zero_when_no_children() {
         let params = Parameters::for_year(2025).unwrap();
         let (people, bu, _) = make_single_bu(0.0, 0);
@@ -2245,6 +2309,29 @@ mod parameter_impact_tests {
     }
 
     #[test]
+    fn lha_shared_rate_for_single_under_35() {
+        // Single childless claimants under 35 only qualify for the shared
+        // accommodation rate (Category A), so their cap is lower than an
+        // otherwise-identical over-35's 1-bed (Category B) cap.
+        let params = Parameters::for_year(2025).unwrap();
+        let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0], ..BenUnit::default() };
+        let hh = Household {
+            id: 0, benunit_ids: vec![0], person_ids: vec![0],
+            weight: 1.0, region: Region::London,
+            tenure_type: TenureType::RentPrivately,
+            ..Household::default()
+        };
+        let mut young = Person::default(); young.age = 30.0;
+        let mut older = Person::default(); older.age = 40.0;
+        let cap_young = lha_monthly_cap(&bu, &[young], &hh, &params).unwrap();
+        let cap_older = lha_monthly_cap(&bu, &[older], &hh, &params).unwrap();
+        let rates = &params.lha.as_ref().unwrap().rates_monthly[6];
+        assert!((cap_young - rates[0]).abs() < 1e-6, "under-35 should get Category A");
+        assert!((cap_older - rates[1]).abs() < 1e-6, "over-35 should get Category B");
+        assert!(cap_young < cap_older);
+    }
+
+    #[test]
     fn lha_cap_applied_for_private_renter() {
         // Private renter with rent above LHA cap should have UC housing element capped.
         let params = Parameters::for_year(2025).unwrap();
@@ -2316,8 +2403,10 @@ mod parameter_impact_tests {
 
         assert!(hb_private > 0.0, "Private renter should still get some HB");
         assert!(hb_social > hb_private, "Social renter (no cap) should get more HB than private renter above cap");
-        // HB for private renter at £2500/month rent in London should be capped at 1-bed LHA £1200.81/month
-        assert!(hb_private <= 1200.81 * 12.0 + 1.0, "HB should not exceed LHA cap for private renter");
+        // HB for private renter at £2500/month rent in London should be capped
+        // at the 1-bed (Category B) London LHA rate.
+        let cap = params.lha.as_ref().unwrap().rates_monthly[6][1];
+        assert!(hb_private <= cap * 12.0 + 1.0, "HB should not exceed LHA cap for private renter");
     }
 
     // ── DLA amount-from-flags ─────────────────────────────────────────────────
@@ -2526,5 +2615,53 @@ mod parameter_impact_tests {
         // Reform should add another £5,740.80 of PIP DL enhanced.
         assert!((reformed - baseline - 5_740.80).abs() < 0.01,
                 "baseline={}, reformed={}, delta={}", baseline, reformed, reformed - baseline);
+    }
+
+    // ── Cost of living payments ──────────────────────────────────────────────
+
+    #[test]
+    fn cost_of_living_means_tested_paid_to_uc_recipient() {
+        let (_, mut p, bu, hh) = base_person_uc();
+        p.employment_income = 0.0;
+        let mut params = Parameters::for_year(2022).unwrap();
+        assert!(params.cost_of_living.is_some(), "2022-23 should have a cost_of_living block");
+        let with = calc(&params, &[p.clone()], &bu, &hh);
+        assert!(with.universal_credit > 0.0, "fixture should qualify via UC");
+        params.cost_of_living = None;
+        let without = calc(&params, &[p], &bu, &hh);
+        assert!((with.total_benefits - without.total_benefits - 650.0).abs() < 0.01,
+                "means-tested payment should add £650 in 2022-23, delta={}",
+                with.total_benefits - without.total_benefits);
+    }
+
+    #[test]
+    fn cost_of_living_disability_per_qualifying_person() {
+        // Not on any means-tested benefit: only the £150 disability payment applies.
+        let mut params = Parameters::for_year(2023).unwrap();
+        assert!(params.cost_of_living.is_some(), "2023-24 should have a cost_of_living block");
+        let mut p = Person::default();
+        p.age = 40.0;
+        p.employment_income = 60_000.0;
+        // Historical years have no PIP rate parameters; receipt is identified
+        // from the recorded FRS amount.
+        p.pip_daily_living = 3_000.0;
+        let bu = BenUnit { id: 0, household_id: 0, person_ids: vec![0], ..BenUnit::default() };
+        let hh = Household {
+            id: 0, benunit_ids: vec![0], person_ids: vec![0],
+            weight: 1.0, region: Region::London,
+            ..Household::default()
+        };
+        let with = calc(&params, &[p.clone()], &bu, &hh);
+        params.cost_of_living = None;
+        let without = calc(&params, &[p], &bu, &hh);
+        assert!((with.total_benefits - without.total_benefits - 150.0).abs() < 0.01,
+                "disability payment should add £150, delta={}",
+                with.total_benefits - without.total_benefits);
+    }
+
+    #[test]
+    fn cost_of_living_absent_outside_payment_years() {
+        assert!(Parameters::for_year(2025).unwrap().cost_of_living.is_none());
+        assert!(Parameters::for_year(2021).unwrap().cost_of_living.is_none());
     }
 }

@@ -77,6 +77,16 @@ class CalibrateConfig(BaseModel):
     # so tiny targets dominate the gradient).
     min_target_value_sum: float = Field(default=5e7, ge=0.0)
     min_target_value_count: float = Field(default=1e4, ge=0.0)
+    # Anchor penalty: adds anchor_strength × mean((log w − log w_start)²) to the
+    # loss. The target system is underdetermined (RMSRE trains to ~0.01% with a
+    # large null space), so without this each year picks an arbitrary solution
+    # and adjacent years' weights churn, injecting noise into YoY distributional
+    # statistics. The penalty selects the null-space solution nearest the Adam
+    # starting point (the neighbouring year's weights under warm-start chaining,
+    # the survey snapshot when cold). 0 disables. Tuned on 2017 warm-started
+    # from 2018: 1e-4 cuts mean |log w/w_start| 0.47→0.12 at 0.023% trained
+    # RMSRE; 3e-4 reaches 0.09 at 0.063%; 1e-3 breaches the 0.1% RMSRE budget.
+    anchor_strength: float = Field(default=1e-4, ge=0.0)
 
 
 # ── Variable resolution ──────────────────────────────────────────────────────
@@ -207,11 +217,14 @@ def calibrate(
 ) -> np.ndarray:
     """Adam in log-space minimising MSRE with a hard per-household weight cap.
 
-    The cap (max_weight_fraction × mean of `initial_weights`) is the sole
-    regulariser: no penalty term, no dropout. `initial_weights` is the survey
-    snapshot for a cold start, or a neighbouring year's calibrated weights
-    (rescaled to the survey population) for a warm-started chain; either way
-    the result is a deterministic function of the inputs.
+    Regularisers: the cap (max_weight_fraction × mean of `initial_weights`)
+    bounds weight concentration, and the optional anchor penalty
+    (anchor_strength × mean squared log-distance from `initial_weights`) keeps
+    the solution near the starting point within the target null space.
+    `initial_weights` is the survey snapshot for a cold start, or a
+    neighbouring year's calibrated weights (rescaled to the survey population)
+    for a warm-started chain; either way the result is a deterministic
+    function of the inputs.
     """
     n_hh = matrix.shape[0]
     n_train = int(train_mask.sum())
@@ -226,6 +239,8 @@ def calibrate(
         np.clip(u, -np.inf, u_max, out=u)
     else:
         u_max = np.full(n_hh, np.inf)
+
+    u_anchor = u.copy()
 
     m = np.zeros(n_hh)
     v = np.zeros(n_hh)
@@ -260,6 +275,8 @@ def calibrate(
                 best_rmsre = min(best_rmsre, rmsre)
 
         grad = (2.0 / n_train) * weights * (matrix @ (residuals / y_safe))
+        if config.anchor_strength > 0.0:
+            grad += config.anchor_strength * (2.0 / n_hh) * (u - u_anchor)
 
         t = epoch + 1
         m = config.beta1 * m + (1.0 - config.beta1) * grad

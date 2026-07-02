@@ -81,6 +81,10 @@ pub struct Parameters {
     /// Personal Independence Payment weekly rates. Welfare Reform Act 2012 s.79.
     #[serde(default)]
     pub pip: Option<PipParams>,
+    /// DWP cost of living payments (2022-23 and 2023-24 only).
+    /// Social Security (Additional Payments) Acts 2022 and 2023.
+    #[serde(default)]
+    pub cost_of_living: Option<CostOfLivingParams>,
     /// OBR labour supply response elasticities.
     /// When enabled, the Slutsky-decomposition elasticities from OBR (2023) are applied
     /// to estimate intensive-margin labour supply responses to tax-benefit reforms.
@@ -118,6 +122,10 @@ pub struct GrowthFactors {
     /// Actual rents growth for this fiscal year.
     #[serde(default)]
     pub rent_growth: f64,
+    /// Average mortgage rate growth (effective rate on the stock) for this
+    /// fiscal year — drives mortgage interest paid for a fixed balance.
+    #[serde(default)]
+    pub mortgage_interest_growth: f64,
     /// 16+ population growth for this fiscal year.
     #[serde(default)]
     pub population_growth: f64,
@@ -503,6 +511,21 @@ pub struct PipParams {
     pub mobility_enhanced_weekly: f64,
 }
 
+/// DWP cost of living payments: lump sums paid automatically to benefit
+/// recipients in 2022-23 (£326 + £324 means-tested, £150 disability) and
+/// 2023-24 (£301 + £300 + £299 means-tested, £150 disability). Tax-free,
+/// disregarded for means tests, exempt from the benefit cap.
+/// Source: <https://www.gov.uk/guidance/cost-of-living-payment>
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CostOfLivingParams {
+    /// Total means-tested payments in the year, one per claim (benefit unit)
+    /// receiving UC, Pension Credit, income-based JSA, income-related ESA,
+    /// Income Support or tax credits.
+    pub means_tested: f64,
+    /// Disability payment per individual receiving AA, DLA, PIP, ADP or CDP.
+    pub disability: f64,
+}
+
 /// OBR labour supply response elasticities (Slutsky decomposition).
 ///
 /// Source: OBR (2023) "Costing a cut in National Insurance contributions: the
@@ -709,6 +732,17 @@ fn fiscal_year_filename(year: u32) -> String {
 }
 
 impl Parameters {
+    /// Fiscal year start year parsed from `fiscal_year` (e.g. 2025 for "2025/26"
+    /// or "2025_26"). Falls back to 0 if unparseable.
+    pub fn start_year(&self) -> u32 {
+        self.fiscal_year
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect::<String>()
+            .parse()
+            .unwrap_or(0)
+    }
+
     /// Load parameters for a given fiscal year from the embedded YAML files.
     /// `year` is the start year of the fiscal year, e.g. 2029 for FY 2029/30.
     pub fn for_year(year: u32) -> anyhow::Result<Self> {

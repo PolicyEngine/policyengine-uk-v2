@@ -48,22 +48,24 @@ EFRS_YEARS = sorted(int(p.name) for p in EFRS_DATA_ROOT.iterdir() if p.is_dir() 
 N_QUANTILES = 20  # vigintiles
 
 
-def _quantile_means(hh: "pd.DataFrame", w: np.ndarray, ni: np.ndarray) -> dict:
-    """Weighted mean net income per quintile (1=poorest), ranked by equivalised net income."""
-    tw = w.sum()
-    eq_col = "equivalised_net_income" if "equivalised_net_income" in hh.columns else "net_income"
+def _quantile_means(hh: "pd.DataFrame", w: np.ndarray, eq_col: str) -> dict:
+    """Weighted income at each vigintile midpoint of `eq_col` (growth
+    incidence curve points), ranking by the same measure.
+
+    Bin means are avoided deliberately: with cross-sectional re-ranking each
+    year, households near vigintile boundaries swap bins between years and
+    make adjacent-bin YoY growth saw-tooth even at fixed weights. Quantile
+    points are robust to that composition churn.
+    """
+    if eq_col not in hh.columns:
+        eq_col = "net_income"
     eq = hh[eq_col].to_numpy()
     order = np.argsort(eq)
-    w_s = w[order]; ni_s = ni[order]
-    cum_w = np.cumsum(w_s)
-    out = {}
-    for q in range(1, N_QUANTILES + 1):
-        lo = (q - 1) / N_QUANTILES * tw
-        hi = q / N_QUANTILES * tw
-        mask = (cum_w > lo) & (cum_w <= hi)
-        dw = w_s[mask]; dn = ni_s[mask]
-        out[q] = float((dn * dw).sum() / dw.sum()) if dw.sum() > 0 else 0.0
-    return out
+    eq_s = eq[order]; w_s = w[order]
+    cum_w = np.cumsum(w_s) - 0.5 * w_s
+    ps = np.array([(q - 0.5) / N_QUANTILES for q in range(1, N_QUANTILES + 1)])
+    vals = np.interp(ps * w_s.sum(), cum_w, eq_s)
+    return {q: float(vals[q - 1]) for q in range(1, N_QUANTILES + 1)}
 
 
 def _agg_one_year(year: int, data_root: Path) -> dict:
@@ -77,6 +79,14 @@ def _agg_one_year(year: int, data_root: Path) -> dict:
     hh  = md.households.copy()
     p   = md.persons.copy()
     bu  = md.benunits.copy()
+
+    # RF-style non-pensioner restriction: drop households containing anyone
+    # over state pension age (engine simplification: SPA = 66 for all years,
+    # matching is_sp_age in src/engine/entities.rs). Ranking into vigintiles
+    # then happens within the non-pensioner population only.
+    hh_max_age = p.groupby("household_id")["age"].max()
+    pensioner_hh = hh_max_age[hh_max_age >= 66.0].index
+    hh = hh[~hh["household_id"].isin(pensioner_hh)].reset_index(drop=True)
     w   = hh["weight"].to_numpy()
     tw  = w.sum()
 
@@ -134,14 +144,34 @@ def _agg_one_year(year: int, data_root: Path) -> dict:
     ct = hh["council_tax_annual"].to_numpy() if "council_tax_annual" in hh.columns else np.zeros(len(hh))
     council_tax = float((ct * w).sum() / tw)
 
-    ni = hh["net_income"].to_numpy()
-    quantile_means = _quantile_means(hh, w, ni)
+    quantile_means = _quantile_means(hh, w, "equivalised_net_income")
+    quantile_means_ahc = _quantile_means(hh, w, "equivalised_net_income_ahc")
+
+    # Housing-cost aggregates for the AHC-specific deflator: weighted sums of
+    # social rent, private rent, mortgage interest and council tax, and of BHC
+    # net income, over the analysis population.
+    tenure = hh["tenure_type"].astype(int).to_numpy() if "tenure_type" in hh.columns else np.zeros(len(hh), dtype=int)
+    rent = hh["rent_annual"].to_numpy(dtype=float) if "rent_annual" in hh.columns else np.zeros(len(hh))
+    mortgage = (
+        hh["mortgage_interest_annual"].to_numpy(dtype=float)
+        if "mortgage_interest_annual" in hh.columns
+        else np.zeros(len(hh))
+    )
+    housing_agg = {
+        "rent_social": float((rent * w)[np.isin(tenure, [2, 3])].sum()),
+        "rent_private": float((rent * w)[tenure == 4].sum()),
+        "mortgage_interest": float((mortgage * w).sum()),
+        "council_tax": float((ct * w).sum()),
+        "net_income": float((hh["net_income"].to_numpy() * w).sum()),
+    }
 
     return {
         "year": year,
         "nominal_cpi": cpi_index_for_year(year),
+        "housing_agg": housing_agg,
         "net_income_bhc": net_income_bhc,
         "quantile_net_income": quantile_means,
+        "quantile_net_income_ahc": quantile_means_ahc,
         # Gross income components
         "employment_income": employment_income,
         "self_employment_income": self_employment_income,
@@ -191,15 +221,55 @@ MONEY_COLS = [
 BASE_CPI = cpi_index_for_year(BASE_YEAR)
 
 
+def _ahc_factor(df: pd.DataFrame) -> pd.Series:
+    """Real-terms factor for AHC incomes using an AHC-specific deflator.
+
+    HBAI convention: AHC incomes are deflated by a variant of CPI with housing
+    costs stripped out, so that rent inflation is not double-counted (once as
+    a deduction from income, again in the deflator). We decompose:
+
+        CPI(y) = (1 - s) * D_ahc(y) + s * H(y)   =>   D_ahc = (CPI - s*H) / (1 - s)
+
+    where H is a housing-cost price index (social rent, private rent,
+    mortgage interest and council tax uprating factors, Laspeyres-weighted by
+    the population's base-year expenditure on each) and s is the housing
+    share, proxied by
+    aggregate housing costs over aggregate BHC net income in the base year.
+    The result is most sensitive to s: income understates the consumption
+    base, so s errs high and the correction errs generous to AHC growth.
+    """
+    from uprate import cumulative_factor
+
+    base_year = BASE_YEAR if (df["year"] == BASE_YEAR).any() else int(df["year"].max())
+    base = df.loc[df["year"] == base_year].iloc[0]
+    agg = base["housing_agg"]
+    e = {"social_rent": agg["rent_social"], "rent": agg["rent_private"],
+         "mortgage_interest": agg.get("mortgage_interest", 0.0),
+         "council_tax": agg["council_tax"]}
+    e_total = sum(e.values())
+    s = e_total / agg["net_income"]
+
+    base_cpi = float(df.loc[df["year"] == base_year, "nominal_cpi"].iloc[0])
+    factors = []
+    for _, row in df.iterrows():
+        y = int(row["year"])
+        c = row["nominal_cpi"] / base_cpi
+        h = sum(w * cumulative_factor(base_year, y, idx) for idx, w in e.items()) / e_total
+        d_ahc = (c - s * h) / (1.0 - s)
+        factors.append(1.0 / d_ahc)
+    return pd.Series(factors, index=df.index)
+
+
 def deflate(rows: list[dict]) -> pd.DataFrame:
     df = pd.DataFrame(rows).sort_values("year").reset_index(drop=True)
     factor = BASE_CPI / df["nominal_cpi"]
+    ahc_factor = _ahc_factor(df)
     for col in MONEY_COLS:
         df[f"real_{col}"] = df[col] * factor
-    # Deflate per-quintile means
+    # Deflate per-quintile means (AHC series get the AHC-specific deflator)
     for q in range(1, N_QUANTILES + 1):
-        col = f"quintile_{q}_net_income"
-        df[col] = df["quantile_net_income"].apply(lambda x: x[q]) * factor
+        df[f"quintile_{q}_net_income"] = df["quantile_net_income"].apply(lambda x: x[q]) * factor
+        df[f"quintile_{q}_net_income_ahc"] = df["quantile_net_income_ahc"].apply(lambda x: x[q]) * ahc_factor
     return df
 
 
@@ -210,14 +280,15 @@ def yoy_changes(df: pd.DataFrame) -> pd.DataFrame:
         row = {"year_from": int(prev["year"]), "year_to": int(curr["year"])}
         for col in MONEY_COLS:
             row[f"d_{col}"] = round(curr[f"real_{col}"] - prev[f"real_{col}"], 2)
-        # YoY % change per quintile
-        quintile_pct = {}
-        for q in range(1, N_QUANTILES + 1):
-            col = f"quintile_{q}_net_income"
-            prev_val = prev[col]
-            curr_val = curr[col]
-            quintile_pct[q] = round((curr_val - prev_val) / prev_val * 100, 3) if prev_val else 0.0
-        row["quantile_yoy_pct"] = quintile_pct
+        # YoY % change per quintile, BHC and AHC
+        for suffix, key in (("", "quantile_yoy_pct"), ("_ahc", "quantile_yoy_pct_ahc")):
+            quintile_pct = {}
+            for q in range(1, N_QUANTILES + 1):
+                col = f"quintile_{q}_net_income{suffix}"
+                prev_val = prev[col]
+                curr_val = curr[col]
+                quintile_pct[q] = round((curr_val - prev_val) / prev_val * 100, 3) if prev_val else 0.0
+            row[key] = quintile_pct
         out.append(row)
     return pd.DataFrame(out)
 

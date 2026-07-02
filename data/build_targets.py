@@ -18,7 +18,6 @@ import argparse
 import json
 import os
 import re
-import sys
 import urllib.request
 from pathlib import Path
 
@@ -527,7 +526,10 @@ def build_spi_investment_targets(
 
 
 def load_efo_earnings_index(path: Path) -> dict[int, float]:
-    """Average-earnings index (2008Q1=100) by fiscal year from EFO table 1.6 col 16.
+    """Average-earnings index (2008Q1=100) by fiscal year from EFO table 1.6.
+
+    Column 17 is the average weekly earnings index level; column 16 is its
+    growth rate — using the rate here silently deflates extrapolated SPI bands.
 
     Used to project SPI income amounts into years the SPI does not yet cover
     (the latest SPI is 2023-24); 2024 amounts grow by index[2024]/index[2023].
@@ -537,8 +539,8 @@ def load_efo_earnings_index(path: Path) -> dict[int, float]:
     quarters: dict[tuple[int, int], float] = {}
     for row in ws.iter_rows(values_only=True):
         m = re.match(r"(\d{4})Q([1-4])", str(row[1])) if row[1] else None
-        if m and len(row) > 16 and isinstance(row[16], (int, float)):
-            quarters[(int(m.group(1)), int(m.group(2)))] = float(row[16])
+        if m and len(row) > 17 and isinstance(row[17], (int, float)):
+            quarters[(int(m.group(1)), int(m.group(2)))] = float(row[17])
     out: dict[int, float] = {}
     for fy in TARGET_YEARS:
         vals = [
@@ -661,9 +663,9 @@ def load_dwp_benefits(path: Path) -> dict[int, dict[str, float]]:
     }
 
     out: dict[int, dict[str, float]] = {}
-    for yr in TARGET_YEARS:
-        if yr not in yr_cols:
-            continue
+    # Read every year column the table carries — the spring-forecast tables
+    # include forecast years, which the UC £ total override consumes.
+    for yr in sorted(yr_cols):
         row: dict[str, float] = {}
         for prog, row_idx in prog_rows.items():
             v = ws.cell(row=row_idx, column=yr_cols[yr]).value
@@ -975,6 +977,12 @@ def build_population_targets(years: list[int]) -> list[dict]:
     for yr in years:
         ydir = frs_base / str(yr)
         if not (ydir / "households.csv").exists():
+            # Silently missing population controls let calibration drift the
+            # grossed totals by whole percents — make the gap loud.
+            print(
+                f"WARNING: no clean FRS at {ydir} — population targets for "
+                f"{yr} skipped; calibration for {yr} will be unpinned"
+            )
             continue
         hh = pd.read_csv(ydir / "households.csv")
         persons = pd.read_csv(ydir / "persons.csv")
@@ -1130,24 +1138,21 @@ def _extend_by_caseload(counts_by_year, years, uc_caseload, scale):
     return out
 
 
-def build_uc_award_band_targets(
-    years: list[int], uc_caseload: dict[int, float]
-) -> list[dict]:
+def build_uc_award_band_targets(years: list[int]) -> list[dict]:
     """Count of UC benefit units by monthly award-amount band, calibrated to the
     DWP Households-on-UC distribution. The simulation's annual UC entitlement is
     binned into monthly £100 bands (annual edge = monthly × 12), pinning the
     *shape* of the award distribution rather than just the total caseload. The
     nil-award band is dropped (a £0 filter on UC alone can't distinguish non-
-    recipients) and everything ≥£1500/mo is collapsed into one top band. Years
-    past the last Nov snapshot (2023) hold the band shape fixed and grow with the
-    UC caseload trajectory.
+    recipients) and everything ≥£1500/mo is collapsed into one top band.
+
+    Only observed Nov snapshots are targeted: a band shape carried past the
+    last snapshot is blind to policy changes that move awards between bands
+    (e.g. the April 2026 two-child-limit repeal), so calibration would reweight
+    against the reform. Beyond the snapshot horizon the UC £ total is trained
+    instead (its holdout is lifted there — see HOLDOUT_NAMES).
     """
-    band_counts = _extend_by_caseload(
-        load_uc_award_band_counts(),
-        years,
-        uc_caseload,
-        lambda counts, r: [c * r for c in counts],
-    )
+    band_counts = load_uc_award_band_counts()
     label = "DWP Stat-Xplore UC_Households award bands (Nov snapshot)"
     out: list[dict] = []
     for yr in years:
@@ -1957,7 +1962,8 @@ def build_targets(years: list[int]) -> list[dict]:
     # target set the survey fits cleanly, so reweighting can't hit both. UC: the
     # Stat-Xplore award-band counts already pin the UC distribution shape, so the
     # aggregate £ total can't also be matched once the per-band amounts differ from
-    # the engine's. State pension: the total competes with the FRS-grossed 65-75 /
+    # the engine's. This only applies up to the last observed band snapshot — past
+    # it there are no band targets, and the £ total is trained instead. State pension: the total competes with the FRS-grossed 65-75 /
     # 75+ age bands — the same pensioner households carry both, so lifting weights
     # to reach the SP total overshoots the elderly population controls. We keep the
     # distribution (award bands) and the population bands, holding out the totals.
@@ -1992,6 +1998,10 @@ def build_targets(years: list[int]) -> list[dict]:
     }
 
     real_years = [y for y in years if y <= LATEST_REAL_YEAR]
+    # Award-band targets stop at the last observed Nov snapshot; past it the UC
+    # £ total is trained instead (the shape/total conflict that justified the
+    # holdout only exists where band targets are present).
+    uc_band_anchor = max(load_uc_award_band_counts())
     targets = []
     for yr in real_years:
         for name, entity, variable, aggregation, source_key, data_key in all_specs:
@@ -2001,6 +2011,9 @@ def build_targets(years: list[int]) -> list[dict]:
                 continue
             # caseloads and labour levels are raw counts; everything else is £bn -> £
             val = raw if source_key in ("caseloads", "labour") else raw * 1e9
+            holdout = name in HOLDOUT_NAMES
+            if name == "universal_credit_total" and yr > uc_band_anchor:
+                holdout = False
             targets.append(
                 {
                     "name": f"{name}_{yr}",
@@ -2012,7 +2025,7 @@ def build_targets(years: list[int]) -> list[dict]:
                     "value": round(val, 0),
                     "source": source_label[source_key],
                     "year": yr,
-                    "holdout": name in HOLDOUT_NAMES,
+                    "holdout": holdout,
                 }
             )
 
@@ -2030,7 +2043,7 @@ def build_targets(years: list[int]) -> list[dict]:
         for yr, d in caseloads.items()
         if "universal_credit" in d
     }
-    targets += build_uc_award_band_targets(years, uc_caseload)
+    targets += build_uc_award_band_targets(years)
     targets += build_uc_element_targets(years, uc_caseload)
     targets += build_uc_inwork_targets(years, uc_caseload)
 
@@ -2057,6 +2070,50 @@ def build_targets(years: list[int]) -> list[dict]:
             and "universal_credit" in caseloads[t["year"]]
         ):
             t["value"] = round(caseloads[t["year"]]["universal_credit"], 0)
+
+    # DWP-table programmes: the generic forecast pass is policy-blind (CPI /
+    # population scaling of the 2024 value), while the DWP outturn-and-forecast
+    # table costs each programme directly — including managed migration (legacy
+    # spend and caseloads → ~0 by 2026) and the two-child-limit repeal inside
+    # UC. Override every DWP-sourced £ total and claimant count with the table
+    # value wherever it has one; where a legacy programme drops out of the
+    # table (or falls below £0.1bn) in a forecast year, stop training the
+    # target rather than chase an extrapolation of a benefit that no longer
+    # exists. UC's claimant count keeps the Stat-Xplore-anchored series built
+    # above (same trajectory, survey-consistent level).
+    _dwp_progs = [
+        "universal_credit",
+        "tax_credits",
+        "esa_income_related",
+        "housing_benefit",
+        "income_support",
+        "jsa_income_based",
+        "pension_credit",
+        "state_pension",
+        "child_benefit",
+    ]
+    for t in targets:
+        prog = t["variable"]
+        if prog not in _dwp_progs:
+            continue
+        # Only unfiltered national totals: SPI band targets and the UC award
+        # band/element breakdowns share these variable names but carry filters.
+        if t.get("filter") is not None or t.get("benunit_filter") is not None:
+            continue
+        yr = t["year"]
+        if t["aggregation"] == "sum":
+            if prog in dwp.get(yr, {}):
+                val = dwp[yr][prog] * 1e9
+                t["value"] = round(max(val, 0.0), 0)
+                if val < 0.1e9:
+                    t["holdout"] = True
+            elif yr > LATEST_REAL_YEAR:
+                t["holdout"] = True
+        elif t["aggregation"] == "count_nonzero" and prog != "universal_credit":
+            if prog in caseloads.get(yr, {}):
+                t["value"] = round(caseloads[yr][prog], 0)
+            elif yr > LATEST_REAL_YEAR:
+                t["holdout"] = True
     return targets
 
 

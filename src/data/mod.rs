@@ -47,7 +47,8 @@ impl Dataset {
         let council_tax = yaml_cumulative_factor(self.year, target_year, UpratingIndex::CouncilTaxEngland, params_dir);
         let population = yaml_cumulative_factor(self.year, target_year, UpratingIndex::Population, params_dir);
         let interest   = yaml_cumulative_factor(self.year, target_year, UpratingIndex::HouseholdInterestIncome, params_dir);
-        self.apply_uprating(earnings, cpi, gdp_pc, rent, council_tax, population, interest, target_year);
+        let mortgage   = yaml_cumulative_factor(self.year, target_year, UpratingIndex::MortgageInterest, params_dir);
+        self.apply_uprating(earnings, cpi, gdp_pc, rent, council_tax, population, interest, mortgage, target_year);
     }
 
     /// Uprate all monetary amounts from the dataset's current year to `target_year`
@@ -65,13 +66,15 @@ impl Dataset {
         let council_tax = cumulative_factor(self.year, target_year, UpratingIndex::CouncilTaxEngland);
         let population  = cumulative_factor(self.year, target_year, UpratingIndex::Population);
         let interest    = cumulative_factor(self.year, target_year, UpratingIndex::HouseholdInterestIncome);
-        self.apply_uprating(earnings, cpi, gdp_pc, rent, council_tax, population, interest, target_year);
+        let mortgage    = cumulative_factor(self.year, target_year, UpratingIndex::MortgageInterest);
+        self.apply_uprating(earnings, cpi, gdp_pc, rent, council_tax, population, interest, mortgage, target_year);
     }
 
     fn apply_uprating(
         &mut self,
         earnings: f64, cpi: f64, gdp_pc: f64,
         rent: f64, council_tax: f64, population: f64, interest: f64,
+        mortgage: f64,
         target_year: u32,
     ) {
         for p in &mut self.people {
@@ -125,6 +128,7 @@ impl Dataset {
         }
         for h in &mut self.households {
             h.rent *= rent;
+            h.mortgage_interest *= mortgage;
             h.council_tax *= council_tax;
             // Wealth (uprated by earnings as rough proxy)
             h.owned_land *= earnings;
@@ -305,7 +309,7 @@ fn yaml_cumulative_factor(base_year: u32, target_year: u32, index: UpratingIndex
                     UpratingIndex::Rent => gf.rent_growth,
                     UpratingIndex::Population => gf.population_growth,
                     UpratingIndex::CouncilTaxEngland => gf.council_tax_growth,
-                    UpratingIndex::MortgageInterest => 0.0,
+                    UpratingIndex::MortgageInterest => gf.mortgage_interest_growth,
                 };
                 if rate != 0.0 {
                     return rate;
@@ -356,6 +360,7 @@ mod tests {
                 (UpratingIndex::MixedIncomePerCapita, gf.mixed_income_pc_growth),
                 (UpratingIndex::HouseholdInterestIncome, gf.savings_interest_growth),
                 (UpratingIndex::Rent, gf.rent_growth),
+                (UpratingIndex::MortgageInterest, gf.mortgage_interest_growth),
                 (UpratingIndex::Population, gf.population_growth),
                 (UpratingIndex::CouncilTaxEngland, gf.council_tax_growth),
             ];

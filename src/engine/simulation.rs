@@ -332,8 +332,9 @@ impl Simulation {
                 0.67 + (adults.saturating_sub(1) as f64) * 0.33 + (children as f64) * 0.20
             };
 
-            // AHC: subtract rent and council tax (housing costs), using HBAI net income
-            let housing_costs = hh.rent + hh.council_tax;
+            // AHC: subtract rent, mortgage interest and council tax (housing
+            // costs), using HBAI net income
+            let housing_costs = hh.rent + hh.mortgage_interest + hh.council_tax;
             let net_income_ahc = net_income - housing_costs;
 
             HouseholdResult {

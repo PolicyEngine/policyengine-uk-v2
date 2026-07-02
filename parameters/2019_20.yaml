@@ -132,12 +132,35 @@ vat:
 growth_factors:
   # OBR Economic and Fiscal Outlook, March 2026; council tax: MHCLG council tax levels 2026-27, Table 3 (England average Band D)
   # Rates are the year-on-year change entering FY 2019/20.
-  cpi_rate: 0.01800                 # +1.800% CPI inflation, EFO Table 1.7
-  gdp_deflator: 0.01900             # +1.900% GDP deflator, EFO Table 1.7
-  earnings_growth: 0.03700          # +3.700% average weekly earnings growth, EFO Table 1.6
-  gdp_pc_growth: 0.02837            # +2.837% nominal GDP per 16+ head, EFO Tables 1.4 (quarterly) + 1.6
-  mixed_income_pc_growth: 0.04199   # +4.199% mixed income per 16+ head, EFO Table 1.6
-  savings_interest_growth: 0.02378  # +2.378% deposit rate growth, EFO Table 1.9
-  rent_growth: 0.00755              # +0.755% actual rents for housing, EFO Table 1.7
-  population_growth: 0.00506        # +0.506% 16+ population, EFO Table 1.6
-  council_tax_growth: 0.04700       # +4.700% England average Band D, MHCLG Table 3
+  cpi_rate: 0.01800                   # +1.800% CPI inflation, EFO Table 1.7
+  gdp_deflator: 0.01900               # +1.900% GDP deflator, EFO Table 1.7
+  earnings_growth: 0.03700            # +3.700% average weekly earnings growth, EFO Table 1.6
+  gdp_pc_growth: 0.02837              # +2.837% nominal GDP per 16+ head, EFO Tables 1.4 (quarterly) + 1.6
+  mixed_income_pc_growth: 0.04199     # +4.199% mixed income per 16+ head, EFO Table 1.6
+  savings_interest_growth: 0.02378    # +2.378% deposit rate growth, EFO Table 1.9
+  mortgage_interest_growth: -0.03293  # -3.293% average mortgage rate growth, EFO Table 1.9
+  rent_growth: 0.00755                # +0.755% actual rents for housing, EFO Table 1.7
+  population_growth: 0.00506          # +0.506% 16+ population, EFO Table 1.6
+  council_tax_growth: 0.04700         # +4.700% England average Band D, MHCLG Table 3
+
+lha:
+  # Local Housing Allowance rates for 2019/20 (calendar monthly, £).
+  # DWP UC LHA rates by BRMA (April 2019), aggregated to region
+  # weighted by VOA list-of-rents observation counts. NI approximated from
+  # the 2019-20 NI list of rents scaled by the GB cash path.
+  # Categories: [A=shared, B=1-bed, C=2-bed, D=3-bed, E=4+bed].
+  enabled: true
+  private_rent_index: 1.0
+  rates_monthly:
+    - [  258.25,   361.82,   415.72,   469.80,   629.00]   # North East
+    - [  262.42,   400.92,   471.94,   544.69,   721.75]   # North West
+    - [  262.74,   378.38,   454.60,   507.06,   710.53]   # Yorkshire
+    - [  271.44,   380.07,   469.62,   535.93,   699.95]   # East Midlands
+    - [  298.44,   414.22,   510.59,   581.92,   776.97]   # West Midlands
+    - [  275.27,   521.24,   634.50,   726.79,   976.59]   # East of England
+    - [  420.23,   991.17,  1197.54,  1412.42,  1735.75]   # London
+    - [  323.10,   590.13,   741.54,   877.80,  1239.38]   # South East
+    - [  302.02,   482.56,   600.71,   713.28,   965.39]   # South West
+    - [  256.38,   364.82,   446.57,   494.70,   639.38]   # Wales
+    - [  273.12,   421.79,   476.71,   600.77,   785.62]   # Scotland
+    - [  206.87,   283.13,   334.81,   396.60,   426.56]   # Northern Ireland

@@ -18,6 +18,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import yaml
 
@@ -92,6 +93,25 @@ _YOY: dict[str, list[tuple[int, float]]] = {
         (2029, 0.0547),
         (2030, 0.0542),
     ],
+    # Social rent settlement (England): -1% a year April 2016-2019 (Welfare
+    # Reform and Work Act 2016 rent reduction), then September-CPI + 1ppt
+    # (MHCLG policy statement on rents for social housing), with the 7%
+    # ceiling in 2023/24. Sept CPI: ONS D7G7 (2019: 1.7, 2020: 0.5, 2021: 3.1,
+    # 2022: 10.1 -> capped, 2023: 6.7, 2024: 1.7, 2025: 3.8). Years beyond the
+    # table fall back to fiscal-year CPI + 1ppt in _rate_for.
+    "social_rent": [
+        (2016, -0.01),
+        (2017, -0.01),
+        (2018, -0.01),
+        (2019, -0.01),
+        (2020, 0.027),
+        (2021, 0.015),
+        (2022, 0.041),
+        (2023, 0.070),
+        (2024, 0.077),
+        (2025, 0.027),
+        (2026, 0.048),
+    ],
     "population": [
         (2022, 0.0093),
         (2023, 0.0131),
@@ -154,6 +174,7 @@ _YAML_KEY: dict[str, str] = {
     "mixed_pc": "mixed_income_pc_growth",
     "interest": "savings_interest_growth",
     "rent": "rent_growth",
+    "mortgage_interest": "mortgage_interest_growth",
     "population": "population_growth",
     "council_tax": "council_tax_growth",
 }
@@ -165,10 +186,22 @@ def _rate_for(year: int, index: str) -> float:
     Prefers the YAML growth_factors value; falls back to the hardcoded table
     (then the default rate) when the YAML or key is unavailable.
     """
+    if index == "social_rent":
+        rates = dict(_YOY["social_rent"])
+        if year in rates:
+            return rates[year]
+        # Beyond the settlement table: CPI + 1ppt (forecast approximation,
+        # fiscal-year CPI standing in for September CPI).
+        return _rate_for(year, "cpi") + 0.01
     gf = _yaml_growth_factors(year)
     rate = gf.get(_YAML_KEY[index], 0.0)
     if rate != 0.0:
         return rate
+    if index not in _YOY:
+        raise KeyError(
+            f"no growth_factors YAML value for index {index!r} entering "
+            f"{year} and no fallback table"
+        )
     rates = dict(_YOY[index])
     return rates.get(year, _DEFAULT_RATE[index])
 
@@ -254,7 +287,9 @@ _HOUSEHOLD_COLS: dict[str, list[str]] = {
         "non_residential_property_value",
         "savings",
     ],
-    "rent": ["rent_annual"],
+    # rent_annual is handled per-tenure in uprate_households: social renters
+    # (tenure_type 2 council, 3 housing association) follow the social rent
+    # settlement, private renters (4) the market rent index.
     "council_tax": ["council_tax_annual"],
     "cpi": [
         "food_consumption",
@@ -277,6 +312,85 @@ _HOUSEHOLD_COLS: dict[str, list[str]] = {
         "gas_consumption",
     ],
 }
+
+
+# ── National minimum wage floor ──────────────────────────────────────────────
+# Hourly NMW/NLW rates by fiscal year as (min_age, rate) bands, highest band
+# first. Source: gov.uk NMW rates pages and the LPC rates history workbook
+# (20 years of the National Minimum Wage). 2016/17 uses the October 2016
+# youth rates. Apprentice rates are not modelled (apprentices are not
+# identifiable in the microdata). Years beyond the table grow the April 2026
+# rates with average earnings (RF LSO convention: the bite is maintained).
+_NMW_BANDS: dict[int, list[tuple[int, float]]] = {
+    2016: [(25, 7.20), (21, 6.95), (18, 5.55), (16, 4.00)],
+    2017: [(25, 7.50), (21, 7.05), (18, 5.60), (16, 4.05)],
+    2018: [(25, 7.83), (21, 7.38), (18, 5.90), (16, 4.20)],
+    2019: [(25, 8.21), (21, 7.70), (18, 6.15), (16, 4.35)],
+    2020: [(25, 8.72), (21, 8.20), (18, 6.45), (16, 4.55)],
+    2021: [(23, 8.91), (21, 8.36), (18, 6.56), (16, 4.62)],
+    2022: [(23, 9.50), (21, 9.18), (18, 6.83), (16, 4.81)],
+    2023: [(23, 10.42), (21, 10.18), (18, 7.49), (16, 5.28)],
+    2024: [(21, 11.44), (18, 8.60), (16, 6.40)],
+    2025: [(21, 12.21), (18, 10.00), (16, 7.55)],
+    2026: [(21, 12.71), (18, 10.85), (16, 8.00)],
+}
+
+
+def nmw_bands(year: int) -> list[tuple[int, float]]:
+    if year <= 2016:
+        return _NMW_BANDS[2016]
+    if year in _NMW_BANDS:
+        return _NMW_BANDS[year]
+    last = max(_NMW_BANDS)
+    factor = cumulative_factor(last, year, "earnings")
+    return [(age, rate * factor) for age, rate in _NMW_BANDS[last]]
+
+
+def _nmw_hourly(age: np.ndarray, year: int) -> np.ndarray:
+    floor = np.zeros(len(age))
+    for min_age, rate in sorted(nmw_bands(year), key=lambda b: b[0]):
+        floor = np.where(age >= min_age, rate, floor)
+    return floor
+
+
+def apply_nmw_floor(
+    shifted: pd.DataFrame,
+    base: pd.DataFrame,
+    base_year: int,
+    year: int,
+) -> pd.DataFrame:
+    """Impose the NMW/NLW wage path on the uniformly-uprated panel.
+
+    Uniform earnings uprating misses the NLW rising much faster than average
+    earnings since 2016 (and matching earnings growth in the forecast).
+    Workers at or below the age-appropriate floor in the base year — largely
+    FRS hours/earnings measurement noise — track the NMW index for their age
+    band, preserving their measured gap rather than "correcting" it. Workers
+    above the base-year floor keep the earnings index but are floored at the
+    target year's NMW. No spillovers above the floor are modelled.
+    """
+    out = shifted.copy()
+    hours = base["hours_worked_annual"].to_numpy(dtype=float)
+    base_earn = base["employment_income"].to_numpy(dtype=float)
+    age = base["age"].to_numpy(dtype=float)
+    worked = (hours > 0) & (base_earn > 0)
+
+    nmw_base = _nmw_hourly(age, base_year)
+    nmw_year = _nmw_hourly(age, year)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        hourly_base = np.where(worked, base_earn / hours, np.inf)
+
+    shifted_earn = out["employment_income"].to_numpy(dtype=float)
+    at_floor = worked & (hourly_base <= nmw_base)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        nmw_index = np.where(nmw_base > 0, nmw_year / nmw_base, 1.0)
+    floored = np.where(
+        at_floor,
+        base_earn * nmw_index,
+        np.maximum(shifted_earn, np.where(worked, nmw_year * hours, 0.0)),
+    )
+    out["employment_income"] = np.where(worked, floored, shifted_earn)
+    return out
 
 
 def _apply(
@@ -306,6 +420,21 @@ def uprate_households(
     if target_year == base_year:
         return households.copy()
     out = _apply(households, _HOUSEHOLD_COLS, base_year, target_year)
+    if "rent_annual" in out.columns:
+        private_f = cumulative_factor(base_year, target_year, "rent")
+        social_f = cumulative_factor(base_year, target_year, "social_rent")
+        tenure = out.get("tenure_type")
+        if tenure is not None:
+            social = tenure.astype(int).isin([2, 3]).to_numpy()
+            rent = out["rent_annual"].to_numpy(dtype=float)
+            out["rent_annual"] = rent * np.where(social, social_f, private_f)
+        else:
+            out["rent_annual"] = out["rent_annual"].to_numpy(dtype=float) * private_f
+    if "mortgage_interest_annual" in out.columns:
+        f = cumulative_factor(base_year, target_year, "mortgage_interest")
+        out["mortgage_interest_annual"] = (
+            out["mortgage_interest_annual"].to_numpy(dtype=float) * f
+        )
     if "weight" in out.columns:
         pop = cumulative_factor(base_year, target_year, "population")
         out["weight"] = out["weight"].to_numpy(dtype=float) * pop

@@ -71,6 +71,22 @@ def _warm_start_dir(year: int, work_dir: Path) -> Path | None:
     return d if (d / "households.csv").exists() else None
 
 
+# The covid years' targets demand genuine distributional movement (employment
+# shock, furlough), so the null-space anchor fights signal rather than noise
+# there: at the default strength they calibrate to 0.34% (2020) and 0.15%
+# (2021) RMSRE against the <0.1% budget. Relax the anchor for those years only;
+# 2020 still breaches at 2e-5 (0.15%) so it gets no anchor at all.
+_ANCHOR_OVERRIDES = {2020: 0.0, 2021: 2e-5}
+
+
+def _calib_config(year: int):
+    from calibrate import CalibrateConfig
+
+    if year in _ANCHOR_OVERRIDES:
+        return CalibrateConfig(anchor_strength=_ANCHOR_OVERRIDES[year])
+    return CalibrateConfig()
+
+
 def _has_targets(year: int) -> bool:
     import json
 
@@ -78,6 +94,102 @@ def _has_targets(year: int) -> bool:
         "targets"
     ]
     return any(t["year"] == year for t in targets)
+
+
+# UC managed migration: benunits reporting legacy benefits in their donor FRS
+# year are progressively routed onto UC (claims_uc_if_eligible=True). Without
+# this the fixed panel keeps donor-year legacy receipt forever, the engine
+# under-simulates the UC caseload in later years, and calibration closes the
+# gap with weight alone — dragging ~1.5m weighted households into the bottom
+# deciles and distorting YoY income growth.
+#
+# The share of each legacy benefit's claimants still on legacy in each year is
+# taken from the OBR/DWP outturn-and-forecast spend table (data/raw/obr/
+# dwp.xlsx), as spend relative to FY2023/24 (the last mostly-pre-migration
+# year): tax credits 1.88/7.40 in 2024 then ~0; ESA(IR) 7.17/7.45 then
+# 1.89/7.45 then ~0; IS 0.28/0.65 then ~0; JSA(IB) 0.09/0.14 then ~0. A
+# benunit migrates when its slowest-migrating reported benefit does (DWP
+# sequenced tax credits first, ESA last), decided by a per-benunit seeded
+# uniform draw so migration is deterministic and monotone across years.
+# Housing benefit is not a trigger: HB-only benunits stay on legacy as a proxy
+# for the supported/temporary-accommodation caseload that never migrates, and
+# pension-age-only benunits never migrate (pension-age HB stays legacy).
+_UC_MIGRATION_SHARES: dict[str, dict[int, float]] = {
+    "child_tax_credit": {2024: 0.25},
+    "working_tax_credit": {2024: 0.25},
+    "income_support": {2024: 0.43},
+    "jsa_income": {2024: 0.64},
+    "esa_income": {2024: 0.96, 2025: 0.25},
+}
+_UC_MIGRATION_START = 2024
+
+
+def _legacy_share(col: str, year: int) -> float:
+    """Share of `col` reporters still on legacy in `year` (1 before migration)."""
+    if year < _UC_MIGRATION_START:
+        return 1.0
+    return _UC_MIGRATION_SHARES[col].get(year, 0.0)
+
+
+def _apply_uc_migration(benunits, persons, year: int):
+    import numpy as np
+
+    if year < _UC_MIGRATION_START:
+        return benunits
+    cols = list(_UC_MIGRATION_SHARES)
+    by_bu = persons.groupby("benunit_id")
+    reported = by_bu[cols].sum() > 0
+    working_age = by_bu["age"].apply(lambda a: ((a >= 18) & (a < 66)).any())
+
+    # A benunit's remaining-on-legacy share is that of its slowest reported
+    # benefit; it migrates once its fixed uniform draw exceeds that share.
+    share = np.zeros(len(reported))
+    for c in cols:
+        share = np.maximum(share, np.where(reported[c], _legacy_share(c, year), 0.0))
+    ids = reported.index.to_numpy(dtype=np.uint64)
+    u = ((ids * np.uint64(2654435761)) % np.uint64(2**32)) / 2**32  # seeded hash
+    migrate = (
+        reported.any(axis=1).to_numpy()
+        & working_age.reindex(reported.index).to_numpy()
+        & (u >= share)
+    )
+    migrate_ids = set(reported.index[migrate])
+
+    out = benunits.copy()
+    mask = out["benunit_id"].isin(migrate_ids)
+    out["claims_uc_if_eligible"] = out["claims_uc_if_eligible"].astype(object)
+    out.loc[mask, "claims_uc_if_eligible"] = "true"
+    console.print(
+        f"  UC migration: {int(mask.sum())} legacy benunits routed to UC for {year}"
+    )
+    return out
+
+
+def _carry_neighbour_weights(year: int, work_dir: Path, out_dir: Path) -> bool:
+    """For years beyond the calibration-target horizon, carry the neighbour's
+    calibrated weights (rescaled to this year's survey-weight total, so the
+    uprated population level is kept) instead of reverting to survey weights,
+    which would put a spurious step in year-on-year series. Returns True if
+    weights were carried."""
+    import pandas as pd
+
+    neighbour = _warm_start_dir(year, work_dir)
+    if neighbour is None:
+        return False
+    hh = pd.read_csv(out_dir / "households.csv")
+    warm = pd.read_csv(neighbour / "households.csv")["weight"].to_numpy(dtype=float)
+    if len(warm) != len(hh):
+        console.print(
+            "  [yellow]neighbour weights length mismatch — keeping survey weights[/yellow]"
+        )
+        return False
+    survey_total = hh["weight"].to_numpy(dtype=float).sum()
+    hh["weight"] = warm * (survey_total / warm.sum())
+    hh.to_csv(out_dir / "households.csv", index=False)
+    console.print(
+        f"  carried calibrated weights from {neighbour.name}, rescaled to survey total"
+    )
+    return True
 
 
 def _download(gcs_ref: str, dest: Path) -> None:
@@ -219,7 +331,7 @@ def build_year(
     """Shift the imputed panel to `year` prices, snapshot weights, calibrate."""
     import pandas as pd
 
-    from uprate import uprate_households, uprate_persons
+    from uprate import apply_nmw_floor, uprate_households, uprate_persons
 
     console.rule(f"EFRS {year} (panel shifted from {PANEL_BASE_YEAR})")
     out_dir = work_dir / "clean" / "efrs" / str(year)
@@ -228,14 +340,19 @@ def build_year(
 
     persons = pd.read_csv(panel_dir / "persons.csv")
     households = pd.read_csv(panel_dir / "households.csv")
-    uprate_persons(persons, PANEL_BASE_YEAR, year).to_csv(
-        out_dir / "persons.csv", index=False
-    )
+    shifted = uprate_persons(persons, PANEL_BASE_YEAR, year)
+    if year != PANEL_BASE_YEAR:
+        # Uniform uprating misses the NLW's faster-than-earnings growth at
+        # the bottom; re-impose the year's wage floor (base year is actual
+        # survey data, left untouched).
+        shifted = apply_nmw_floor(shifted, persons, PANEL_BASE_YEAR, year)
+    shifted.to_csv(out_dir / "persons.csv", index=False)
     uprate_households(households, PANEL_BASE_YEAR, year).to_csv(
         out_dir / "households.csv", index=False
     )
-    # benunits carry no monetary fields — copy unchanged.
-    pd.read_csv(panel_dir / "benunits.csv").to_csv(
+    # benunits carry no monetary fields; only the UC take-up flag varies by
+    # year (managed migration of legacy claimants).
+    _apply_uc_migration(pd.read_csv(panel_dir / "benunits.csv"), persons, year).to_csv(
         out_dir / "benunits.csv", index=False
     )
 
@@ -247,19 +364,18 @@ def build_year(
 
     if calibrate and _has_targets(year):
         console.print(f"  calibrating weights for EFRS {year}")
-        from calibrate import CalibrateConfig
         from calibrate import run as run_calibration
 
         run_calibration(
             out_dir,
             year,
-            CalibrateConfig(),
+            _calib_config(year),
             warm_start_dir=_warm_start_dir(year, work_dir),
         )
     elif calibrate:
-        console.print(
-            f"  [yellow]no calibration targets for {year} — leaving shifted weights[/yellow]"
-        )
+        console.print(f"  [yellow]no calibration targets for {year}[/yellow]")
+        if not _carry_neighbour_weights(year, work_dir, out_dir):
+            console.print("  [yellow]leaving shifted survey weights[/yellow]")
 
     if upload:
         upload_clean(year, out_dir)
@@ -280,16 +396,16 @@ def calibrate_only(year: int, work_dir: Path) -> None:
         console.print(f"[yellow]skip {year}: no clean dir at {efrs_out}[/yellow]")
         return
     if not _has_targets(year):
-        console.print(f"[yellow]skip {year}: no calibration targets[/yellow]")
+        console.print(f"[yellow]{year}: no calibration targets[/yellow]")
+        _carry_neighbour_weights(year, work_dir, efrs_out)
         return
     console.rule(f"calibrate EFRS {year} (no rebuild)")
-    from calibrate import CalibrateConfig
     from calibrate import run as run_calibration
 
     run_calibration(
         efrs_out,
         year,
-        CalibrateConfig(),
+        _calib_config(year),
         warm_start_dir=_warm_start_dir(year, work_dir),
     )
 
