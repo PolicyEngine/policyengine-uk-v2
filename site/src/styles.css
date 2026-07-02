@@ -777,3 +777,64 @@ p code, li code, td code {
   color: var(--accent);
 }
 .cal-pill.untrained { background: var(--bg3); color: var(--text3); }
+
+/* ── Policy costings section ── */
+.cost-count { font-size: 12px; color: var(--text3); margin: 4px 0 8px; }
+
+.cost-table-wrap { max-height: 560px; margin: 6px 0 4px; }
+.cost-table td { white-space: normal; }
+.cost-row { cursor: pointer; }
+.cost-title { font-size: 12px; color: var(--text); max-width: 30rem; }
+
+.cost-model-yes { color: var(--accent); font-size: 11px; }
+.cost-model-partial { color: var(--warn); font-size: 11px; }
+.cost-model-no { color: var(--text3); font-size: 11px; }
+
+.cost-event-row td {
+  background: var(--bg3);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+  white-space: normal;
+}
+.cost-event-row:hover td { background: var(--bg2); }
+.cost-chevron { font-size: 10px; color: var(--text3); transition: transform 0.15s; display: inline-block; margin-right: 8px; }
+.cost-chevron.open { transform: rotate(90deg); }
+.cost-event-name { margin-right: 10px; }
+.cost-event-meta { font-size: 11px; font-weight: 400; color: var(--text3); }
+.cost-event-meta .cost-model-yes,
+.cost-event-meta .cost-model-partial { font-weight: 500; }
+
+.cost-year-row td {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text3);
+  text-align: right;
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cost-tint-yes td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.cost-tint-partial td { background: color-mix(in srgb, var(--warn) 7%, transparent); }
+.cost-tint-yes:hover td { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.cost-tint-partial:hover td { background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.cost-tint-no:hover td { background: var(--bg2); }
+
+.cost-detail-cell { background: var(--bg2); padding: 12px 16px 4px !important; }
+.cost-detail { display: flex; flex-direction: column; gap: 10px; text-align: left; }
+.cost-impact-wrap { max-height: 260px; margin: 0; }
+.cost-text { max-width: 70rem; }
+.cost-text-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text3);
+  margin-bottom: 3px;
+}
+.cost-text p { font-size: 12.5px; line-height: 1.55; color: var(--text2); margin: 0; white-space: pre-line; }
+.cost-src { font-size: 11px; color: var(--text3); margin: 0 0 8px; }
+.cost-none { font-size: 12px; color: var(--text3); margin: 0; }
