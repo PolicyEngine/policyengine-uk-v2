@@ -9,43 +9,31 @@ except Exception:
     __version__ = "unknown"
 
 
-def _first_import_hint():
-    """On first import, print a hint about the bundled AI usage guide."""
-    try:
-        marker = _Path.home() / ".policyengine_uk_compiled"
-        if marker.exists():
-            return
-        marker.write_text("")
-        guide = _Path(__file__).parent / "CLAUDE.md"
-        if not guide.exists():
-            return
-        print(
-            "\n"
-            "policyengine_uk_compiled: AI usage guide available.\n"
-            "Run `policyengine_uk_compiled.print_guide()` to print it "
-            "(useful for giving context to Claude/ChatGPT/etc).\n"
-        )
-    except Exception:
-        pass
-
-
-def _version_reminder():
-    """Always print version and update reminder so AI agents see it on import."""
+def _import_banner():
+    """Always print version, update reminder and guide locations so AI agents see them on import."""
+    pkg = _Path(__file__).parent
     print(
         f"policyengine_uk_compiled {__version__} — "
         "check PyPI for newer versions before starting work: "
-        "pip install --upgrade policyengine_uk_compiled"
+        "pip install --upgrade policyengine_uk_compiled\n"
+        f"AI guides: {pkg / 'SKILL.md'} (analysis methodology, or print_skill()); "
+        f"{pkg / 'CLAUDE.md'} (API reference, or print_guide())"
     )
 
 
 def print_guide():
-    """Print the full AI/LLM usage guide to stdout."""
+    """Print the full AI/LLM usage guide (API reference) to stdout."""
     guide = _Path(__file__).parent / "CLAUDE.md"
     print(guide.read_text())
 
 
-_first_import_hint()
-_version_reminder()
+def print_skill():
+    """Print the analysis skill guide (methodology and skepticism practices) to stdout."""
+    skill = _Path(__file__).parent / "SKILL.md"
+    print(skill.read_text())
+
+
+_import_banner()
 
 from policyengine_uk_compiled.models import (
     SimulationConfig,

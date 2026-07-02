@@ -10,7 +10,7 @@ help:
 	@echo "  data               Rebuild all EFRS years from scratch (no upload). Runs build + targets first."
 	@echo "  data-upload        As 'data', but upload the rebuilt clean CSVs to GCS"
 	@echo "  data-year          Rebuild a single year, e.g. make data-year YEAR=2026"
-	@echo "  build-data         Pool+impute all years WITHOUT calibrating (writes survey-weight snapshots)"
+	@echo "  build-data         Build the panel + shift all years WITHOUT calibrating (writes survey-weight snapshots)"
 	@echo "  build-data-year    As 'build-data' for a single year, e.g. make build-data-year YEAR=2026"
 	@echo "  calibrate          Reweight all built years cold from their snapshots (no rebuild) + report"
 	@echo "  calibrate-year     As 'calibrate' for a single year, e.g. make calibrate-year YEAR=2026"
@@ -24,8 +24,9 @@ targets:
 	$(PYTHON) $(DATA_DIR)/build_targets.py
 
 # Full from-scratch rebuild: the binary the calibration baseline runs, the
-# calibration targets, then every EFRS year (real survey years + forecast
-# years). Raw FRS/WAS/LCFS/SPI inputs are pulled from GCS by efrs.py as needed.
+# calibration targets, then the fixed panel (pool+impute once) and every EFRS
+# year shifted from it. Raw FRS/WAS/LCFS/SPI inputs are pulled from GCS by
+# efrs.py as needed.
 data: build targets
 	cd $(DATA_DIR) && $(PYTHON) efrs.py --no-upload
 	$(PYTHON) $(DATA_DIR)/calibration_report.py

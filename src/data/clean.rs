@@ -279,7 +279,7 @@ fn write_households(dataset: &Dataset, output_dir: &Path) -> anyhow::Result<()> 
         "household_id",
         "benunit_ids", "person_ids",
         "weight", "region",
-        "rent_annual", "council_tax_annual", "council_tax_band",
+        "rent_annual", "mortgage_interest_annual", "council_tax_annual", "council_tax_band",
         // Auxiliary
         "num_bedrooms", "tenure_type", "accommodation_type",
         // Wealth
@@ -313,6 +313,7 @@ fn write_households(dataset: &Dataset, output_dir: &Path) -> anyhow::Result<()> 
             format!("{:.4}", hh.weight),
             hh.region.name().to_string(),
             format!("{:.2}", hh.rent),
+            format!("{:.2}", hh.mortgage_interest),
             format!("{:.2}", hh.council_tax),
             hh.council_tax_band.to_string(),
             // Auxiliary
@@ -750,6 +751,7 @@ pub fn build_microdata_households_table(
         Column { name: "region", data: ColumnData::Text(
             households.iter().map(|h| h.region.name().to_string()).collect()) },
         fcol("rent_annual", 2, &|h| h.rent),
+        fcol("mortgage_interest_annual", 2, &|h| h.mortgage_interest),
         fcol("council_tax_annual", 2, &|h| h.council_tax),
         icol("tenure_type", &|h| h.tenure_type.to_rf_code() as i64),
         icol("council_tax_band", &|h| h.council_tax_band as i64),
@@ -1156,6 +1158,7 @@ pub fn parse_households_csv<R: std::io::Read>(reader: R) -> anyhow::Result<Vec<H
             weight: h.get_f64_default(&r, "weight", 1.0),
             region: parse_region(&h.get_str(&r, "region")),
             rent: h.get_f64(&r, "rent_annual"),
+            mortgage_interest: h.get_f64(&r, "mortgage_interest_annual"),
             council_tax: h.get_f64(&r, "council_tax_annual"),
             council_tax_band: h.get_i64(&r, "council_tax_band").clamp(0, 8) as u8,
             // Auxiliary

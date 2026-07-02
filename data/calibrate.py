@@ -3,9 +3,11 @@
 Builds a matrix of household-level contributions to each calibration target by
 running a baseline simulation through the Python engine interface
 (`Simulation.run_microdata`), then optimises household weights with Adam in
-log-space to minimise mean squared relative error. A log-space weight-deviation
-penalty plus a hard max-weight-ratio clamp keep calibrated weights close to the
-survey originals.
+log-space to minimise mean squared relative error. A hard max-weight clamp
+(relative to the mean survey weight) is the sole regulariser. Years can be
+warm-started from a neighbouring year's calibrated weights (fixed panel: rows
+align positionally) so adjacent years share one solution through the
+underdetermined null space instead of wandering independently.
 
 Usage:
     python data/calibrate.py --data data/clean/efrs/2023 --year 2023
@@ -29,12 +31,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TARGETS_PATH = REPO_ROOT / "data" / "calibration_targets.json"
 
 # Survey-weight snapshot written by the build (efrs.py) into each year's clean
-# dir right after imputation/uprating. It is the cold-start baseline: run()
-# restores `weight` from it before optimising, so calibration can be re-run any
-# number of times — separately from the build — and always starts cold from the
-# survey weights, never warm from a previous calibration's output. A build
-# artifact (the engine reads `weight` from households.csv, never this file), so
-# it doesn't reintroduce a survey-weight column into the CSV schema.
+# dir right after imputation/uprating. It anchors calibration: the panel base
+# year starts cold from it, warm-started years rescale their neighbour's
+# weights to its population sum, and the max-weight clamp is always relative
+# to its mean — so calibration can be re-run any number of times, separately
+# from the build, with reproducible results. A build artifact (the engine
+# reads `weight` from households.csv, never this file), so it doesn't
+# reintroduce a survey-weight column into the CSV schema.
 SURVEY_WEIGHTS_FILE = "survey_weights.npy"
 
 console = Console()
@@ -74,6 +77,16 @@ class CalibrateConfig(BaseModel):
     # so tiny targets dominate the gradient).
     min_target_value_sum: float = Field(default=5e7, ge=0.0)
     min_target_value_count: float = Field(default=1e4, ge=0.0)
+    # Anchor penalty: adds anchor_strength × mean((log w − log w_start)²) to the
+    # loss. The target system is underdetermined (RMSRE trains to ~0.01% with a
+    # large null space), so without this each year picks an arbitrary solution
+    # and adjacent years' weights churn, injecting noise into YoY distributional
+    # statistics. The penalty selects the null-space solution nearest the Adam
+    # starting point (the neighbouring year's weights under warm-start chaining,
+    # the survey snapshot when cold). 0 disables. Tuned on 2017 warm-started
+    # from 2018: 1e-4 cuts mean |log w/w_start| 0.47→0.12 at 0.023% trained
+    # RMSRE; 3e-4 reaches 0.09 at 0.063%; 1e-3 breaches the 0.1% RMSRE budget.
+    anchor_strength: float = Field(default=1e-4, ge=0.0)
 
 
 # ── Variable resolution ──────────────────────────────────────────────────────
@@ -204,9 +217,14 @@ def calibrate(
 ) -> np.ndarray:
     """Adam in log-space minimising MSRE with a hard per-household weight cap.
 
-    The cap (max_weight_fraction × mean survey weight) is the sole regulariser:
-    no penalty term, no dropout. Starting point is always the survey weights,
-    so results are fully reproducible given the same targets and data.
+    Regularisers: the cap (max_weight_fraction × mean of `initial_weights`)
+    bounds weight concentration, and the optional anchor penalty
+    (anchor_strength × mean squared log-distance from `initial_weights`) keeps
+    the solution near the starting point within the target null space.
+    `initial_weights` is the survey snapshot for a cold start, or a
+    neighbouring year's calibrated weights (rescaled to the survey population)
+    for a warm-started chain; either way the result is a deterministic
+    function of the inputs.
     """
     n_hh = matrix.shape[0]
     n_train = int(train_mask.sum())
@@ -221,6 +239,8 @@ def calibrate(
         np.clip(u, -np.inf, u_max, out=u)
     else:
         u_max = np.full(n_hh, np.inf)
+
+    u_anchor = u.copy()
 
     m = np.zeros(n_hh)
     v = np.zeros(n_hh)
@@ -255,6 +275,8 @@ def calibrate(
                 best_rmsre = min(best_rmsre, rmsre)
 
         grad = (2.0 / n_train) * weights * (matrix @ (residuals / y_safe))
+        if config.anchor_strength > 0.0:
+            grad += config.anchor_strength * (2.0 / n_hh) * (u - u_anchor)
 
         t = epoch + 1
         m = config.beta1 * m + (1.0 - config.beta1) * grad
@@ -296,7 +318,7 @@ def print_report(
     n_train = int(active.sum())
     rmsre = np.sqrt(np.sum(rel_err[active] ** 2) / n_train) * 100.0 if n_train else 0.0
 
-    ess = weights.sum() ** 2 / (weights ** 2).sum()
+    ess = weights.sum() ** 2 / (weights**2).sum()
     console.print("\n[bold green]Calibration complete[/bold green]")
     console.print(
         f"  households: {len(weights)}  "
@@ -304,7 +326,7 @@ def print_report(
         f"calibrated weight sum: {weights.sum():,.0f}"
     )
     console.print(f"  training RMSRE: {rmsre:.2f}%")
-    console.print(f"  ESS: {ess:,.0f}  ({ess/len(weights)*100:.1f}% of n_hh)")
+    console.print(f"  ESS: {ess:,.0f}  ({ess / len(weights) * 100:.1f}% of n_hh)")
 
     order = np.argsort(-np.abs(rel_err))
     table = Table(show_header=True)
@@ -332,6 +354,7 @@ def run(
     year: int,
     config: CalibrateConfig,
     sources: list[str] | None = None,
+    warm_start_dir: Path | None = None,
 ) -> None:
     """Reweight one EFRS year against its calibration targets.
 
@@ -340,6 +363,16 @@ def run(
     target set (via `sources`) and re-running is cheap. `sources`, if given,
     restricts the loss to targets whose `source` is in the list (substring
     match), e.g. ["FRS grossed population"] for a demographics-only run.
+
+    `warm_start_dir`, if given, points at a neighbouring year's already-
+    calibrated clean dir (fixed panel: rows align positionally). Its calibrated
+    weights — rescaled to this year's survey population — become the Adam
+    starting point, so adjacent years share one weight solution rather than
+    each wandering independently through the underdetermined null space. The
+    max-weight clamp stays anchored to this year's survey snapshot (the rescale
+    preserves the mean survey weight), and the chain stays reproducible: the
+    base year starts cold from its snapshot and every other year is a
+    deterministic function of its neighbour.
     """
     targets_all = json.loads(TARGETS_PATH.read_text())["targets"]
     targets = [t for t in targets_all if t["year"] == year]
@@ -430,10 +463,10 @@ def run(
 
     snap_path = data_dir / SURVEY_WEIGHTS_FILE
     if snap_path.exists():
-        initial_weights = np.load(snap_path)
-        if len(initial_weights) != len(households):
+        survey_weights = np.load(snap_path)
+        if len(survey_weights) != len(households):
             raise SystemExit(
-                f"Survey-weight snapshot length {len(initial_weights)} != "
+                f"Survey-weight snapshot length {len(survey_weights)} != "
                 f"household count {len(households)} in {data_dir}"
             )
     else:
@@ -441,16 +474,32 @@ def run(
             "  [yellow]No survey-weight snapshot; calibrating from current "
             "weight column (may be warm)[/yellow]"
         )
-        initial_weights = households["weight"].to_numpy(dtype=float)
+        survey_weights = households["weight"].to_numpy(dtype=float)
 
-    weights = calibrate(matrix, y, train_mask, initial_weights, config)
-    print_report(targets, matrix, y, train_mask, weights, initial_weights)
+    start_weights = survey_weights
+    if warm_start_dir is not None:
+        warm = pd.read_csv(warm_start_dir / "households.csv")["weight"].to_numpy(
+            dtype=float
+        )
+        if len(warm) != len(households):
+            raise SystemExit(
+                f"Warm-start weight count {len(warm)} ({warm_start_dir}) != "
+                f"household count {len(households)} in {data_dir}"
+            )
+        start_weights = warm * (survey_weights.sum() / warm.sum())
+        console.print(
+            f"  warm-starting from {warm_start_dir.name} weights "
+            f"(rescaled ×{survey_weights.sum() / warm.sum():.4f})"
+        )
+
+    weights = calibrate(matrix, y, train_mask, start_weights, config)
+    print_report(targets, matrix, y, train_mask, weights, survey_weights)
 
     # Diagnostics: per-target predictions/errors before & after reweighting, plus
     # the calibrated weight distribution, consolidated into an HTML explorer by
     # data/calibration_report.py at the end of the build. Written to the
     # (gitignored) clean tree so a full rebuild leaves one file per year.
-    preds_initial = matrix.T @ initial_weights
+    preds_initial = matrix.T @ survey_weights
     preds_final = matrix.T @ weights
 
     def _rel_err(pred: float, actual: float) -> float | None:
@@ -475,18 +524,23 @@ def run(
     # ratio of calibrated to survey weight shows how hard reweighting pushed each
     # record (the max-weight-ratio clamp bounds it to [1/r, r]).
     pcts = [1, 5, 10, 25, 50, 75, 90, 95, 99]
-    ratio = weights / np.where(initial_weights > 0.0, initial_weights, np.nan)
+    ratio = weights / np.where(survey_weights > 0.0, survey_weights, np.nan)
+    start_ratio = weights / np.where(start_weights > 0.0, start_weights, np.nan)
     weight_dist = {
         "percentiles": pcts,
-        "survey": [float(np.percentile(initial_weights, p)) for p in pcts],
+        "survey": [float(np.percentile(survey_weights, p)) for p in pcts],
         "calibrated": [float(np.percentile(weights, p)) for p in pcts],
         "ratio": [float(np.nanpercentile(ratio, p)) for p in pcts],
         "n_households": int(len(weights)),
-        "survey_sum": float(initial_weights.sum()),
+        "survey_sum": float(survey_weights.sum()),
         "calibrated_sum": float(weights.sum()),
         "ratio_min": float(np.nanmin(ratio)),
         "ratio_max": float(np.nanmax(ratio)),
         "mean_abs_log_drift": float(np.nanmean(np.abs(np.log(ratio)))),
+        # Movement from the Adam starting point (== survey drift when cold);
+        # under warm-start chaining this is the year-on-year weight churn.
+        "warm_start": warm_start_dir is not None,
+        "mean_abs_log_drift_vs_start": float(np.nanmean(np.abs(np.log(start_ratio)))),
     }
 
     diag = {"year": year, "targets": diag_targets, "weight_dist": weight_dist}
@@ -499,7 +553,6 @@ def run(
     input_hh["weight"] = np.round(weights, 4)
     input_hh.to_csv(hh_path, index=False)
     console.print(f"[green]Wrote calibrated weights to {hh_path}[/green]")
-
 
 
 def main() -> None:
@@ -526,13 +579,26 @@ def main() -> None:
         help="Restrict the loss to targets whose source matches "
         "(substring), e.g. --sources 'FRS grossed population'",
     )
+    parser.add_argument(
+        "--warm-start-dir",
+        type=Path,
+        default=None,
+        help="Neighbouring year's calibrated clean dir to warm-start from "
+        "(fixed panel: rows must align positionally)",
+    )
     args = parser.parse_args()
 
     config = CalibrateConfig(
         epochs=args.epochs,
         max_weight_fraction=args.max_weight_fraction,
     )
-    run(args.data, args.year, config, sources=args.sources)
+    run(
+        args.data,
+        args.year,
+        config,
+        sources=args.sources,
+        warm_start_dir=args.warm_start_dir,
+    )
 
 
 if __name__ == "__main__":

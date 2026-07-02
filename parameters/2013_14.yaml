@@ -131,6 +131,16 @@ vat:
   zero_rate: 0.0
 
 growth_factors:
-  cpi_rate: 0.026
-  gdp_deflator: 0.018
-  earnings_growth: 0.012
+  # OBR Economic and Fiscal Outlook, March 2026; council tax: MHCLG council tax levels 2026-27, Table 3 (England average Band D)
+  # Rates are the year-on-year change entering FY 2013/14.
+  cpi_rate: 0.02600                   # +2.600% CPI inflation, EFO Table 1.7
+  gdp_deflator: 0.01800               # +1.800% GDP deflator, EFO Table 1.7
+  earnings_growth: 0.01200            # +1.200% average weekly earnings growth, EFO Table 1.6
+  gdp_pc_growth: 0.03789              # +3.789% nominal GDP per 16+ head, EFO Tables 1.4 (quarterly) + 1.6
+  mixed_income_pc_growth: 0.07346     # +7.346% mixed income per 16+ head, EFO Table 1.6
+  savings_interest_growth: -0.19955   # -19.955% deposit rate growth, EFO Table 1.9
+  mortgage_interest_growth: -0.02296  # -2.296% average mortgage rate growth, EFO Table 1.9
+  rent_growth: 0.02178                # +2.178% actual rents for housing, EFO Table 1.7
+  population_growth: 0.00729          # +0.729% 16+ population, EFO Table 1.6
+  council_tax_growth: 0.00800         # +0.800% England average Band D, MHCLG Table 3
+

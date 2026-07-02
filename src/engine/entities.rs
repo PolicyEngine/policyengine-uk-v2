@@ -276,6 +276,26 @@ impl BenUnit {
             .count()
     }
 
+    /// Children qualifying for per-child benefit elements under the two-child
+    /// limit. Children born before 6 April 2017 are exempt (transitional
+    /// protection), so the limit's caseload grows each year as pre-2017
+    /// children age out. Birth year is approximated as `year - floor(age)`.
+    pub fn num_qualifying_children(&self, people: &[Person], limit: usize, year: u32) -> usize {
+        let (mut pre, mut post) = (0usize, 0usize);
+        for &pid in &self.person_ids {
+            let p = &people[pid];
+            if !p.is_child() {
+                continue;
+            }
+            if year.saturating_sub(p.age as u32) < 2017 {
+                pre += 1;
+            } else {
+                post += 1;
+            }
+        }
+        pre + post.min(limit.saturating_sub(pre))
+    }
+
     pub fn is_couple(&self, people: &[Person]) -> bool {
         self.num_adults(people) >= 2
     }
@@ -297,6 +317,8 @@ pub struct Household {
     pub weight: f64,
     pub region: Region,
     pub rent: f64,
+    /// Mortgage interest paid (annual) — an AHC housing cost, not capital repayment
+    pub mortgage_interest: f64,
     pub council_tax: f64,
 
     // Auxiliary (FRS housing variables, used as RF predictors)
@@ -347,6 +369,7 @@ impl Default for Household {
             weight: 0.0,
             region: Region::London,
             rent: 0.0,
+            mortgage_interest: 0.0,
             council_tax: 0.0,
             num_bedrooms: 0,
             tenure_type: TenureType::default(),

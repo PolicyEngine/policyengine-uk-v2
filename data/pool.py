@@ -1,10 +1,12 @@
-"""Pool adjacent FRS years onto a common price level for EFRS calibration.
+"""Pool FRS years onto a common price level for the fixed EFRS panel.
 
-For EFRS year Y we pool the clean FRS samples {Y-2, Y-1, Y}, uprating the two
-donor years to Y's prices (data/uprate.py) before combining. Pooling triples the
-effective sample, which tightens the weighted median and stops sparse-target
-noise being amplified into year-on-year poverty swings. Weights are scaled by
-1/n_years so the grossed population still matches Y (calibration fine-tunes).
+The EFRS panel pools an explicit list of clean FRS years (currently 2019 plus
+2021-2024, skipping the covid-2020 collection) at the base year's price level,
+uprating each donor year with data/uprate.py before combining. Pooling
+multiplies the effective sample, which tightens the weighted median and stops
+sparse-target noise being amplified into year-on-year poverty swings. Weights
+are scaled by 1/n_donor_years so the grossed population still matches the base
+year (calibration fine-tunes).
 
 IDs (person/benunit/household, including the ';'-joined cross-reference lists in
 households.person_ids/benunit_ids and benunits.person_ids) are re-based per donor
@@ -15,7 +17,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 from uprate import uprate_households, uprate_persons
@@ -23,15 +24,23 @@ from uprate import uprate_households, uprate_persons
 
 def _offset_id_list(s: pd.Series, offset: int) -> pd.Series:
     """Add `offset` to every id in a ';'-joined id-list column."""
+
     def shift(cell: str) -> str:
         if not isinstance(cell, str) or cell == "":
             return cell
         return ";".join(str(int(x) + offset) for x in cell.split(";"))
+
     return s.map(shift)
 
 
-def _rebase(persons: pd.DataFrame, benunits: pd.DataFrame, households: pd.DataFrame,
-            p_off: int, b_off: int, h_off: int) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def _rebase(
+    persons: pd.DataFrame,
+    benunits: pd.DataFrame,
+    households: pd.DataFrame,
+    p_off: int,
+    b_off: int,
+    h_off: int,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     p, b, h = persons.copy(), benunits.copy(), households.copy()
 
     p["person_id"] = p["person_id"].to_numpy() + p_off
@@ -48,17 +57,19 @@ def _rebase(persons: pd.DataFrame, benunits: pd.DataFrame, households: pd.DataFr
     return p, b, h
 
 
-def pool_frs_years(frs_base: Path, target_year: int, n_years: int = 3) -> tuple[
-        pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Build a pooled, uprated, re-based clean FRS frame for `target_year`.
+def pool_frs_years(
+    frs_base: Path, target_year: int, years: list[int]
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Build a pooled, uprated, re-based clean FRS frame at `target_year` prices.
 
-    Pools {target_year-n_years+1 .. target_year}, dropping any years whose clean
-    dir is absent (so the window shrinks only if data genuinely doesn't exist).
+    Pools the explicit `years` list, dropping any whose clean dir is absent
+    (so the pool shrinks only if data genuinely doesn't exist).
     """
-    years = [y for y in range(target_year - n_years + 1, target_year + 1)
-             if (frs_base / str(y) / "households.csv").exists()]
+    years = [
+        y for y in sorted(years) if (frs_base / str(y) / "households.csv").exists()
+    ]
     if not years:
-        raise SystemExit(f"No FRS clean data for pooling around {target_year}")
+        raise SystemExit(f"No FRS clean data for pooling at {target_year}")
 
     p_parts, b_parts, h_parts = [], [], []
     p_off = b_off = h_off = 0
@@ -72,18 +83,17 @@ def pool_frs_years(frs_base: Path, target_year: int, n_years: int = 3) -> tuple[
             persons = uprate_persons(persons, y, target_year)
             households = uprate_households(households, y, target_year)
 
-        # Stamp a stable cross-year provenance key from the source FRS year and
-        # the household's ORIGINAL (pre-rebase) id. Pooling rebases household_id
-        # with per-donor offsets, so this is the only durable link between the
-        # same underlying FRS household as it reappears across EFRS years (each
-        # year pools a 3-year window, so ~2/3 of households recur). Calibration
-        # uses it to warm-start weights from the prior year's solution.
+        # Stamp a provenance key from the source FRS year and the household's
+        # ORIGINAL (pre-rebase) id. The fixed panel means rows align
+        # positionally across EFRS years, so this is for traceability (which
+        # donor year a row came from), not for cross-year matching.
         households["provenance"] = [
             f"{y}:{h}" for h in households["household_id"].to_numpy()
         ]
 
         persons, benunits, households = _rebase(
-            persons, benunits, households, p_off, b_off, h_off)
+            persons, benunits, households, p_off, b_off, h_off
+        )
 
         p_parts.append(persons)
         b_parts.append(benunits)
@@ -104,11 +114,14 @@ def pool_frs_years(frs_base: Path, target_year: int, n_years: int = 3) -> tuple[
     return pooled_p, pooled_b, pooled_h
 
 
-def write_pooled(frs_base: Path, target_year: int, out_dir: Path, n_years: int = 3) -> list[int]:
+def write_pooled(
+    frs_base: Path, target_year: int, out_dir: Path, years: list[int]
+) -> list[int]:
     """Pool and write persons/benunits/households CSVs into out_dir. Returns the years used."""
-    years = [y for y in range(target_year - n_years + 1, target_year + 1)
-             if (frs_base / str(y) / "households.csv").exists()]
-    p, b, h = pool_frs_years(frs_base, target_year, n_years)
+    years = [
+        y for y in sorted(years) if (frs_base / str(y) / "households.csv").exists()
+    ]
+    p, b, h = pool_frs_years(frs_base, target_year, years)
     out_dir.mkdir(parents=True, exist_ok=True)
     p.to_csv(out_dir / "persons.csv", index=False)
     b.to_csv(out_dir / "benunits.csv", index=False)

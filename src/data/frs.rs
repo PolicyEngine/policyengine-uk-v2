@@ -29,7 +29,7 @@ pub fn load_frs(data_dir: &Path, fiscal_year: u32) -> anyhow::Result<Dataset> {
     // Load tables with only the columns we need (raw FRS has 400+ cols per table)
     let household_table = load_table_cols(data_dir, "househol", Some(&[
         "sernum", "gross3", "gross4", "stdregn", "gvtregn", "gvtregno",
-        "ctannual", "ctband", "hhrent", "subrent", "cvpay",
+        "ctannual", "ctband", "hhrent", "subrent", "cvpay", "mortint",
         "bedroom6", "tentyp2", "typeacc",
     ]))?;
     let benunit_table = load_table_cols(data_dir, "benunit", Some(&[
@@ -226,6 +226,8 @@ struct HouseholdRecord {
     weight: f64,
     region: Region,
     rent_weekly: f64,
+    /// Mortgage interest (MORTINT derived variable, weekly)
+    mortgage_interest_weekly: f64,
     council_tax_annual: f64,
     /// Sub-tenant rent received (SUBRENT, weekly) — assigned to HRP
     subrent_weekly: f64,
@@ -276,6 +278,7 @@ fn parse_households(table: &Table, era: FrsEra) -> Vec<HouseholdRecord> {
             weight,
             region,
             rent_weekly: get_positive_f64(row, "hhrent"),
+            mortgage_interest_weekly: get_positive_f64(row, "mortint"),
             council_tax_annual: if ct > 0.0 { ct } else { 1800.0 },
             subrent_weekly: get_positive_f64(row, "subrent"),
             cvpay_weekly: get_positive_f64(row, "cvpay"),
@@ -1001,6 +1004,7 @@ fn assemble_dataset(
             weight: hh.weight,
             region: hh.region,
             rent: hh.rent_weekly * WEEKS_IN_YEAR,
+            mortgage_interest: hh.mortgage_interest_weekly * WEEKS_IN_YEAR,
             council_tax: hh.council_tax_annual,
             num_bedrooms: hh.num_bedrooms,
             tenure_type: hh.tenure_type,

@@ -1,0 +1,1 @@
+DWP cost of living payments for 2022/23 (£650 means-tested plus £150 disability) and 2023/24 (£900 plus £150): one means-tested payment per benefit unit receiving a qualifying benefit, £150 per disability benefit recipient, tax-free and exempt from the benefit cap.
